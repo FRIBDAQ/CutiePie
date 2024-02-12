@@ -1,5 +1,0 @@
-- 1.0-003
-	 *    Change FitFactory class name to CCalibFitFactory so that it
-	 cannot collide with CFitFactory in the SpecTcl base application
-	 (spectrum fitter).
-	
