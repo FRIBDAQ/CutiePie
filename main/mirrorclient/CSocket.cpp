@@ -76,7 +76,9 @@ static const char* Copyright= "(C) Copyright Michigan State University 2002, All
 #include <sys/poll.h>
 #include <sys/socket.h>
 #include <sys/time.h>
-#define void *OPTPTR
+typedef  void *OPTPTR;
+typedef int SOCKET;
+#define CONST const
 #else
 #include <winsock2.h>
 typedef int socklen_t;
@@ -85,6 +87,7 @@ typedef char* OPTPTR;
 #define poll WSAPoll
 #pragma comment(lib, "Ws2_32.lib")    // Tells the linker we need winsock2.
 #endif
+
 #include <stdio.h>
 #include <sys/types.h>
 
