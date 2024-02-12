@@ -76,7 +76,7 @@ static const char* Copyright= "(C) Copyright Michigan State University 2002, All
 #include <sys/poll.h>
 #include <sys/socket.h>
 #include <sys/time.h>
-#define void *OPTPTR;
+#define void *OPTPTR
 #else
 #include <winsock2.h>
 typedef int socklen_t;
