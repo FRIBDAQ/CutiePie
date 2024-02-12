@@ -71,4 +71,10 @@ GetSpecTclSharedMemory(const char* host, int port);
  */
 int
 LookupPort(const char* host, const char* service, const char* user=nullptr);
+
+// Windows functions:
+
+#ifdef _WIN64
+const char* getlogin();
+#endif
 #endif

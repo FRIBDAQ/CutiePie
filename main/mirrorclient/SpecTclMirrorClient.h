@@ -40,7 +40,11 @@
  * @note the API in this softwre is usable from C or C++.
  */
 
-
+#ifdef _WIN64
+#define EXPORT __declspec(dllexport)
+#else
+#define EXPORT 
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -65,7 +69,7 @@ extern "C" {
  * @return void* - Pointer to the shared memory region that holds the mirror.
  * @retval nullptr - The mirror, for some reason, could not be created.
  */
-void*
+EXPORT void*
 getSpecTclMemory(const char* host, const char* rest, const char* mirror, const char*user = 0);
 
 
@@ -77,7 +81,7 @@ getSpecTclMemory(const char* host, const char* rest, const char* mirror, const c
  *  
  *  @return int  - Error status from the failed getSpecTclMemory call.
  */
-int
+EXPORT int
 Mirror_errorCode();
 
 /**
@@ -88,7 +92,7 @@ Mirror_errorCode();
  * @param code - the error code gotteen from errorCode().
  * @return const char*  - Pointer to the static error message string.
  */
-const char*
+EXPORT const char*
 Mirror_errorString(unsigned code);
 
 /*------------------------------------------------------------------------*/

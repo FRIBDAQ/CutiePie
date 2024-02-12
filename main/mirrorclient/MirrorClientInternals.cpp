@@ -19,13 +19,17 @@
  *  @brief:  Implement mirror internals functions.
  */
 #include "MirrorClientInternals.h"
-#include "CPortManager.h"
-#include <restclient-cpp/restclient.h>
 #include <stdexcept>
-#include <json/json.h>
-#include <unistd.h>
+
 
 static const int HTTPSuccess = 200;
+
+#ifndef _WIN64
+#include <unistd.h>
+#include "CPortManager.h"
+#include <restclient-cpp/restclient.h>
+#include <json/json.h>
+
 
 /**
  * formatUrl
@@ -161,3 +165,121 @@ LookupPort(const char* host, const char* service, const char* user)
     
     throw std::logic_error("No port matches this service/username.");
 }
+#endif
+
+// Windows implementation
+#ifdef _WIN64
+
+#define CURL_STATICLIB
+#include <curl/curl.h>
+#include <sstream>
+#include <iostream>
+#include <json/json.h>
+
+static size_t my_curl_writefn(char* ptr, size_t nmemb, size_t nbytes, void* dest) {
+    std::string* pbuffer = reinterpret_cast<std::string*>(dest);
+
+    // note that ptr is not null terminated so we can't just use +=.
+
+    pbuffer->append(ptr, nbytes);   // But this shouild work.
+    return nbytes;
+
+}
+
+/**
+ * GetSpectrumSize
+ *   Get the shared memory spectrum soup size.
+ * @param host - host specification (DNS name or dotted ip.).
+ * @param port - port on which the REST server is running.
+ */
+size_t
+GetSpectrumSize(const char* host, int port)
+{
+    CURL* session = curl_easy_init();
+    char error_text[CURL_ERROR_SIZE];
+
+    // Generate the URL to access the shared memory size:
+
+    std::stringstream urls;
+    urls << "http://" << host << ':' << port << "/spectcl/shmem/size";
+    std::string url = urls.str();
+
+    // Set the session URL
+
+    auto status = curl_easy_setopt(session, CURLOPT_URL, const_cast<char*>(url.c_str()));
+    if (status != CURLE_OK) {
+        curl_easy_cleanup(session);
+        throw std::runtime_error("Failed to set URL option in CURL");
+    }
+    // In order not to write a file, we need to set a write function callback.
+    // In this case, the write function callback will just save the data to an std::string:
+
+    std::string body;      // Data goes here.
+    if (curl_easy_setopt(session, CURLOPT_WRITEFUNCTION, my_curl_writefn) != CURLE_OK) {
+        curl_easy_cleanup(session);
+        throw std::runtime_error("Could not set curl writeback");
+    }
+    if (curl_easy_setopt(session, CURLOPT_WRITEDATA, &body) != CURLE_OK) {
+        curl_easy_cleanup(session);
+        throw std::runtime_error("Could not set curl writeback parameter (buffer)");
+    }
+    // Put a place for the error messages:
+
+    if (curl_easy_setopt(session, CURLOPT_ERRORBUFFER, error_text) != CURLE_OK) {
+        curl_easy_cleanup(session);
+        throw std::runtime_error("Failed to set errro buffer");
+    }
+
+    if (curl_easy_perform(session) != CURLE_OK) {
+        curl_easy_cleanup(session);     // Should wrap all in try/catch and centralize this.
+        std::string reason("Failed to perform shared memory size get: ");
+        reason += std::string(error_text);
+        throw std::runtime_error(reason);
+    }
+    curl_easy_cleanup(session);
+    // body should have the result of the query:
+
+
+    // What we got back was JSOn with:
+    // status: == "OK" on success else an error message.
+    // detail: an integer spectrum storage size on success.
+
+    Json::Value root;
+    std::stringstream sbody(body);
+    sbody >> root;
+    Json::Value json_status = root["status"];
+
+    if (json_status.asString() == "OK") {
+        Json::Value detail = root["detail"];
+        long size = atol(detail.asString().c_str());
+        return size;
+    }
+ 
+    
+    return 0;
+}
+
+/** 
+*  Get the list of mirrors
+    STUB STUB STUB
+*/
+std::vector<MirrorInfo>
+GetMirrorList(const char* host, int port)
+{
+    std::vector<MirrorInfo> result;
+    return result;
+}
+
+// There is no port manager so this always fails:
+//
+
+int LookupPort(const char* host, const char* service, const char* user)
+{
+    throw std::runtime_error("On windows ports must be integers not service names");
+}
+
+
+const char* getlogin() {
+    return nullptr;
+}
+#endif

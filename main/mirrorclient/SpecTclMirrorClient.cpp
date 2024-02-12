@@ -21,38 +21,42 @@
 
 #include "SpecTclMirrorClient.h"
 #include "MirrorClientInternals.h"
+
+#include <stdlib.h>
+#include <stdexcept>
+#include <string.h>
+#include <iostream>
+#include <stdio.h>
+#include <stdio.h>
+#include <thread>
+
+#ifdef DEBUGGING
+#define DEBUG(msg) std::cout << msg << std::endl; std::cout.flush()
+#else
+#define DEBUG(msg)
+#endif
+
+
+static unsigned lastError = MIRROR_SUCCESS;
+static const int UPDATE_INTERVAL = 2;
+
+#ifndef _WIN64
+
 #include <client.h>
 #include <os.h>
 
-#include <stdexcept>
-#include <stdlib.h>
-#include <string.h>
+
 
 #include <sys/types.h>
 #include <unistd.h>
 
-#include <iostream>
-#include <stdio.h>
+
 
 static const char* ExecDirs=SPECTCL_BIN;
 static const unsigned MAP_RETRY_SECS=1;
 static const unsigned MAP_RETRIES=10;
 
 
-static unsigned lastError = MIRROR_SUCCESS;
-
-static const char* ppMessages[] = {
-    "Successful completion",
-    "The specified REST service name is not advertised in that host",
-    "The specified MIRROR service name is not advertised in that host",
-    "Unable to get the name of the logged in user",
-    "Unable to retrieve memory size",
-    "Unable to retrieve the list of existing mirrors.",
-    "Unable to set up the mirror client",
-    "gethostname failed"
-    
-};
-static const unsigned nMsgs = sizeof(ppMessages)/sizeof(const char*);
 
 // Utility functions.
 
@@ -74,41 +78,7 @@ sameHost(const char* h1, const char* h2)
     return strH1 == strH2;
 }
 
-/**
- * translatePort
- *    Static function to take a port number and translate it:
- *
- *  @param host  - Host on which the translation is done (see port argument)
- *  @param port  - Port to translate.
- *  @param user  - User that's advertised the port if so.
- *  @param status - Status to set in lastError  on failure.
- *  @return int  - port number
- *  @throws std::runtime_error if not able to translate.
- *  Translation is as follows:
- *  -   If the port is numerical, It is converted to an integer and returned.
- *  -   If not, the host, user and port string are used to attempt to do
- *      a translation via the DAQ port manager in that system and the
- *      result is returned.
- */
-static int
-translatePort(const char* host, const char* port, const char* user, unsigned status)
-{
-    // Try to convert the string to an integer.
-    char* endptr;
-    unsigned result = strtoul(port, &endptr, 0);
-    if (endptr != port) {
-        // successful conversion:
-        
-        lastError = MIRROR_SUCCESS;
-        return result;
-    }
-    // Use the port manager.
-    
-    lastError = status;             // LookupPort throws:
-    result = LookupPort(host, port, user);
-    lastError = MIRROR_SUCCESS;     // NO exception thrown.
-    return result;
-}
+
 /**
  * isLocalHost
  *    Determines if a host name is the same as the localhost.
@@ -321,8 +291,176 @@ startMirroring(const char* host, int mirror, int rest, size_t size)
         exit(EXIT_FAILURE);
     }
 }
+#else
+#include "Mirrorclient.h"
+#include <Windows.h>
 
-// External entries:
+/**
+*    We're going to keep a registry of mirrors we are running.. the assumption is that the
+*    number of mirrors is small....and that a single host/rest port will not have more than one
+*    mirror port, so a mirror will be defined by the host and rest port and pointer triplet.
+*    getMirrorIfLocal is now repurposed to see if we're already mirroring that guy.
+*/
+struct _RunningMirrorInfo {
+    std::string s_hostName;
+    int s_restPort;
+    void* s_MirrorPointer;
+};
+typedef _RunningMirrorInfo RunningMirrorInfo;
+
+std::vector<RunningMirrorInfo> runningMirrors;
+
+/**
+*  MirrorThread
+*    Just update the mirror until it fails:
+*   @param pClient client of the mirror server.
+*   @param interval - seconds between updates.
+*/
+void MirrorThread(MirrorClient* pClient, unsigned interval) {
+    pClient->initialize();
+    while (true) {
+        
+        try {
+            pClient->update();
+        }
+        catch (...) {
+            delete pClient;
+            break;
+        }
+        Sleep(interval * 1000);
+    }
+}
+ 
+/**
+ * getMirrorIfLocal
+ *    Given the lists of mirrors that SpecTcl is exporting, including the
+ *    shared memory it created for itself, if one matches our needs,
+ *    map it and return a pointer to that map.  There are a few special cases,
+ *    however:
+ *    - SpecTcl is running locally - in that case rather than attempting to
+ *      create a mirror, we can just map to SpecTcl's own shared memory.
+ *    - SpecTcl is running locally in a persistent container - in that
+ *      case maps to SpecTcl's shared memory will fail because
+ *      the container has a separate SYS-V IPC namespace so SpecTcl's
+ *      shared memory is invisibl.  In that case we do need to treat this
+ *      like mirroring
+ * @param host - Host on which SpecTcl is running.
+ * @param rest    - REST port number.
+ * @param mirrors - mirrors currently being maintained.
+ * @param size    - Spectrum memory size.
+ * @return void*  - Pointer to the shared memory.
+ * @retval nullptr - If local mapping is not possible (mirror needs to be setup).
+ *
+ *  In windows we, we don't worry about multiple clients; we just get data to a local soup:
+ * 
+ */
+static void*
+getMirrorIfLocal(
+    const char* host, int rest,
+    const std::vector<MirrorInfo>& mirrors, size_t size
+)
+{
+    for (auto item : runningMirrors) {
+        if ((item.s_hostName == host) && (item.s_restPort == rest)) {
+            return item.s_MirrorPointer;
+        }
+    }
+    return nullptr;
+}
+
+/**
+ * startMirroring
+ *    -  Run the mirrorclient program to start mirroring.
+ *    -  Wait a bit to let the mirrorclient produce its shared memory.
+ *    -  Get mirror information and use getMirrorIfLocal to map to it.
+ *       This bit of waiting and mapping can be repeated a few times.
+ * @param host - host in which SpecTcl is running.
+ * @param mirror - Port on which the SpecTcl mirror server is listening.
+ * @param rest   - Port on which the SpecTcl REST server is listening.
+ * @param size   - Spectrum bytes.
+ * @return void*   - Pointer to specTcl mirrored memory.
+ * @retval nullptr - if we can't do all this stuff.
+ * 
+ * STUB STUB STUB
+ */
+void*
+startMirroring(const char* host, int mirror, int rest, size_t size)
+{
+    // First we need a pot of memory for the spectra.  This is just a pile of bytes:
+
+    char* result = new char[size];
+    std::thread* pThread(0);
+    if (result) {
+        // Get the initial contents and start a thread to do updates:
+
+        MirrorClient* pClient(0);
+        try {
+            std::string shost(host);
+            pClient = new MirrorClient(shost, mirror, result);
+
+            // Now start an update thread:
+            pThread = new std::thread(MirrorThread, pClient, UPDATE_INTERVAL);
+            Sleep(1000);               // Wait for the mirror to populate first.
+        } 
+        catch (...) {
+            delete[]result;
+            delete pClient;
+            return nullptr;
+        }
+
+    }
+    // Enter the mirror in our directory:
+
+    RunningMirrorInfo info;
+    info.s_hostName = host;
+    info.s_restPort = rest;
+    info.s_MirrorPointer = result;
+    runningMirrors.push_back(info);
+
+
+    return result;
+}
+#endif
+
+
+// Target independent code:
+
+/**
+ * translatePort
+ *    Static function to take a port number and translate it:
+ *
+ *  @param host  - Host on which the translation is done (see port argument)
+ *  @param port  - Port to translate.
+ *  @param user  - User that's advertised the port if so.
+ *  @param status - Status to set in lastError  on failure.
+ *  @return int  - port number
+ *  @throws std::runtime_error if not able to translate.
+ *  Translation is as follows:
+ *  -   If the port is numerical, It is converted to an integer and returned.
+ *  -   If not, the host, user and port string are used to attempt to do
+ *      a translation via the DAQ port manager in that system and the
+ *      result is returned.
+ */
+static int
+translatePort(const char* host, const char* port, const char* user, unsigned status)
+{
+    // Try to convert the string to an integer.
+    char* endptr;
+    unsigned result = strtoul(port, &endptr, 0);
+    if (endptr != port) {
+        // successful conversion:
+
+        lastError = MIRROR_SUCCESS;
+        return result;
+    }
+    // Use the port manager.
+
+    lastError = status;             // LookupPort throws:
+    result = LookupPort(host, port, user);
+    lastError = MIRROR_SUCCESS;     // NO exception thrown.
+    return result;
+}
+
 /**
 *   getSpecTclMemory
 *     Return a pointer to a SpecTcl mirror memory.
@@ -338,12 +476,14 @@ startMirroring(const char* host, int mirror, int rest, size_t size)
 *     
 */
 extern "C" {
-void*
+EXPORT void*
 getSpecTclMemory(const char* host, const char* rest, const char* mirror, const char*user)
 {
+    DEBUG("getSpecTclMemory");
     if (!user) {
         user = getlogin();
         if (!user) {
+            DEBUG("Failed to get username");
             lastError = MIRROR_CANTGETUSERNAME;
             return nullptr;
         }
@@ -356,15 +496,22 @@ getSpecTclMemory(const char* host, const char* rest, const char* mirror, const c
     catch (...) {
         return nullptr;             // translatePort returns the
     }
+    DEBUG("Translated the ports");
     
     // Now that the ports are numeric, we can get the memory size and
     // see if there's already a local mirror:
     
     size_t spectrumBytes;
     try {
+        DEBUG("asking for spectrum size");
         spectrumBytes = GetSpectrumSize(host, restPort);
     }
+    catch (std::exception& e) {
+        lastError = MIRROR_CANTGETSIZE;
+        return nullptr;
+    }
     catch (...) {
+        DEBUG("UNanticipated exception in getting mirror size");
         lastError = MIRROR_CANTGETSIZE;
         return nullptr;
     }
@@ -376,40 +523,61 @@ getSpecTclMemory(const char* host, const char* rest, const char* mirror, const c
         lastError = MIRROR_CANTGETMIRRORS;
         return nullptr;
     }
-    
+
     void* result =  getMirrorIfLocal(host, restPort, mirrors, spectrumBytes);    // If local map 
     if (result) return result;
-    
+   
     try {
-        return startMirroring(host, mirrorPort, restPort, spectrumBytes);
+        auto p = startMirroring(host, mirrorPort, restPort, spectrumBytes);
+        return p;
     } catch(...) {
         lastError = MIRROR_SETUPFAILED;
     }
-    
     return nullptr;
 }
 
 }
 
 
-extern "C" {
-int
-Mirror_errorCode()
-{
-    return lastError;
-}
-}
+
+
+
+
+
+
+
+static const char* ppMessages[] = {
+    "Successful completion",
+    "The specified REST service name is not advertised in that host",
+    "The specified MIRROR service name is not advertised in that host",
+    "Unable to get the name of the logged in user",
+    "Unable to retrieve memory size",
+    "Unable to retrieve the list of existing mirrors.",
+    "Unable to set up the mirror client",
+    "gethostname failed"
+
+};
+
+static const unsigned nMsgs = sizeof(ppMessages) / sizeof(const char*);
 
 extern "C" {
-const char*
-Mirror_errorString(unsigned code)
-{
-    if (code < nMsgs) {
-        return ppMessages[lastError];
-    } else {
-        return "Invalid error code";
+    EXPORT int
+        Mirror_errorCode()
+    {
+        return lastError;
     }
 }
-}
 
+extern "C" {
+    EXPORT const char*
+        Mirror_errorString(unsigned code)
+    {
+        if (code < nMsgs) {
+            return ppMessages[lastError];
+        }
+        else {
+            return "Invalid error code";
+        }
+    }
+}
 
