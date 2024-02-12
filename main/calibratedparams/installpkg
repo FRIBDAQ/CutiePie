@@ -1,7 +1,0 @@
-#!/bin/sh
-# Start tclsh: \
-exec tclsh ${0} ${@}
-
-puts "+++++++++ pkg_mkIndex ++++++++++"
-pkg_mkIndex -verbose $argv *.tcl
-
