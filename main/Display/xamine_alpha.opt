@@ -1,2 +1,0 @@
-PSECT_ATTR=XAMINE_SHARED,PAGE
-sys$share:decc$shr.exe/share

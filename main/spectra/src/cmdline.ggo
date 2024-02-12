@@ -1,7 +1,0 @@
-package "Spectra"
-version "5.1"
-purpose "Inspect spectra produced and managed by by SpecTcl"
-
-option "port"  p "Port on which REST server is running" int optional default="8080"
-option "host" h "Host on which the REST server is running" string optional default="localhost"
-option "disable-truetype" t "Disable Truetype fonts to boost rendering performance" flag off

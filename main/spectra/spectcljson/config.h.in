@@ -1,7 +1,0 @@
-
-#ifndef CONFIG_H
-#define CONFIG_H
-
-#define JSON_TEST_DIR "@PROJECT_SOURCE_DIR@/test/json"
-
-#endif

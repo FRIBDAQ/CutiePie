@@ -1,5 +1,0 @@
-[submodule "main/libtcl"]
-	path = main/libtcl
-	url = https://github.com/FRIBDAQ/libtclplus.git
- 
-

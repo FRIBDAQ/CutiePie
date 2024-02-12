@@ -1,9 +1,0 @@
-{"status":"OK","detail":{
-    "statistics" : {
-        "xunderflow" : 0,
-        "yunderflow" : 0,
-        "xoverflow"  : 0,
-        "yoverflow"  : 0
-    },
-    "channels"   : []
-}}

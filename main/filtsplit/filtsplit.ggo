@@ -1,9 +1,0 @@
-package "filtsplit"
-version "1.0"
-
-purpose "Split filter files into fixed sized chunks"
-
-option  "size" s "Blocks per output file"  long yes
-option  "output" o "Stem for output file names" string yes
-option  "verbose" v "Enable verbose output showing progress" flag off
-
