@@ -42,10 +42,10 @@ static const int UPDATE_INTERVAL = 2;
 
 #ifndef _WIN64
 
-#include <client.h>
+#include "xamineDataTypes.h"
 #include <os.h>
 
-
+using namespace Xamine;
 
 #include <sys/types.h>
 #include <unistd.h>
