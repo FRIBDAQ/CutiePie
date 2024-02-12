@@ -49,6 +49,7 @@ namespace Xamine {
     uint16_t XAMINE_w[1];
     uint32_t XAMINE_l[1];
   } spec_spectra;
+#define XAMINE_SPECBYTES sizeof(spec_spectra)
 #pragma pack(push, 1)             // both gcc and vcc support this.
     
 
