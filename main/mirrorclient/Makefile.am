@@ -11,7 +11,7 @@ libMirrorClient_la_SOURCES=MirrorClient.cpp SpecTclMirrorClient.cpp \
 	CSocket.cpp CTCPBadSocketState.cpp CTCPConnectionFailed.cpp \
 	CTCPConnectionLost.cpp CTCPNoSuchHost.cpp CTCPNoSuchService.cpp \
 	Exception.cpp io.h  \
-	os.cpp \
+	os.cpp client.cpp \
 	CSocket.h CTCPBadSocket.h CTCPConnectionFailed.h \
 	CTCPConnectionLost.h CTCPNoSuchHost.h CTCPNoSucnService.h \
 	ErrnoException.h Exception.h io.h SpecTclMirrorClient.h xamineDataTypes.h \
