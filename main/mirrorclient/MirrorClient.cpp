@@ -23,8 +23,10 @@
 #include <MirrorMessages.h>
 #include <string>
 #include <sstream>
-#include <xamineDataTypes.h>
+#include "xamineDataTypes.h"
 #include <string.h>
+
+using namespace Xamine;
 
 /**
  * MirrorClient - constructor
