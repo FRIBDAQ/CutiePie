@@ -48,6 +48,9 @@ PKG_CHECK_MODULES(PYTHON, [python3-embed], [PYTHON_CXXFLAGS=`pkg-config --cflags
 AC_SUBST(PYTHON_CXXFLAGS)
 AC_SUBST(PYTHON_LDFLAGS)
 
+# Tcl compilations/linking:
+
+PKG_CHECK_MODULES(TCL, [tcl8.6], [TCL_CPPFLAGS=`pkg-config --cflags tcl8.6`; TCL_LDFLAGS=`pkg-config --libs tcl8.6`])
 
 # Checks for header files.
 
