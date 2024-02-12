@@ -59,7 +59,7 @@ AC_HEADER_SYS_WAIT
 AC_CHECK_HEADER(time.h)
 AC_CHECK_HEADERS([regex.h sstream stddef.h stdexcept stdio.h stdlib.h])
 AC_CHECK_HEADERS([string string.h socket.h types.h unistd.h utility vector])
-
+AC_CHECK_HEADERS([shm.h ipc.h])
 # Checks for typedefs, structures, and compiler characteristics.
 AC_HEADER_STAT
 AC_HEADER_TIME
