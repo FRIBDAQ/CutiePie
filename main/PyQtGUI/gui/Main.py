@@ -4,6 +4,16 @@ import re
 import sys, os
 cwd = os.getcwd()
 
+#  Sadly it seems that environment variables sent in via setenv
+# in the standalone script don't actually get propagate into the
+# script so we can't add the ../lib dir to the PYTHONPATH there.
+# We figure out where we're installed and add that to the path."
+
+mydir = os.path.dirname(__file__)
+sys.path.append(mydir)
+libdir = mydir + '/../lib'
+sys.path.append(libdir)
+
 # use preprocessor macro __file__ to get the installation directory
 # caveat : expects a particular format of installation directory (N.NN-NNNN)
 instPath = ""
