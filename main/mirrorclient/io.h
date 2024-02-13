@@ -24,6 +24,7 @@
 #ifdef _WIN64
 #include <WinSock2.h>
 #endif
+#include <stddef.h>
 
 /**
  * @file io.h

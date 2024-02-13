@@ -119,9 +119,10 @@ isLocalHost(const char* host)
 static void*
 MapMemory(const char* name, size_t size)
 {
-    volatile Xamine_shared* pResult;
+    Xamine_shared* pResult;
     int status =
-            Xamine_MapMemory(const_cast<char*>(name), size, &pResult);
+            Xamine_MapMemory(const_cast<char*>(name), size,
+			     reinterpret_cast<Xamine_Header**>(&pResult));
     if (status && (pResult != reinterpret_cast<void*>(-1))) {
         return const_cast<Xamine_shared*>(pResult);
     } else {

@@ -131,7 +131,7 @@ static pid_t Memwatcher_Pid;
 **  Xamine_MapMemory which is described by the comment header way up there
 ** It's completely system dependent.
 */
-int Xamine_MapMemory(char *name, size_t specbytes,volatile Xamine_shared **ptr)
+int Xamine_MapMemory(const char *name, size_t specbytes,  struct _Xamine_Header** ptr)
 
 {
   size_t memsize;

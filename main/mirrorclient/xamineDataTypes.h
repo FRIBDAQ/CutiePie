@@ -100,6 +100,6 @@ namespace Xamine {
 }     // Xamine namespace.
 #pragma pack(pop)
 #ifndef _WIN64
-int Xamine_MapMemory(const char* name, int size, volatile Xamine::Xamine_shared** pResult);
+int Xamine_MapMemory(const char* name, size_t size, Xamine::Xamine_Header** pResult);
 #endif
 #endif

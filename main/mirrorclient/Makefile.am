@@ -10,7 +10,7 @@ libMirrorClient_la_SOURCES=MirrorClient.cpp SpecTclMirrorClient.cpp \
 	MirrorClientInternals.h MirrorClientInternals.cpp \
 	CSocket.cpp CTCPBadSocketState.cpp CTCPConnectionFailed.cpp \
 	CTCPConnectionLost.cpp CTCPNoSuchHost.cpp CTCPNoSuchService.cpp \
-	Exception.cpp io.h  \
+	Exception.cpp io.cpp ErrnoException.cpp ErrnoException.h \
 	os.cpp client.cpp \
 	CSocket.h CTCPBadSocket.h CTCPConnectionFailed.h \
 	CTCPConnectionLost.h CTCPNoSuchHost.h CTCPNoSucnService.h \
