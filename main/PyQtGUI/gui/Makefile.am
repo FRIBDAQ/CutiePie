@@ -9,6 +9,8 @@ _CutiePie_LDFLAGS = @PYTHON_LDFLAGS@
 
 install-exec-hook:
 	$(mkinstalldirs) @prefix@/share/d3web
+	$(mkinstalldirs) @prefix@/Skel @prefix@/VMUSBSkel @prefix@/DDASSkel
+	$(mkinstalldirs) @prefix@/Script
 	$(INSTALL_DATA) @srcdir@/d3.js/d3.v6.min.js @prefix@/share/d3web
 	$(INSTALL_DATA) @srcdir@/d3.js/plotly-1.57.1.js @prefix@/share/d3web
 	$(INSTALL_DATA) @srcdir@/d3.js/style.css @prefix@/share/d3web
