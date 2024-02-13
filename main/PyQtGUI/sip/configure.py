@@ -10,7 +10,7 @@ build_file = basename + ".sbf"
 _file = basename + ".sip"
 
 pwdfile = sys.argv[1]+"/"+_file
-pwdlib = "-L"+sys.argv[2]+" -lMirrorClient -lXamine -lCPyConverter -Wl,-rpath="+sys.argv[2]
+pwdlib = "-L"+sys.argv[2]+" -lMirrorClient -lCPyConverter -Wl,-rpath="+sys.argv[2]
 installdir = sys.argv[2]
 
 # Get the SIP configuration information.
