@@ -27,6 +27,7 @@ libMirrorClient_la_LDFLAGS=	@RESTCLIENT_LDFLAGS@
 
 
 install-exec-local:
+	$(mkinstalldirs)  @bindir@
 	$(INSTALL_SCRIPT) @srcdir@/mirrorclientscript.tcl @bindir@
 
 
