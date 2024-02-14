@@ -1,7 +1,7 @@
 REM  This batch file is a windows script to rebuild
 REM  Cutiepie on windows.   
 REM  Items built (all built with production):
-REM     mirrorclient-windows (C++ DLL)
+REM     mirrorclient (C++ DLL)
 REM     PyQtGui\src  (C++ dll)
 REM     PyQtGui\sip   Python dynamic module with sip6.
 REM     PyQtGui\standalone - program.
@@ -26,8 +26,8 @@ REM the build
 REM -------
 
 REM - set up visual studio paths.
-
-@call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
+set vcbat "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
+@call %vcbat%
 
 REM  Setup python paths as defined on my dev system.  This may need to be changed
 REM  depending on how and where Python is installed.
