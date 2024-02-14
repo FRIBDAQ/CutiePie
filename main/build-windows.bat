@@ -24,7 +24,7 @@ REM  depending on how and where Python is installed.
 
 REM Build mirrorclient-windows for production:
 
-PUSHD mirrorclient-windows
+PUSHD mirrorclient
 msbuild MirrorClient.sln /property:Configuration=Release /t:Clean;Rebuild
 POPD
 
