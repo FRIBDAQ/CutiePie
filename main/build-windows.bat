@@ -11,6 +11,19 @@ REM C:\Program Files and not 3.12 and if packages are not installed in
 REM %APPDATA%\Roaming\Python 
 REM  the latter is default but the former is not (C:\Python is I think).
 REM
+REM  ------------------ requirements -------------------------------
+REM *  The visual C++ jsoncpp package must be installed using the vcpkg
+REM  Package manager:
+REM   cd \
+REM   git clone https://github.com/Microsoft/vcpkg.git
+REM   cd vcpkg
+REM   bootstrap-vcpkg.bat
+REM   vcpkg install jsoncpp
+REM
+REM  The build solution assumes vmpkg integrate install was not done... 
+REM  this is incase you need but don't have admin on the system doing
+REM the buidl.
+REM ----------------------------------------------------------------
 
 REM - set up visual studio paths.
 
