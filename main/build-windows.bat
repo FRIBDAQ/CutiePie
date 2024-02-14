@@ -80,7 +80,7 @@ copy cutiepie.bat installer
 copy PyQtGui\standalone\x64\Release\CutiePie.exe installer\bin
 copy PyQtGui\gui installer\Script
 copy PyQtGui\sip\build\CPyConverter\build\lib.win-amd64-cpython-312\*.pyd installer\Script
-copy mirrorclient-windows\x64\Release\*.dll installer\Script
+copy mirrorclient\x64\Release\*.dll installer\Script
 
 copy python-*.exe installer
 copy ppackages.bat installer
