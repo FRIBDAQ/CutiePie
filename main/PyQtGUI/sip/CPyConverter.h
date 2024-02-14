@@ -23,12 +23,11 @@ class CPyConverter {
   std::vector<float> m_maxx;
   std::vector<int> m_biny;      
   std::vector<float> m_miny;      
-  std::vector<float> m_maxy;      
-  std::vector<int> m_types;    
+  std::vector<float> m_maxy;        
 
   void extractInfo(char* speclist);
   PyObject* Update(char* hostname, char* port, char* mirror, char* user);
-  PyObject* ShMemToNpArray(void* addr, int dim, int nbinx, int nbiny, int type);
+  PyObject* ShMemToNpArray(void* addr, int size, int nbinx, int nbiny);
   PyObject* DebugFillSpectra();
 
   PyObject* vectorToList_Int(const std::vector<int> &data);  

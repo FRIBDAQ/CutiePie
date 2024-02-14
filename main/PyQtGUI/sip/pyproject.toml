@@ -1,0 +1,29 @@
+##
+#   Input to create a toml file for CPyCoverter
+#   We need a .in file because we need to specify where
+#   libCPyConverter is installed
+#
+#   This is for sip-v6 e.g.
+
+[build-system]
+requires = ["sip >=6, <7"]
+build-backend = "sipbuild.api"
+
+#  Module name:
+
+[tool.sip.metadata]
+name = "CPyConverter"
+
+[tool.sip.bindings.CPyConverter]
+headers = ["CPyConverter.h"]
+include-dirs=[".", "../../mirrorclient-windows/", "../src"]
+libraries=["python312", "npymath",  "MirrorClient"]
+extra-objects = ["../src/x64/release/CPyConverter.obj", 
+	"../src/x64/release/dataAccess.obj", 
+	"../src/x64/release/dataRetriever.obj"]
+library-dirs=["C:/Users/Ron/Appdata/Local/Programs/Python/Python312/libs", 
+	"c:/users/ron/cutiepie/cygwin-cutiepie/main/mirrorclient-windows/x64/release", 
+	"C:/users/ron/AppData/local/Programs/Python/Python312/Lib/site-packages/numpy/core/lib"]
+
+
+
