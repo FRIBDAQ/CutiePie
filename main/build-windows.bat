@@ -22,8 +22,8 @@ REM   vcpkg install jsoncpp
 REM
 REM  The build solution assumes vmpkg integrate install was not done... 
 REM  this is incase you need but don't have admin on the system doing
-REM the buidl.
-REM ----------------------------------------------------------------
+REM the build
+REM -------
 
 REM - set up visual studio paths.
 
@@ -92,3 +92,4 @@ if exist installer.zip (
     del installer.zip
 )
 tar -a -c -f installer.zip installer
+
