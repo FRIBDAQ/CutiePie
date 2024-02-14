@@ -19,10 +19,10 @@
 *   Implementation of the mirror client class.
 * 
 */
-#include "Mirrorclient.h"
+#include "MirrorClient.h"
 #include "CSocket.h"
 #include "Exception.h"
-#include "xamineDatatypes.h"
+#include "xamineDataTypes.h"
 
 #include <stdexcept>
 #include <sstream>
