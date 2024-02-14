@@ -26,7 +26,7 @@ REM the build
 REM -------
 
 REM - set up visual studio paths.
-set vcbat "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
+set vcbat="C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
 @call %vcbat%
 
 REM  Setup python paths as defined on my dev system.  This may need to be changed
