@@ -1203,7 +1203,7 @@ class MainWindow(QMainWindow):
         self.logger.info('okConnect')
         self.connectShMem()
         self.closeConnect()
-
+    
     #called in okGate, if was adding a new gate the pushed gate is gatePopup.listRegionLine
     #if was editing a gate, the pushed gate is based on the gatePopup.regionPoint text
     def pushGateToREST(self, gateName, gateType):
@@ -1836,17 +1836,21 @@ class MainWindow(QMainWindow):
             if self.rest.checkSpecTclREST() == False:
                 self.logger.debug('connectShMem - invalid URL for SpecTclREST')
                 return
-
+            else:
+                self.logger.debug("connectShMem - could make REST request of server")
             timer1 = QElapsedTimer()
             timer1.start()
 
+            self.logger.debug("connectShMem - attempting update from CPYConverter.")
             s = cpy.CPyConverter().Update(bytes(hostname, encoding='utf-8'), bytes(port, encoding='utf-8'), bytes(mirror, encoding='utf-8'), bytes(user, encoding='utf-8'))
-
+            self.logger.debug("connectShMem CPyConverter updated without failure")
+            
             # creates a dataframe for spectrum info
             # use the spectrum name to merge both sources (REST and shared memory) of spectrum info
             # info = {"id":[],"names":[],"dim":[],"binx":[],"minx":[],"maxx":[],"biny":[],"miny":[],"maxy":[],"data":[],"parameters":[],"type":[]}
 
             otherInfo = self.getSpectrumInfoFromReST()
+            self.logger.debug("connectShMem Got spectrum information from REST")
             for i, name in enumerate(s[1]):
                 if name in otherInfo:
                     if s[2][i] == 2:
@@ -1859,6 +1863,7 @@ class MainWindow(QMainWindow):
 
             # update and create parameter, spectrum, and gate lists
             # updateSpectrumList has True flag/arg only here, to define searchable list
+            self.logger.debug("connectShMem Updating spectrumlist")
             self.updateSpectrumList(True)
 
             '''
@@ -1869,6 +1874,7 @@ class MainWindow(QMainWindow):
                 self.wConf.submenuD.addAction(gate, lambda:self.wConf.drag(gate))
                 self.wConf.submenuE.addAction(gate, lambda:self.wConf.edit(gate))
             '''
+            self.logger.debug("connectShMem existing")
         except Exception as e:
             self.logger.exception('connectShMem - Exception')
             raise
@@ -2186,7 +2192,7 @@ class MainWindow(QMainWindow):
             ymin, ymax = ax.get_ylim()
             if arg == "in" :
                 ymax = ymax*0.5
-            elif arg is "out" :
+            elif arg == "out" :
                 ymax = ymax*2
             ax.set_ylim(ymin, ymax)
             self.setSpectrumInfo(miny=ymin, index=index)
