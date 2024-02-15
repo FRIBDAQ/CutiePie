@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import io
 import re
-import sys, os
+import sys, os, platform
 cwd = os.getcwd()
 
 #  Sadly it seems that environment variables sent in via setenv
@@ -13,6 +13,15 @@ mydir = os.path.dirname(__file__)
 sys.path.append(mydir)
 libdir = mydir + '/../lib'
 sys.path.append(libdir)
+
+#  If we are in windows, we need to allow DLL's to be loaded
+#  from our script dir so:
+#
+system = platform.platform()
+if system.startswith("Windows"):
+    os.add_dll_directory(mydir)       # The DLL's are here.
+
+# Our dlls might be here as well.
 
 # use preprocessor macro __file__ to get the installation directory
 # caveat : expects a particular format of installation directory (N.NN-NNNN)
