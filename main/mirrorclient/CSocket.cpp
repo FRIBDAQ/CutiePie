@@ -103,7 +103,12 @@ typedef char* OPTPTR;
 
 #include <vector>
 
-
+// #define DEBUGGING 1
+#ifdef DEBUGGING
+#define DEBUG(msg) std::cout << msg << std::endl; std::cout.flush()
+#else
+#define DEBUG(msg)
+#endif
 
 using namespace std;
 
@@ -538,21 +543,24 @@ CSocket::Read(void* pBuffer, size_t nBytes)
 { 
   // Require the socket be connected:
 
+  DEBUG("CSocket::Read " << nBytes << " to " << std::hex << pBuffer << std::dec );
   throwIfIncorrectState(Connected, "CSocket::Read");
-  
+  DEBUG("State good");
   // Attempt the read:
 
   int nB;  
   try {
+    DEBUG("Trying read:");
     nB = io::readData(m_Fd, pBuffer, nBytes);
-    
+    DEBUG("Got " << nB << " bytes");
     // Check for EOF:
   
     if(nB == 0) {
       dropConnection();
       throw CTCPConnectionLost(this, "CSocket::Read: from read(2)");
     }
-  } catch (...) {
+  } catch (int e) {
+    DEBUG("Some exception was caught" << e);
     m_State = Disconnected;
     throw CErrnoException("CSocket::Read failed read(2)");
   }
