@@ -38,7 +38,7 @@ sys.path.append(instPath + "/lib")
 
 # removes the webproxy from spdaq machines
 os.environ['NO_PROXY'] = ""
-os.environ['XDG_RUNTIME_DIR'] = os.environ.get("PWD")
+os.environ['XDG_RUNTIME_DIR'] = os.getcwd()
 
 from PyQt5 import QtCore, QtNetwork
 from PyQt5.QtWidgets import *
@@ -796,7 +796,7 @@ class MainWindow(QMainWindow):
 
             elif dim == 2:
                 #If exist, remove line between the last and first points of the contour (closing_segment), except for band gate type
-                tempLine = [line for line in self.gatePopup.listRegionLine if line.get_label() is "closing_segment"]
+                tempLine = [line for line in self.gatePopup.listRegionLine if line.get_label() == "closing_segment"]
                 if gateType not in ["b", "gb"] and len(tempLine) == 1 :
                     tempLine[0].remove()
                     self.gatePopup.listRegionLine.pop()
@@ -924,7 +924,7 @@ class MainWindow(QMainWindow):
             self.sumRegionPopup.regionPoint.insertPlainText(lineText)
         elif dim == 2:
             #If exist, remove line between the last and first points of the contour (closing_segment)
-            tempLine = [line for line in self.sumRegionPopup.listRegionLine if line.get_label() is "closing_segment"]
+            tempLine = [line for line in self.sumRegionPopup.listRegionLine if line.get_label() == "closing_segment"]
             if len(tempLine) == 1 :
                 tempLine[0].remove()
                 self.sumRegionPopup.listRegionLine.pop()
@@ -1020,7 +1020,7 @@ class MainWindow(QMainWindow):
 
         if self.currentPlot.isEnlarged == False: # entering enlarged mode
             self.logger.debug('on_dblclick - isEnlarged TRUE')
-            if name is "empty" or index == -1:
+            if name == "empty" or index == -1:
                 self.logger.warning('on_dblclick - empty axes cannot enlarge')
                 return
             self.removeRectangle()
@@ -1276,7 +1276,7 @@ class MainWindow(QMainWindow):
                 #            {'x': 126.626625, 'y': 22.522522}, {'x': 129.879883, 'y': 22.522522}, {'x': 130.63063, 'y': 26.126125}, {'x': 129.629623, 'y': 29.129128}]
                 #}}
                 for iline, line in enumerate(self.gatePopup.listRegionLine):
-                    if line.get_label() is not "closing_segment":
+                    if line.get_label() != "closing_segment":
                         #Add both points of the first line to boundaries
                         if iline == 0 :
                             for ipoint in range(2):
@@ -2184,7 +2184,7 @@ class MainWindow(QMainWindow):
         if dim == 1 :
             #step if 0.5
             ymin, ymax = ax.get_ylim()
-            if arg is "in" :
+            if arg == "in" :
                 ymax = ymax*0.5
             elif arg is "out" :
                 ymax = ymax*2
@@ -2194,9 +2194,9 @@ class MainWindow(QMainWindow):
             self.setSpectrumInfo(spectrum=spectrum, index=index)
         elif dim == 2 :
             zmin, zmax = spectrum.get_clim()
-            if arg is "in" :
+            if arg == "in" :
                 zmax = zmax*0.5
-            elif arg is "out" :
+            elif arg == "out" :
                 zmax = zmax*2
             spectrum.set_clim(zmin, zmax)
             self.setSpectrumInfo(minz=zmin, index=index)
