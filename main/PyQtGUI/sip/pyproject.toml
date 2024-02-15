@@ -16,13 +16,23 @@ name = "CPyConverter"
 
 [tool.sip.bindings.CPyConverter]
 headers = ["CPyConverter.h"]
-include-dirs=[".", "../../mirrorclient-windows/", "../src"]
+include-dirs=[".", "../../mirrorclient/", "../src"]
 libraries=["python312", "npymath",  "MirrorClient"]
 extra-objects = ["../src/x64/release/CPyConverter.obj", 
 	"../src/x64/release/dataAccess.obj", 
 	"../src/x64/release/dataRetriever.obj"]
+#
+#  Because these library-dirs can't seen to be relative,
+#  and because AppData is specific to a users
+#  and because the building user may be different than me,
+#  This line, in general will need editing...
+#  would be nice if toml supported substitutable variables.
+#  But alas the world is not perfect.. In a later part of my life,
+#  I think the thing to do is to have this file generated from some in file
+#  with appropriate processing.
+#
 library-dirs=["C:/Users/Ron/Appdata/Local/Programs/Python/Python312/libs", 
-	"c:/users/ron/cutiepie/cygwin-cutiepie/main/mirrorclient-windows/x64/release", 
+	"../../mirrorclient/x64/release", 
 	"C:/users/ron/AppData/local/Programs/Python/Python312/Lib/site-packages/numpy/core/lib"]
 
 
