@@ -21,6 +21,12 @@
 #include "MirrorClientInternals.h"
 #include <stdexcept>
 
+//  #define DEBUGGING 1
+#ifdef DEBUGGING
+#define DEBUG(msg) std::cout << msg << std::endl; std::cout.flush()
+#else
+#define DEBUG(msg)
+#endif
 
 static const int HTTPSuccess = 200;
 
@@ -195,6 +201,7 @@ static size_t my_curl_writefn(char* ptr, size_t nmemb, size_t nbytes, void* dest
 size_t
 GetSpectrumSize(const char* host, int port)
 {
+    DEBUG("IN getspectrum size");
     CURL* session = curl_easy_init();
     char error_text[CURL_ERROR_SIZE];
 
@@ -207,10 +214,12 @@ GetSpectrumSize(const char* host, int port)
     // Set the session URL
 
     auto status = curl_easy_setopt(session, CURLOPT_URL, const_cast<char*>(url.c_str()));
+    DEBUG("Session URL set" << url);
     if (status != CURLE_OK) {
         curl_easy_cleanup(session);
         throw std::runtime_error("Failed to set URL option in CURL");
     }
+    DEBUG("Ok");
     // In order not to write a file, we need to set a write function callback.
     // In this case, the write function callback will just save the data to an std::string:
 
@@ -219,16 +228,19 @@ GetSpectrumSize(const char* host, int port)
         curl_easy_cleanup(session);
         throw std::runtime_error("Could not set curl writeback");
     }
+    DEBUG("Write callback set");
     if (curl_easy_setopt(session, CURLOPT_WRITEDATA, &body) != CURLE_OK) {
         curl_easy_cleanup(session);
         throw std::runtime_error("Could not set curl writeback parameter (buffer)");
     }
+    DEBUG("Write Parameter eset");
     // Put a place for the error messages:
 
     if (curl_easy_setopt(session, CURLOPT_ERRORBUFFER, error_text) != CURLE_OK) {
         curl_easy_cleanup(session);
         throw std::runtime_error("Failed to set errro buffer");
     }
+    DEBUG("Error Buffer set");
 
     if (curl_easy_perform(session) != CURLE_OK) {
         curl_easy_cleanup(session);     // Should wrap all in try/catch and centralize this.
@@ -237,6 +249,7 @@ GetSpectrumSize(const char* host, int port)
         throw std::runtime_error(reason);
     }
     curl_easy_cleanup(session);
+    DEBUG("Transaction performed");
     // body should have the result of the query:
 
 
@@ -245,6 +258,8 @@ GetSpectrumSize(const char* host, int port)
     // detail: an integer spectrum storage size on success.
 
     Json::Value root;
+    DEBUG("Got back ");
+    DEBUG(body);
     std::stringstream sbody(body);
     sbody >> root;
     Json::Value json_status = root["status"];
@@ -252,6 +267,7 @@ GetSpectrumSize(const char* host, int port)
     if (json_status.asString() == "OK") {
         Json::Value detail = root["detail"];
         long size = atol(detail.asString().c_str());
+        DEBUG("Returning " << size);
         return size;
     }
  

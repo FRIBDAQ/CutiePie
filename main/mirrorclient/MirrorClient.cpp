@@ -27,8 +27,14 @@
 #include <stdexcept>
 #include <sstream>
 #include <iostream>
+#include <process.h>
 
-
+/// #define DEBUGGING 1
+#ifdef DEBUGGING
+#define DEBUG(msg) std::cout << msg << std::endl; std::cout.flush()
+#else
+#define DEBUG(msg)
+#endif
 
 /**
 *   constructor - just saves what we need:
@@ -69,14 +75,30 @@ MirrorClient::~MirrorClient() {
 *    * std::runtime_error - If the connection fails.
 */
 void MirrorClient::initialize() {
+    DEBUG("In MirrorClient::initialize");
     m_pSocket = new CSocket();
+    DEBUG("SOcket made");
     std::stringstream portS;
     portS << m_port;
     auto portname = portS.str();
     try {
+        DEBUG("Connecting to " << m_hostname << ":" << portname);
         m_pSocket->Connect(m_hostname, portname);
-        sendKey(0);
+        DEBUG("Connected - sending key");
+        auto pid = _getpid();              // unique per process key
+        std::stringstream s;
+        s << pid;
+        // Use the last four digits textified as the key.
+        auto spid = s.str();
+        auto nchar = spid.size();
+        auto start = nchar - 5;
+        uint32_t key = (uint32_t)spid[start] + ((uint32_t)spid[start+1] << 8) + 
+            ((uint32_t)spid[start+2] << 16) + ((uint32_t)spid[start+3] << 24);
+        sendKey(key);
+        DEBUG("key sent");
+        DEBUG("Updating");
         update();
+        DEBUG("Back from update");
     }
     catch (CException& e) {
         delete m_pSocket;
@@ -108,7 +130,7 @@ void MirrorClient::initialize() {
 */
 void MirrorClient::update() {
     // We need a connected socket:
-
+    DEBUG("MirrorClient::Update");
     if (m_pSocket) {
         if (m_pSocket->getState() == CSocket::Connected) {
 
@@ -120,25 +142,35 @@ void MirrorClient::update() {
             throw std::logic_error("The client socket evidently is not connected");
         }
         try {
+            DEBUG("Send Update request");
             sendUpdateRequest();
             auto hdr = readResponseHeader();
+            DEBUG("Got response " << hdr.s_messageSize << " " << hdr.s_messageType);
             void* pDest(m_pMirrorStorage);
             size_t nBytes = hdr.s_messageSize - sizeof(hdr);
+            DEBUG(" size of body " << nBytes);
             if (nBytes > 0) {
+                DEBUG("FUll update");
                 if (hdr.s_messageType == Mirror::MSG_TYPE_FULL_UPDATE) {
+
                     pDest = m_pMirrorStorage;
                 }
                 else if (hdr.s_messageType == Mirror::MSG_TYPE_PARTIAL_UPDATE) {
                     pDest = m_pMirrorStorage + sizeof(Xamine::Xamine_Header);
                 }
                 // Remember that s_messageSize inludes the header:
+
+                DEBUG("Reading to " << pDest);
                 m_pSocket->Read(pDest, hdr.s_messageSize - sizeof(hdr));
+                DEBUG("Read completed");
             }
         }
         catch (std::exception& e) {
+            DEBUG("excetption: " << e.what());
             throw e;
         }
         catch (CException& e) {
+            DEBUG("exception: " << e.ReasonText());
             throw std::runtime_error(e.ReasonText());
         }
     }
