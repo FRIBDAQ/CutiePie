@@ -3,8 +3,8 @@ lib_LTLIBRARIES=libMirrorClient.la
 
 
 
-include_HEADERS=MirrorClient.h SpecTclMirrorClient.h
-libMirrorClient_la_SOURCES=MirrorClient.cpp SpecTclMirrorClient.cpp \
+include_HEADERS=MirrorClient-linux.h SpecTclMirrorClient.h
+libMirrorClient_la_SOURCES=MirrorClient-linux.cpp SpecTclMirrorClient.cpp \
 	CPortManager.cpp CPortManager.h \
 	CPortManagerException.h CPortManagerException.cpp \
 	MirrorClientInternals.h MirrorClientInternals.cpp \
@@ -29,6 +29,8 @@ libMirrorClient_la_LDFLAGS=	@RESTCLIENT_LDFLAGS@
 install-exec-local:
 	$(mkinstalldirs)  @bindir@
 	$(INSTALL_SCRIPT) @srcdir@/mirrorclientscript.tcl @bindir@
+	echo "#include <MirrorClient-linux.h> > _mirrorclient.hdr
+	$(INSTALL_DATA) _mirrorclient.hdr @includedir@
 
 
 
