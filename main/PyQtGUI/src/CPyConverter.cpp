@@ -29,7 +29,9 @@
 #include "dataRetriever.h"
 #include <numpy/arrayobject.h>
 
-bool debug = false;
+bool debug = true;
+
+#define dbgprint(s) if(debug) {std::cerr << s << std::endl; }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -42,7 +44,9 @@ bool debug = false;
 
 
 CPyConverter::CPyConverter()
-{}
+{
+  std::cerr << "Instantiating a converter\n";
+}
 
 CPyConverter::~CPyConverter()
 {}
@@ -115,8 +119,11 @@ CPyConverter::Update(char* hostname, char* port, char* mirror, char* user)
     std::cout << "Mirror --> " << _mirror << " User --> " << _user << std::endl;    
   }
 
+  dbgprint("Getting retriever instance");
   dataRetriever* d = dataRetriever::getInstance();  
+  dbgprint("gettig memory pointer")
   spec_shared* p = reinterpret_cast<spec_shared*>(getSpecTclMemory(_hostname.c_str(), _port.c_str(), _mirror.c_str(), _user.c_str()));
+  dbgprint((void*)p);
   d->SetShMem(p);
 
   if (debug){
