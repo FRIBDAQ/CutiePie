@@ -23,9 +23,9 @@ class ConnectConfiguration(QWidget):
                     port = os.environ["RESTport"]
                     mirrorport = os.environ["MIRRORport"]
             except:
-                    os.environ['RESThost'] = "hostname"
-                    os.environ["RESTport"] = "port"
-                    os.environ["MIRRORport"] = "mirror"
+                    os.environ['RESThost'] = "localhost"
+                    os.environ["RESTport"] = "<port>"
+                    os.environ["MIRRORport"] = "<mirror>"
                     host = os.environ["RESThost"]
                     port = os.environ["RESTport"]
                     mirrorport = os.environ["MIRRORport"] 
