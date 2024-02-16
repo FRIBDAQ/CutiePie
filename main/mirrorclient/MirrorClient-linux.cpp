@@ -18,7 +18,7 @@
 /** @file:  MirrorClient.cpp
  *  @brief: Implement the SpecTcl mirror client protocol.
  */
-#include "MirrorClient.h"
+#include "MirrorClient-linux.h"
 #include <CSocket.h>
 #include <MirrorMessages.h>
 #include <string>

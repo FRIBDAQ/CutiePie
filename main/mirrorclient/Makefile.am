@@ -27,10 +27,10 @@ libMirrorClient_la_LDFLAGS=	@RESTCLIENT_LDFLAGS@
 
 
 install-exec-local:
-	$(mkinstalldirs)  @bindir@
+	$(mkinstalldirs)  @bindir@ @includedir@
 	$(INSTALL_SCRIPT) @srcdir@/mirrorclientscript.tcl @bindir@
-	echo "#include <MirrorClient-linux.h> > _mirrorclient.hdr
-	$(INSTALL_DATA) _mirrorclient.hdr @includedir@
+	echo "#include <MirrorClient-linux.h>" > _mirrorclient.hdr
+	$(INSTALL_DATA) _mirrorclient.hdr @includedir@/MirrorClient.h
 
 
 
