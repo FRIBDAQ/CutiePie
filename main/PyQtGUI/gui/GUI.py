@@ -38,7 +38,7 @@ sys.path.append(instPath + "/lib")
 
 # removes the webproxy from spdaq machines
 os.environ['NO_PROXY'] = ""
-os.environ['XDG_RUNTIME_DIR'] = os.environ.get("PWD")
+os.environ['XDG_RUNTIME_DIR'] = os.getcwd()
 
 from PyQt5 import QtCore, QtNetwork
 from PyQt5.QtWidgets import *
@@ -796,7 +796,7 @@ class MainWindow(QMainWindow):
 
             elif dim == 2:
                 #If exist, remove line between the last and first points of the contour (closing_segment), except for band gate type
-                tempLine = [line for line in self.gatePopup.listRegionLine if line.get_label() is "closing_segment"]
+                tempLine = [line for line in self.gatePopup.listRegionLine if line.get_label() == "closing_segment"]
                 if gateType not in ["b", "gb"] and len(tempLine) == 1 :
                     tempLine[0].remove()
                     self.gatePopup.listRegionLine.pop()
@@ -924,7 +924,7 @@ class MainWindow(QMainWindow):
             self.sumRegionPopup.regionPoint.insertPlainText(lineText)
         elif dim == 2:
             #If exist, remove line between the last and first points of the contour (closing_segment)
-            tempLine = [line for line in self.sumRegionPopup.listRegionLine if line.get_label() is "closing_segment"]
+            tempLine = [line for line in self.sumRegionPopup.listRegionLine if line.get_label() == "closing_segment"]
             if len(tempLine) == 1 :
                 tempLine[0].remove()
                 self.sumRegionPopup.listRegionLine.pop()
@@ -1020,7 +1020,7 @@ class MainWindow(QMainWindow):
 
         if self.currentPlot.isEnlarged == False: # entering enlarged mode
             self.logger.debug('on_dblclick - isEnlarged TRUE')
-            if name is "empty" or index == -1:
+            if name == "empty" or index == -1:
                 self.logger.warning('on_dblclick - empty axes cannot enlarge')
                 return
             self.removeRectangle()
@@ -1203,7 +1203,7 @@ class MainWindow(QMainWindow):
         self.logger.info('okConnect')
         self.connectShMem()
         self.closeConnect()
-
+    
     #called in okGate, if was adding a new gate the pushed gate is gatePopup.listRegionLine
     #if was editing a gate, the pushed gate is based on the gatePopup.regionPoint text
     def pushGateToREST(self, gateName, gateType):
@@ -1276,7 +1276,7 @@ class MainWindow(QMainWindow):
                 #            {'x': 126.626625, 'y': 22.522522}, {'x': 129.879883, 'y': 22.522522}, {'x': 130.63063, 'y': 26.126125}, {'x': 129.629623, 'y': 29.129128}]
                 #}}
                 for iline, line in enumerate(self.gatePopup.listRegionLine):
-                    if line.get_label() is not "closing_segment":
+                    if line.get_label() != "closing_segment":
                         #Add both points of the first line to boundaries
                         if iline == 0 :
                             for ipoint in range(2):
@@ -1836,17 +1836,21 @@ class MainWindow(QMainWindow):
             if self.rest.checkSpecTclREST() == False:
                 self.logger.debug('connectShMem - invalid URL for SpecTclREST')
                 return
-
+            else:
+                self.logger.debug("connectShMem - could make REST request of server")
             timer1 = QElapsedTimer()
             timer1.start()
 
+            self.logger.debug("connectShMem - attempting update from CPYConverter.")
             s = cpy.CPyConverter().Update(bytes(hostname, encoding='utf-8'), bytes(port, encoding='utf-8'), bytes(mirror, encoding='utf-8'), bytes(user, encoding='utf-8'))
-
+            self.logger.debug("connectShMem CPyConverter updated without failure")
+            
             # creates a dataframe for spectrum info
             # use the spectrum name to merge both sources (REST and shared memory) of spectrum info
             # info = {"id":[],"names":[],"dim":[],"binx":[],"minx":[],"maxx":[],"biny":[],"miny":[],"maxy":[],"data":[],"parameters":[],"type":[]}
 
             otherInfo = self.getSpectrumInfoFromReST()
+            self.logger.debug("connectShMem Got spectrum information from REST")
             for i, name in enumerate(s[1]):
                 if name in otherInfo:
                     if s[2][i] == 2:
@@ -1859,6 +1863,7 @@ class MainWindow(QMainWindow):
 
             # update and create parameter, spectrum, and gate lists
             # updateSpectrumList has True flag/arg only here, to define searchable list
+            self.logger.debug("connectShMem Updating spectrumlist")
             self.updateSpectrumList(True)
 
             '''
@@ -1869,6 +1874,7 @@ class MainWindow(QMainWindow):
                 self.wConf.submenuD.addAction(gate, lambda:self.wConf.drag(gate))
                 self.wConf.submenuE.addAction(gate, lambda:self.wConf.edit(gate))
             '''
+            self.logger.debug("connectShMem existing")
         except Exception as e:
             self.logger.exception('connectShMem - Exception')
             raise
@@ -2184,9 +2190,9 @@ class MainWindow(QMainWindow):
         if dim == 1 :
             #step if 0.5
             ymin, ymax = ax.get_ylim()
-            if arg is "in" :
+            if arg == "in" :
                 ymax = ymax*0.5
-            elif arg is "out" :
+            elif arg == "out" :
                 ymax = ymax*2
             ax.set_ylim(ymin, ymax)
             self.setSpectrumInfo(miny=ymin, index=index)
@@ -2194,9 +2200,9 @@ class MainWindow(QMainWindow):
             self.setSpectrumInfo(spectrum=spectrum, index=index)
         elif dim == 2 :
             zmin, zmax = spectrum.get_clim()
-            if arg is "in" :
+            if arg == "in" :
                 zmax = zmax*0.5
-            elif arg is "out" :
+            elif arg == "out" :
                 zmax = zmax*2
             spectrum.set_clim(zmin, zmax)
             self.setSpectrumInfo(minz=zmin, index=index)

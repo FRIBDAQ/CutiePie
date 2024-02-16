@@ -10,157 +10,235 @@
      Authors:
              Ron Fox
              Giordano Cerriza
-	     NSCL
-	     Michigan State University
-	     East Lansing, MI 48824-1321
+             NSCL
+             Michigan State University
+             East Lansing, MI 48824-1321
 */
 
-/** @file:  MirrorClient.cpp
- *  @brief: Implement the SpecTcl mirror client protocol.
- */
+/** 
+*   Implementation of the mirror client class.
+* 
+*/
 #include "MirrorClient.h"
-#include <CSocket.h>
-#include <MirrorMessages.h>
-#include <string>
-#include <sstream>
+#include "CSocket.h"
+#include "Exception.h"
 #include "xamineDataTypes.h"
-#include <string.h>
 
-using namespace Xamine;
+#include <stdexcept>
+#include <sstream>
+#include <iostream>
+#include <process.h>
+
+/// #define DEBUGGING 1
+#ifdef DEBUGGING
+#define DEBUG(msg) std::cout << msg << std::endl; std::cout.flush()
+#else
+#define DEBUG(msg)
+#endif
 
 /**
- * MirrorClient - constructor
- *   Null out the socket pointer.
- */
-MirrorClient::MirrorClient() :
-    m_pSocket(nullptr)
-{
-    
+*   constructor - just saves what we need:
+* 
+* @param host - host that is running the mirror server. 
+*               since we use CSocket this can be a DNS name
+*               or a dotted IP.
+* @param port - The port on which the mirror server is listening.
+* @param pStorage - Pointer to storage the caller has allocated 
+*               into which the mirroring is done.
+*/
+MirrorClient::MirrorClient(const std::string& host, unsigned short port, char* pStorage) :
+    m_pMirrorStorage(pStorage),
+    m_pSocket(nullptr),
+    m_hostname(host),
+    m_port(port)
+{}
+
+/**
+* destructor.
+*   Assumption : pStorage and m_pSocket can be targets of delete.
+*/
+MirrorClient::~MirrorClient() {
+    delete[]m_pMirrorStorage;
+    delete m_pSocket;
 }
 /**
- * MirrorClient - destructor
- *   If the socket exists, destroy it.  That closes it if it is open.
- */
-MirrorClient::~MirrorClient()
-{
-    if (m_pSocket) {
-        try {
-            m_pSocket->Shutdown();
-        } catch(...) {}
+*   initialize
+*     -   Create a socket.
+*     -   Connect to the mirror server.
+*     -   INvoke update.
+* 
+* @note If we catch an exception, we set our state to
+*       uninitialized (nullptr for socket having deleted
+*       any socket we might have created.
+* 
+* @throws
+*    * std::runtime_error - If the connection fails.
+*/
+void MirrorClient::initialize() {
+    DEBUG("In MirrorClient::initialize");
+    m_pSocket = new CSocket();
+    DEBUG("SOcket made");
+    std::stringstream portS;
+    portS << m_port;
+    auto portname = portS.str();
+    try {
+        DEBUG("Connecting to " << m_hostname << ":" << portname);
+        m_pSocket->Connect(m_hostname, portname);
+        DEBUG("Connected - sending key");
+        auto pid = _getpid();              // unique per process key
+        std::stringstream s;
+        s << pid;
+        // Use the last four digits textified as the key.
+        auto spid = s.str();
+        auto nchar = spid.size();
+        auto start = nchar - 5;
+        uint32_t key = (uint32_t)spid[start] + ((uint32_t)spid[start+1] << 8) + 
+            ((uint32_t)spid[start+2] << 16) + ((uint32_t)spid[start+3] << 24);
+        sendKey(key);
+        DEBUG("key sent");
+        DEBUG("Updating");
+        update();
+        DEBUG("Back from update");
+    }
+    catch (CException& e) {
         delete m_pSocket;
+        m_pSocket = nullptr;
+        throw std::runtime_error(e.ReasonText());
+    }
+    catch (std::exception& e) {
+        delete m_pSocket;
+        m_pSocket = nullptr;
+        throw e;
+    }
+    catch (...) {
+        delete m_pSocket;
+        throw;
     }
 }
 
 /**
- * connect
- *   Connects to the server and, optionally, sends a memory description message.
- *   this message should only be sent if the memory used to hold updated
- *   spectra will be shared.  In that case it should unambiguously identify
- *   the shared memory region to other local clients.  Note that at present,
- *   we only support 4 byte SYS-V shared memory keys.
- *
- *  @param host  - host to which we connect (must run a mirror server).
- *  @param port  - numerical port on which the server is running. If this is
- *                 advertised in the NSCLDAQ port manager it's up to the client
- *                 to interact to translate the service name/user into a numeric
- *                 port.
- *  @param key  - If provided, this must be a pointer to a 4 byte SYS-V shared
- *                memory key and a message will be sent to the server to
- *                indicate it is mirroring into that shared memory.
- *  @note all errors are reported via exceptions and typically the correct
- *        action is to report the error and destroy this object.
- */
-void
-MirrorClient::connect(const char* host, int port, const char* key)
-{
-    std::stringstream sport;
-    sport << port;
-    std::string strPort = sport.str();
-    std::string strHost(host);
-    
-    m_pSocket = new CSocket;
-    m_pSocket->Connect(strHost, strPort);
-    
-    if (key) {
-        sendKeyInfo(key);
+*    Update the mirror:
+*     - Send the update request.
+*     - Read the reply header.
+*     - If the reply header is full update just read the 
+*         Rest of the data into m_pMirrorStorage.
+*     - If the reply header is a partial update, read the rest of the
+*         message into storage past the Xamine_Header.
+*  @throws:
+*     *  std::logic_error - we don't have a connected socket.
+*     *  std::runtime_error - something bad happend in the client/server interaction.
+*/
+void MirrorClient::update() {
+    // We need a connected socket:
+    DEBUG("MirrorClient::Update");
+    if (m_pSocket) {
+        if (m_pSocket->getState() == CSocket::Connected) {
+
+        }
+        else {
+            // So initialize doesn't leak.
+            delete m_pSocket;
+            m_pSocket = nullptr;
+            throw std::logic_error("The client socket evidently is not connected");
+        }
+        try {
+            DEBUG("Send Update request");
+            sendUpdateRequest();
+            auto hdr = readResponseHeader();
+            DEBUG("Got response " << hdr.s_messageSize << " " << hdr.s_messageType);
+            void* pDest(m_pMirrorStorage);
+            size_t nBytes = hdr.s_messageSize - sizeof(hdr);
+            DEBUG(" size of body " << nBytes);
+            if (nBytes > 0) {
+                DEBUG("FUll update");
+                if (hdr.s_messageType == Mirror::MSG_TYPE_FULL_UPDATE) {
+
+                    pDest = m_pMirrorStorage;
+                }
+                else if (hdr.s_messageType == Mirror::MSG_TYPE_PARTIAL_UPDATE) {
+                    pDest = m_pMirrorStorage + sizeof(Xamine::Xamine_Header);
+                }
+                // Remember that s_messageSize inludes the header:
+
+                DEBUG("Reading to " << pDest);
+                m_pSocket->Read(pDest, hdr.s_messageSize - sizeof(hdr));
+                DEBUG("Read completed");
+            }
+        }
+        catch (std::exception& e) {
+            DEBUG("excetption: " << e.what());
+            throw e;
+        }
+        catch (CException& e) {
+            DEBUG("exception: " << e.ReasonText());
+            throw std::runtime_error(e.ReasonText());
+        }
     }
-}
-/**
- * update
- *   Send an update request and get the updated data.
- *
- *  @param pMemory - pointer to an Xamine_shared memory block that will be updated.
- *  @return  bool - true if full update is done else false.
- */
-bool
-MirrorClient::update(void* pMemory)
-{
-    std::pair<bool, size_t> info =  requestUpdate();
-    bool result     = info.first;
-    size_t nBytes   = info.second;
-    
-    // For a full update we just read nBytes into pMemory
-    // For a partial, we need to read it into the spectrum soup part of that
-    // storage:
-    
-    if (result) {
-        m_pSocket->Read(pMemory, nBytes);
-    } else {
-        Xamine_shared* pXamine = reinterpret_cast<Xamine_shared*>(pMemory);
-        m_pSocket->Read(pXamine->dsp_spectra.XAMINE_b, nBytes);
+    else {
+        throw std::logic_error("You must successfully run the initialize() method before updating");
     }
     
-    return result;
-}
-////////////////////////////////////////////////////////////////////////
-// Private utilities:
+}   
 
 /**
- * sendKeyInfo
- *   Send the server a Mirror::MSG_TYPE_SHMINFO message. No reply
- *   is expected back from the server.
- * @param key - 4 character key.
- */
-void
-MirrorClient::sendKeyInfo(const char* key)
-{
-    struct {
-        Mirror::MessageHeader hdr;
-        Mirror::MemoryKey     body;
-    } message;
+*   Send a memory message key to the server.
+*  
+* @param key - SYSV key to send.
+* 
+* @todo should this be public and called by the class client?
+*/
+void MirrorClient::sendKey(int key) {
     
-    message.hdr.s_messageType = Mirror::MSG_TYPE_SHMINFO;
-    message.hdr.s_messageSize = sizeof(message);
-    memcpy(message.body, key, 4);
-    
-    m_pSocket->Write(&message, sizeof(message));
+    struct KeyMsg {
+        Mirror::MessageHeader s_hdr;
+        uint32_t key;                  // Bit of a cheat.
+    } msg;
+    msg.s_hdr.s_messageSize = sizeof(msg);
+    msg.s_hdr.s_messageType = Mirror::MSG_TYPE_SHMINFO;
+    msg.key = key;
+
+    try {
+        m_pSocket->Write(&msg, sizeof(msg));
+        
+    } catch (CException& e) {
+        throw std::runtime_error(e.ReasonText());
+    }
+
 }
 /**
- * requestUpdate
- *    Requests an update of the contents of the mirror server's spectrum
- *    memory.
- * @return std::pair<bool, size_t>  .first is a flag that, if true,
- *            indicates the server replied with a Mirror::MSG_TYPE_FULL_UPDATE
- *            if false, the server replied with a Mirror::MSG_TYPE_PARTIAL_UPDATE
- * @note  The payload of the server message is left for the caller to read into the
- *  appropriate chunk of memory
- */
-std::pair<bool, size_t>
-MirrorClient::requestUpdate()
-{
-    Mirror::MessageHeader req;
-    req.s_messageSize = sizeof(req);
-    req.s_messageType = Mirror::MSG_TYPE_REQUEST_UPDATE;
+*    send and update request to the mirror server.  This triggers
+* it to respond with data from which to populate the mirror.
+* 
+* @throws std::runtime_error if the send fails.
+*/
+void MirrorClient::sendUpdateRequest() {
+    Mirror::MessageHeader hdr;
+    hdr.s_messageSize = sizeof(hdr);
+    hdr.s_messageType = Mirror::MSG_TYPE_REQUEST_UPDATE;
     
-    m_pSocket->Write(&req, sizeof(req));
-    
-    Mirror::MessageHeader rep;
-    m_pSocket->Read(&rep, sizeof(rep));
-    
-    std::pair<bool, size_t> result;
-    
-    result.first = rep.s_messageType == Mirror::MSG_TYPE_FULL_UPDATE;
-    result.second = rep.s_messageSize - sizeof(rep);   // Remaining bytes.
-    
-    return result;
+    try {
+        m_pSocket->Write(&hdr, sizeof(hdr));
+    }
+    catch (CException& e) {
+        throw std::runtime_error(e.ReasonText());
+    }
+}
+
+/**
+*   Read the header of response from the mirror client Note that
+* the server only replies to update requests.
+* 
+* @throw std::runtime_error if the read fails.
+* @note if an exception is thrown you should not rely on the header returned.
+*/
+Mirror::MessageHeader MirrorClient::readResponseHeader() {
+
+    Mirror::MessageHeader hdr;
+    try {
+        m_pSocket->Read(&hdr, sizeof(hdr));
+    }
+    catch (CException& e) {
+        throw std::runtime_error(e.ReasonText());
+    }
+    return hdr;
 }

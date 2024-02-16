@@ -4,13 +4,18 @@
 #include <string>
 #include <random>
 #include <chrono>
-#include <sys/shm.h>
-#include <sys/stat.h>
-#include <sys/types.h>
 #include <Python.h>
 #include "CPyHelper.h"
 #include <cstdint>
 #include <errno.h>
+
+#if defined(_WIN64) || defined(_WIN32)
+#include <io.h>
+#include <corecrt_io.h>
+#define INSTALLED_IN "C:\\CutiePie"
+#define F_OK 0
+#define access(a,b) _access(a,b)
+#endif
 
 int main(int argc, char *argv[])
 {

@@ -20,15 +20,23 @@
  */
 
 #include <stdio.h>
+#ifdef _WIN64
+#else
 #include <strings.h>
+#endif
 #include <memory.h>
 #include <ctype.h>
 #include <string.h>
 #include <stdlib.h>
 #include <map>
+#include <iostream>
 
 #include "dataAccess.h"
 #include "dataRetriever.h"
+extern bool debug;
+
+
+#define dbgprint(s) if(debug) {std::cerr << s << std::endl; }
 
 typedef char chooser_name[128];
 chooser_name names[MAXSPEC];
@@ -151,8 +159,8 @@ spec_shared::GetSpectrumId(std::string name)
     if (dataRetriever::getInstance()->GetShMem()->gettype(i) != _undefined)  {
       spec_title aname;
       dataRetriever::getInstance()->GetShMem()->getname(aname, i);
-      if (strcasecmp(aname, name.c_str()) == 0) {
-	return i;
+      if (name == aname) {
+	       return i;
       }
     }
   }
@@ -163,44 +171,45 @@ spec_shared::GetSpectrumId(std::string name)
 int
 spec_shared::GetSpectrumList(char ***list)
 {
-
+  dbgprint("spec_shared::GetSpectrumList note undefined is: " << _undefined);
   spec_title aname;
   std::map<std::string, NumberAndName> NameInfo;
 
   // First a list of spectrum name pointers is generated for the defined spectra:
   int i;
   for(i = 0; i < MAXSPEC; i++) {
+    dbgprint("Spectrum " << i << "type is " << dataRetriever::getInstance()->GetShMem()->gettype(i));
     if(dataRetriever::getInstance()->GetShMem()->gettype(i) != _undefined) {
       dataRetriever::getInstance()->GetShMem()->getname(aname, i); 
       if(strlen(aname) == 0) {        // spectra don't require names...
-	strcpy(aname, "<Untitled>");
+	      strcpy(aname, "<Untitled>");
       }
+      dbgprint("Spectrum name: " << aname);
       NameInfo[std::string(aname)] = NumberAndName(i, std::string(aname));
     }
   }
   // Pull the names out of the NumberAndName map (they'll be sorted) and encode them into names:
 
   int nspec =0;
-  int type, nbins_x, nbins_y, dim;
+  int type, nbins_x, nbins_y;
   float xmin, xmax, ymin, ymax;
   spec_shared* d = dataRetriever::getInstance()->GetShMem();
   for(std::map<std::string,NumberAndName>::iterator i = NameInfo.begin(); i != NameInfo.end(); i++) {
-    type = d->gettype(i->second.first);
+    type = d->GetSpectrumType(i->second.first);
     nbins_x = d->getxdim(i->second.first);
     xmin = d->getxmin_map(i->second.first);
     xmax = d->getxmax_map(i->second.first);    
     if (d->getydim(i->second.first) == 0){
       nbins_y = 0;
       ymin = 0;
-      ymax = 0;
-      dim = 1;    
+      ymax = 0;    
     } else {
       nbins_y = d->getydim(i->second.first);    
       ymin = d->getymin_map(i->second.first);
       ymax = d->getymax_map(i->second.first);
-      dim = 2;
     }
-    sprintf(names[nspec], "%d %s %d %d %d %f %f %d %f %f", i->second.first, i->first.c_str(), type, dim, nbins_x, xmin, xmax, nbins_y, ymin, ymax);
+    sprintf(names[nspec], "%d %s %d %d %f %f %d %f %f", i->second.first, i->first.c_str(), type, nbins_x, xmin, xmax, nbins_y, ymin, ymax);
+    dbgprint("Encoded name for " << nspec << " " << names[nspec]);
     nspec++;
   }
 
@@ -225,10 +234,9 @@ Address_t
 spec_shared::CreateSpectrum(int id)
 {
   uint32_t nOffset = dataRetriever::getInstance()->GetShMem()->dsp_offsets[id];
-
+  
   switch(dataRetriever::getInstance()->GetShMem()->dsp_types[id]) { 
   case _twodlong:
-    // std::cout<<"Simon - CreateSpectrum _twodlong "<<std::endl;
   case _onedlong:
     nOffset = nOffset*sizeof(int32_t);
     break;

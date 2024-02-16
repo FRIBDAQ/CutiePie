@@ -30,6 +30,7 @@
 #include <stdio.h>
 #include <thread>
 
+// #define DEBUGGING 1
 #ifdef DEBUGGING
 #define DEBUG(msg) std::cout << msg << std::endl; std::cout.flush()
 #else
@@ -318,13 +319,18 @@ std::vector<RunningMirrorInfo> runningMirrors;
 *   @param interval - seconds between updates.
 */
 void MirrorThread(MirrorClient* pClient, unsigned interval) {
+    DEBUG("Mirror thread runniung");
     pClient->initialize();
+    DEBUG("CLient initialized");
     while (true) {
         
         try {
+            DEBUG("Trying to update");
             pClient->update();
+            DEBUG("It workd");
         }
         catch (...) {
+            DEBUG("Exception caught in update");
             delete pClient;
             break;
         }
@@ -506,8 +512,11 @@ getSpecTclMemory(const char* host, const char* rest, const char* mirror, const c
     try {
         DEBUG("asking for spectrum size");
         spectrumBytes = GetSpectrumSize(host, restPort);
+        DEBUG("Got it: ");
+        DEBUG(spectrumBytes);
     }
     catch (std::exception& e) {
+        DEBUG("Caught exception getting spectrum size");
         lastError = MIRROR_CANTGETSIZE;
         return nullptr;
     }
@@ -526,12 +535,18 @@ getSpecTclMemory(const char* host, const char* rest, const char* mirror, const c
     }
 
     void* result =  getMirrorIfLocal(host, restPort, mirrors, spectrumBytes);    // If local map 
+    DEBUG("Get mirror if local returned" );
+    DEBUG(result);
     if (result) return result;
    
     try {
+        DEBUG("Setting up mirroring");
         auto p = startMirroring(host, mirrorPort, restPort, spectrumBytes);
+        DEBUG("Got:");
+        DEBUG(p);
         return p;
     } catch(...) {
+        DEBUG("Mirror start caught an exception");
         lastError = MIRROR_SETUPFAILED;
     }
     return nullptr;

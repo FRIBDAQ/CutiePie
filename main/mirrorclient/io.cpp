@@ -169,7 +169,11 @@ void writeData (
     }
     if ((nRead < 0) && badError(errno) )
     {
+#ifdef _WIN64
+      throw WSAGetLastError();
+#else
       throw errno;
+#endif
     }
     // If we got here and nread < 0, we need to set it to zero.
     
