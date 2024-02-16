@@ -29,9 +29,14 @@
 #include <string.h>
 #include <stdlib.h>
 #include <map>
+#include <iostream>
 
 #include "dataAccess.h"
 #include "dataRetriever.h"
+extern bool debug;
+
+
+#define dbgprint(s) if(debug) {std::cerr << s << std::endl; }
 
 typedef char chooser_name[128];
 chooser_name names[MAXSPEC];
@@ -166,18 +171,20 @@ spec_shared::GetSpectrumId(std::string name)
 int
 spec_shared::GetSpectrumList(char ***list)
 {
-
+  dbgprint("spec_shared::GetSpectrumList note undefined is: " << _undefined);
   spec_title aname;
   std::map<std::string, NumberAndName> NameInfo;
 
   // First a list of spectrum name pointers is generated for the defined spectra:
   int i;
   for(i = 0; i < MAXSPEC; i++) {
+    dbgprint("Spectrum " << i << "type is " << dataRetriever::getInstance()->GetShMem()->gettype(i));
     if(dataRetriever::getInstance()->GetShMem()->gettype(i) != _undefined) {
       dataRetriever::getInstance()->GetShMem()->getname(aname, i); 
       if(strlen(aname) == 0) {        // spectra don't require names...
-	strcpy(aname, "<Untitled>");
+	      strcpy(aname, "<Untitled>");
       }
+      dbgprint("Spectrum name: " << aname);
       NameInfo[std::string(aname)] = NumberAndName(i, std::string(aname));
     }
   }
@@ -202,6 +209,7 @@ spec_shared::GetSpectrumList(char ***list)
       ymax = d->getymax_map(i->second.first);
     }
     sprintf(names[nspec], "%d %s %d %d %f %f %d %f %f", i->second.first, i->first.c_str(), type, nbins_x, xmin, xmax, nbins_y, ymin, ymax);
+    dbgprint("Encoded name for " << nspec << " " << names[nspec]);
     nspec++;
   }
 

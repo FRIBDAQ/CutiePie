@@ -29,7 +29,7 @@
 #include "dataRetriever.h"
 #include <numpy/arrayobject.h>
 
-bool debug = true;
+bool debug = false;
 
 #define dbgprint(s) if(debug) {std::cerr << s << std::endl; }
 
