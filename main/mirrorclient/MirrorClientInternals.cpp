@@ -35,7 +35,7 @@ static const int HTTPSuccess = 200;
 #include "CPortManager.h"
 #include <restclient-cpp/restclient.h>
 #include <json/json.h>
-
+#include <os.h>
 
 /**
  * formatUrl
@@ -155,7 +155,7 @@ int
 LookupPort(const char* host, const char* service, const char* user)
 {
     if (!user) {
-        user = getlogin();
+        user = Os::whoami();
         if (!user) {
             throw std::logic_error("Could not determine username");
         }

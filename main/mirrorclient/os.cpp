@@ -44,7 +44,7 @@ Os::whoami()
   if (getpwuid_r(uid, &Entry, dataStorage, sizeof(dataStorage), &pEntry)) {
     int errorCode = errno;
     std::string errorMessage = 
-      "Unable to determine the current username in CTheApplication::destinationRing: ";
+      "Unable to determine the current username in Os::whoami ";
     errorMessage += strerror(errorCode);
     throw errorMessage;
     
