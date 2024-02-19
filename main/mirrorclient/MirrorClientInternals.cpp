@@ -152,10 +152,13 @@ GetSpecTclSharedMemory(const char* host, int port)
  */
 
 int
-LookupPort(const char* host, const char* service, const char* user)
+LookupPort(const char* host, const char* service, const char* u)
 {
-    if (!user) {
-        user = Os::whoami();
+  std::string struser = Os::whoami().c_str();
+
+    const char* user = u;
+    if (!u) {
+      user = struser.c_str();
         if (!user) {
             throw std::logic_error("Could not determine username");
         }

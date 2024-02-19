@@ -19,14 +19,16 @@
  *  @brief:  Implement the Mirror::mirror command.
  */
 #include "MirrorCommand.h"
-#include "MirrorClient.h"
-#include <client.h>
+#include "MirrorClient-linux.h"
+#include "xamineDataTypes.h"
 #include <TCLInterpreter.h>
 #include <TCLObject.h>
 #include <Exception.h>
 #include <ErrnoException.h>
 #include <stdexcept>
 #include <string.h>
+
+using namespace Xamine;
 
 /**
  * constructor

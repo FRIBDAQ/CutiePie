@@ -96,10 +96,16 @@ namespace Xamine {
         Statistics      dsp_statistics[XAMINE_MAXSPEC];
       spec_spectra      dsp_spectra;
 
-    } Xamine_Header, Xamine_shared;
+    } Xamine_Header;
 }     // Xamine namespace.
 #pragma pack(pop)
 #ifndef _WIN64
+#define Xamine_shared ::Xamine::Xamine_Header
 int Xamine_MapMemory(const char* name, size_t size, Xamine::Xamine_Header** pResult);
+int Xamine_DetachSharedMemory();
+int Xamine_MapMemory(const char *name, size_t specbytes,  struct _Xamine_Header** ptr);
+void Xamine_KillSharedMemory();
+void Xamine_GetMemoryName(char* namebuffer);
+int Xamine_CreateSharedMemory(size_t specbytes,volatile Xamine_shared **ptr);
 #endif
 #endif

@@ -88,6 +88,17 @@ AC_CHECK_LIB(rt, shm_open, [RTLIB=-lrt
 AC_DEFINE([HAVE_SHM_OPEN], [1])],[RTLIB=""])
 AC_SUBST(RTLIB)
 
+AC_CHECK_FILE([${srcdir}/libtclplus], [havelibtcldir="yes"], [havelibtcldir="no"])
+	  if test $havelibtcldir = "yes"
+  	then
+      AC_MSG_RESULT([Need to build local tagged copy])
+      AC_CHECK_FILE([${srcdir}/libtclplus/configure], [havelibtcldir="yes"], [havelibtcldir="no"])
+		  (cd ${srcdir}/libtclplus; ./configure --prefix=${prefix}; make clean install)
+	  else
+		  AC_MSG_ERROR([I seem to be missing libtcl, please use tcl++incorp.sh to fill it with a tagged release of libtclplus])
+	  fi
+AC_SUBST(TCLPLUS_CFLAGS, [-I${prefix}/include])
+AC_SUBST(TCLPLUS_LDFLAGS, ["-L${prefix}/lib -ltclPlus -lException"])
 
 
 # PAGESIZE in limits.h
