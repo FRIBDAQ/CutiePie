@@ -313,8 +313,9 @@ AC_SUBST(SOVERSION)
 # create output files.
 # Removed           Tape/Makefile
 
-AC_OUTPUT(Makefile 
-	  PyQtGUI/Makefile
+AC_OUTPUT(Makefile
+	SpecTclRESTClient/Makefile
+	  PyQtGUI/Makefile	
 	  PyQtGUI/src/Makefile
 	  PyQtGUI/sip/Makefile
 	  PyQtGUI/gui/Makefile

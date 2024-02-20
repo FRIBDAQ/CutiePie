@@ -9,7 +9,7 @@ mirrorclient_SOURCES=cmdline.c cmdline.h mirror.cpp \
 mirrorclient_DEPENDENCIES=libMirrorClient.la
 
 mirrorclient_CXXFLAGS=	-DSPECTCL_BIN="\"@prefix@/bin\"" \
-	-DSPECTCL_TCLLIBS="\"@prefix@/lib\"" \
+	-DSPECTCL_TCLLIBS="\"@prefix@/TclLibs\"" \
 	-I@top_srcdir@/Display @TCL_CFLAGS@ @TCLPLUS_CFLAGS@
 
 mirrorclient_LDADD=@builddir@/libMirrorClient.la \
