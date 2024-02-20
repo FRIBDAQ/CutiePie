@@ -103,7 +103,7 @@ typedef char* OPTPTR;
 
 #include <vector>
 
-// #define DEBUGGING 1
+// #define DEBUGGING
 #ifdef DEBUGGING
 #define DEBUG(msg) std::cout << msg << std::endl; std::cout.flush()
 #else

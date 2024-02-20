@@ -25,7 +25,7 @@ exec tclsh "$0" ${1+"$@"}
 # @author Ron Fox <fox@nscl.msu.edu>
 #
 
-set updateMultiplier 5;    # See update - update time multiplier of last update
+set updateMultiplier 2000;    # See update - update time multiplier of last update
 
 ##
 # Entry point:
