@@ -38,6 +38,13 @@ typedef int ssize_t;
 #include <sys/types.h>
 #endif
 
+// #define DEBUGGING
+#ifdef DEBUGGING
+#define DEBUG(msg) std::cout << msg << std::endl; std::cout.flush()
+#else
+#define DEBUG(msg)
+#endif
+
 static std::set<int>                 okErrors;	// Acceptable errors in I/O operations.
 
 /**
@@ -151,6 +158,8 @@ void writeData (
   size_t    residual(nBytes);
   ssize_t   nRead;
 
+  DEBUG("readData for " << nBytes);
+  
   // Read the buffer until :
   //  error other than EAGAIN, EWOULDBLOCK  or EINTR
   //  zero bytes read (end of file).
@@ -158,17 +167,20 @@ void writeData (
   //
 
   while (residual) {
+    DEBUG(residual << " bytes left");
 #ifdef _WIN64
       nRead = recv(fd, (char*)pDest, residual, MSG_WAITALL);
 #else
     nRead = read(fd, pDest, residual);
 #endif
+    DEBUG(nRead << " bytes read");
     if (nRead == 0)		// EOF
     {
       return nBytes - residual;
     }
     if ((nRead < 0) && badError(errno) )
     {
+      DEBUG("Bad read with " << errno);
 #ifdef _WIN64
       throw WSAGetLastError();
 #else

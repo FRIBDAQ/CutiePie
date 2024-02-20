@@ -1,0 +1,15 @@
+#!/bin/bash
+
+#  Manage the submodule for libtclplus
+#  Usage ./tcl++incorp tag-to-switch-to
+#
+#  e.g. ./tcl++incorp libtclplus-v4.3-001
+#  last used in this branch.
+#
+URL=https://github.com/FRIBDAQ/libtclplus
+tag=$1
+
+rm -rf libtclplus
+git clone $URL
+
+(cd libtclplus; git checkout $tag; autoreconf -if)

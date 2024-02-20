@@ -25,6 +25,14 @@
 #include <sstream>
 #include "xamineDataTypes.h"
 #include <string.h>
+#include <iostream>
+
+/// #define DEBUGGING
+#ifdef  DEBUGGING
+#define DBGPRINT(msg) std::cerr << msg << std::endl;
+#else
+#define DBGPRINT(msg)
+#endif
 
 using namespace Xamine;
 
@@ -98,17 +106,26 @@ MirrorClient::update(void* pMemory)
     std::pair<bool, size_t> info =  requestUpdate();
     bool result     = info.first;
     size_t nBytes   = info.second;
+
+    DBGPRINT("Update header: " << info.first << " " << info.second);
     
     // For a full update we just read nBytes into pMemory
     // For a partial, we need to read it into the spectrum soup part of that
     // storage:
     
     if (result) {
+      DBGPRINT("Reading full update");
         m_pSocket->Read(pMemory, nBytes);
     } else {
-        Xamine_shared* pXamine = reinterpret_cast<Xamine_shared*>(pMemory);
-        m_pSocket->Read(pXamine->dsp_spectra.XAMINE_b, nBytes);
+      DBGPRINT("Reading partial update");
+      if (nBytes  != 0) {	// Only read if there's something defined.
+	  Xamine_shared* pXamine = reinterpret_cast<Xamine_shared*>(pMemory);
+	  m_pSocket->Read(pXamine->dsp_spectra.XAMINE_b, nBytes);
+      } else {
+	DBGPRINT("Empty update");
+      }
     }
+    DBGPRINT("Successful read");
     
     return result;
 }

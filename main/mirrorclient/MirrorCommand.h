@@ -22,10 +22,10 @@
 #define MIRRORCOMMAND_H
 
 #include <TCLObjectProcessor.h>
-#include <xamineDataTypes.h>
+#include "xamineDataTypes.h"
 #include <tcl.h>
 
-
+using namespace Xamine;
 class MirrorClient;
 class CTCLInterpreter;
 class CTCLObject;

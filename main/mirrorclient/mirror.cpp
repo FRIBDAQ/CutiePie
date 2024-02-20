@@ -34,7 +34,7 @@
 #include <stdlib.h>
 #include <Exception.h>
 #include <iostream>
-
+#include "os.h"
 const char* TclLibPath = SPECTCL_TCLLIBS;
 
 static struct gengetopt_args_info parsed;
@@ -87,10 +87,11 @@ static int AppInit(Tcl_Interp* pInterp)
     new CmdInfo(*pOInterp, "Mirror::getrestport", parsed.restport_arg);
     new CmdInfo(*pOInterp, "Mirror::getmirrorport", parsed.mirrorport_arg);
     const char* pUser;
+    std::string strUser = Os::whoami();
     if (parsed.user_given) {
         pUser = parsed.user_arg;
     } else {
-        pUser = getlogin();
+      pUser = strUser.c_str();
         if (!pUser) {
             perror("Unable to get current username use the --user option to supply it.");
             exit(-1);

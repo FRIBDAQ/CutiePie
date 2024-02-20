@@ -1,5 +1,28 @@
 
 lib_LTLIBRARIES=libMirrorClient.la
+bin_PROGRAMS=mirrorclient
+
+mirrorclient_SOURCES=cmdline.c cmdline.h mirror.cpp \
+	CmdInfo.h CmdInfo.cpp \
+	MirrorCommand.h MirrorCommand.cpp 
+
+mirrorclient_DEPENDENCIES=libMirrorClient.la
+
+mirrorclient_CXXFLAGS=	-DSPECTCL_BIN="\"@prefix@/bin\"" \
+	-DSPECTCL_TCLLIBS="\"@prefix@/TclLibs\"" \
+	-I@top_srcdir@/Display @TCL_CFLAGS@ @TCLPLUS_CFLAGS@
+
+mirrorclient_LDADD=@builddir@/libMirrorClient.la \
+	@RESTCLIENT_LDFLAGS@ \
+	@TCLPLUS_LDFLAGS@ @TCL_LIBS@ @JSONCPP_LIBS@
+
+
+
+BUILT_SOURCES = cmdline.c cmdline.h 
+noinst_HEADERS=cmdline.h
+
+cmdline.h cmdline.c : @srcdir@/mirroropts.ggo
+	@GENGETOPT@ --unamed-opts <@srcdir@/mirroropts.ggo
 
 
 

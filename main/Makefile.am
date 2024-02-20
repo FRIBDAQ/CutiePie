@@ -1,5 +1,5 @@
 
 
-SUBDIRS = mirrorclient PyQtGUI 
+SUBDIRS = SpecTclRESTClient mirrorclient PyQtGUI 
 
 
