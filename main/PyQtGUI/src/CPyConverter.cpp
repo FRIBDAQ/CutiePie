@@ -32,7 +32,7 @@
 #include <numpy/arrayobject.h>
 #include <memory>
 
-bool debug = false;
+bool debug = true;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -68,7 +68,7 @@ CPyConverter::extractInfo(char* speclist)
   while (!ss.eof() &&
 	 (ss >> id >> name >> type >> dim >> binx >> minx >> maxx >> biny >> miny >> maxy)) {
     if (debug)
-      std::cout << id << " " << name << std::endl;    
+      std::cout << id << " " << name << ": " << speclist << std::endl;
     m_id.push_back(id);
     m_names.push_back(name);
     m_types.push_back(type);
@@ -120,10 +120,24 @@ CPyConverter::Update(char* hostname, char* port, char* mirror, char* user)
   }
 
   dataRetriever* d = dataRetriever::getInstance();  
-  spec_shared* p = reinterpret_cast<spec_shared*>(getSpecTclMemory(_hostname.c_str(), _port.c_str(), _mirror.c_str(), _user.c_str()));
-  d->SetShMem(p);
+  if (debug) {
+      std::cout << "About to get shared memory...\n";
+  }
+  // The pointer won't move around so we only need to do this if the memory point 
+  // has not been set...and doing this twice on windows is fatal.
 
-
+  if (!d->GetShMem()) {
+      if (debug) {
+          std::cout << "Need to get the mirror pointer:\n";
+      }
+      spec_shared* p = reinterpret_cast<spec_shared*>(getSpecTclMemory(_hostname.c_str(), _port.c_str(), _mirror.c_str(), _user.c_str()));
+      if (debug) {
+          std::cout << " got " << std::hex << p << std::dec << std::endl;
+      }
+      d->SetShMem(p);
+  }
+  
+  spec_shared* p = d->GetShMem();
   
   
   // Create list of spectra

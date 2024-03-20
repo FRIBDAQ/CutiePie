@@ -36,14 +36,15 @@
 class dataRetriever{
   
  private:
+     spec_shared* shmem;
 
   // Canonical for the singleton class
-  dataRetriever(){};  // Private so that it can  not be called
+  dataRetriever() : shmem(0) {};  // Private so that it can  not be called
   dataRetriever(dataRetriever const&){};             // copy constructor is private
   dataRetriever& operator=(dataRetriever const&){ return *this; };  // assignment operator is private
   static dataRetriever* m_pInstance;
 
-  spec_shared *shmem;
+  
 
   // Test methods (not for public use). Shared memory requests have to go through the mirrorclient.
   // These function were thought and deployed BEFORE the SpecTclMirrorClient was even an idea. So please don't use them

@@ -31,6 +31,10 @@
 
 #include "dataAccess.h"
 #include "dataRetriever.h"
+#include "dataTypes.h"
+#include <iostream>
+
+extern bool debug;
 
 #ifdef _WIN64
 #define strcasecmp _stricmp
@@ -150,6 +154,7 @@ spec_shared::GetSpectrumId(char *name)
   return id;
 }
 
+
 int
 spec_shared::GetSpectrumId(std::string name)
 {
@@ -194,13 +199,19 @@ spec_shared::GetSpectrumList(char ***list)
     type = d->gettype(i->second.first);
     nbins_x = d->getxdim(i->second.first);
     xmin = d->getxmin_map(i->second.first);
-    xmax = d->getxmax_map(i->second.first);    
-    if (d->getydim(i->second.first) == 0){
+    xmax = d->getxmax_map(i->second.first);   
+    if (isOned(type)) {
+        if (debug) {
+            std::cout << names[nspec] << " is 1d\n";
+        }
       nbins_y = 0;
       ymin = 0;
       ymax = 0;
       dim = 1;    
     } else {
+        if (debug) {
+            std::cout << names[nspec] << " is 2d type: " << type << std::endl;
+        }
       nbins_y = d->getydim(i->second.first);    
       ymin = d->getymin_map(i->second.first);
       ymax = d->getymax_map(i->second.first);
@@ -251,4 +262,24 @@ spec_shared::CreateSpectrum(int id)
   Address_t p_storage = (Address_t)(dataRetriever::getInstance()->GetShMem()->dsp_spectra._b + nOffset);
 
   return p_storage;
+}
+/**
+*   It is not safe to assume that the y dimension is set to 0 for 1d spectra.  Specificallly,
+* rustogramer sets it to 1.  so given a type get the dimensionality:
+* 
+*   @param type - Spectrum type:
+*   @return bool
+*   @retval true - the spectrum type  is for a 1d.
+ */
+bool 
+spec_shared::isOned(int type) {
+    spec_type eType = static_cast<spec_type>(type);
+
+    switch (type) {
+    case _onedlong:
+    case _onedword:
+        return true;
+    default:
+        return false;
+    }
 }
