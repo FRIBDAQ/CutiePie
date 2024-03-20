@@ -27,7 +27,13 @@
 #include <memory>
 #include <stddef.h>  // defines NULL
 #include <stdlib.h>
-
+#include <sys/types.h>
+#ifndef _WIN64
+#include <unistd.h>
+#include <bits/stdc++.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#endif
 #include "dataRetriever.h"
 
 dataRetriever* dataRetriever::m_pInstance = NULL;
@@ -61,33 +67,20 @@ dataRetriever::GetShMem()
 // because they fullfil the needs of something now obsolete
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void
-dataRetriever::SetHostPortTest(std::string host, std::string port)
-{
-  if (dbg) {
-      std::cout << "Inside dataRetriever::SetHostPort()" << std::endl;
-      std::cout << host << "," << port << std::endl;  
-    }
-  _hostname = host;
-  _port = port;
-}
 
+//void
+//dataRetriever::PrintOffsets()
+//{
+//  spec_shared *p(0);
+//  printf("Offsets into shared mem: \n");
+// printf("  dsp_xy      = %p\n", (void*)p->dsp_xy);
+//  printf("  dsp_titles  = %p\n", (void*)p->dsp_titles);
+//  printf("  dsp_types   = %p\n", (void*)p->dsp_types);
+// printf("  dsp_map     = %p\n", (void*)p->dsp_map);
+//  printf("  dsp_spectra = %p\n", (void*)&(p->dsp_spectra));
+//  printf("  Total size  = %d\n", sizeof(spec_shared));
 
-
-
-void
-dataRetriever::PrintOffsets()
-{
-  spec_shared *p(0);
-  printf("Offsets into shared mem: \n");
-  printf("  dsp_xy      = %p\n", (void*)p->dsp_xy);
-  printf("  dsp_titles  = %p\n", (void*)p->dsp_titles);
-  printf("  dsp_types   = %p\n", (void*)p->dsp_types);
-  printf("  dsp_map     = %p\n", (void*)p->dsp_map);
-  printf("  dsp_spectra = %p\n", (void*)&(p->dsp_spectra));
-  printf("  Total size  = %d\n", sizeof(spec_shared));
-
-}
+//}
 
 
 

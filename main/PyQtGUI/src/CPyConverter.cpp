@@ -27,11 +27,12 @@
 #include <sstream>
 #include <string>
 #include "dataRetriever.h"
+#include "dataTypes.h"
+#include "dataAccess.h"
 #include <numpy/arrayobject.h>
+#include <memory>
 
 bool debug = false;
-
-#define dbgprint(s) if(debug) {std::cerr << s << std::endl; }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -44,9 +45,7 @@ bool debug = false;
 
 
 CPyConverter::CPyConverter()
-{
-  std::cerr << "Instantiating a converter\n";
-}
+{}
 
 CPyConverter::~CPyConverter()
 {}
@@ -62,23 +61,24 @@ void
 CPyConverter::extractInfo(char* speclist)
 {
   std::stringstream ss;
-  int id, dim, binx, biny;
+  int id, dim, binx, biny, type;
   float minx, miny, maxx, maxy;
   std::string name;
   ss << std::string(speclist);  
   while (!ss.eof() &&
-	 (ss >> id >> name >> dim >> binx >> minx >> maxx >> biny >> miny >> maxy)) {
+	 (ss >> id >> name >> type >> dim >> binx >> minx >> maxx >> biny >> miny >> maxy)) {
     if (debug)
-      std::cout << id << " " << name << std::endl;    
+      std::cout << id << " " << name << ": " << speclist << std::endl;
     m_id.push_back(id);
     m_names.push_back(name);
+    m_types.push_back(type);
     m_dim.push_back(dim);
     m_binx.push_back(binx);
     m_biny.push_back(biny);
     m_minx.push_back(minx);
     m_miny.push_back(miny);      
     m_maxx.push_back(maxx);
-    m_maxy.push_back(maxy);      
+    m_maxy.push_back(maxy);     
   }    
 }
 
@@ -119,16 +119,26 @@ CPyConverter::Update(char* hostname, char* port, char* mirror, char* user)
     std::cout << "Mirror --> " << _mirror << " User --> " << _user << std::endl;    
   }
 
-  dbgprint("Getting retriever instance");
   dataRetriever* d = dataRetriever::getInstance();  
-  dbgprint("gettig memory pointer")
-  spec_shared* p = reinterpret_cast<spec_shared*>(getSpecTclMemory(_hostname.c_str(), _port.c_str(), _mirror.c_str(), _user.c_str()));
-  dbgprint((void*)p);
-  d->SetShMem(p);
-
-  if (debug){
-    d->PrintOffsets();
+  if (debug) {
+      std::cout << "About to get shared memory...\n";
   }
+  // The pointer won't move around so we only need to do this if the memory point 
+  // has not been set...and doing this twice on windows is fatal.
+
+  if (!d->GetShMem()) {
+      if (debug) {
+          std::cout << "Need to get the mirror pointer:\n";
+      }
+      spec_shared* p = reinterpret_cast<spec_shared*>(getSpecTclMemory(_hostname.c_str(), _port.c_str(), _mirror.c_str(), _user.c_str()));
+      if (debug) {
+          std::cout << " got " << std::hex << p << std::dec << std::endl;
+      }
+      d->SetShMem(p);
+  }
+  
+  spec_shared* p = d->GetShMem();
+  
   
   // Create list of spectra
   char **speclist;
@@ -136,17 +146,20 @@ CPyConverter::Update(char* hostname, char* port, char* mirror, char* user)
   lsize = p->GetSpectrumList(&speclist);
 
   Address_t addr;
-  PyObject* data;              // Since Setitem steals refs no need for an array.
+  
+
+  // PyObject* data[lsize];
+  PyObject** data(new PyObject*[lsize]);
   PyObject* listData = PyList_New(lsize);
   
-  for (int i = 0; i < lsize; i++){
+for (int i = 0; i < lsize; i++){
     extractInfo(speclist[i]);
     // access histogram of id i
     addr = p->CreateSpectrum(m_id.at(i));
     // convert memory to np array
-    data = ShMemToNpArray(addr, m_dim[i], m_binx[i], m_biny[i]);
+    data[i] = ShMemToNpArray(addr, m_dim[i], m_binx[i], m_biny[i], m_types[i]);
     // add nparray to a list
-    PyList_SetItem(listData, i, data);
+    PyList_SetItem(listData, i, data[i]);
   }
 
   PyObject* result = PyTuple_New(10);
@@ -160,27 +173,60 @@ CPyConverter::Update(char* hostname, char* port, char* mirror, char* user)
   PyTuple_SetItem(result, 7, vectorToList_Float(m_miny));
   PyTuple_SetItem(result, 8, vectorToList_Float(m_maxy));
   PyTuple_SetItem(result, 9, listData);
+  // PyTuple_SetItem(result, 10, vectorToList_Int(m_types));
+  delete[]data;
   
   return result;
   
 }
 
+
 PyObject*
-CPyConverter::ShMemToNpArray(void* addr, int size, int nbinx, int nbiny)
+CPyConverter::ShMemToNpArray(void* addr, int dim, int nbinx, int nbiny, int type)
 {
   PyArrayObject* data;
-
   import_array();
+  npy_intp specType = {type};
 
-  if (size == 1){
+  if (dim == 1){
     npy_intp dims = {nbinx};
-    data = (PyArrayObject*)PyArray_SimpleNewFromData(size, &dims, NPY_INT, addr);
+    if (specType == _onedlong){
+      data = (PyArrayObject*)PyArray_SimpleNewFromData(dim, &dims, NPY_INT, addr);
+    }
+    else if (specType == _onedword){
+      data = (PyArrayObject*)PyArray_SimpleNewFromData(dim, &dims, NPY_SHORT, addr);
+    }
   }
   else {
-    npy_intp dims[2] = {nbiny, nbinx};   // 2 is constant but size is not.
-    data = (PyArrayObject*)PyArray_SimpleNewFromData(size, dims, NPY_INT, addr);
+    npy_intp dims[2] = {nbiny, nbinx};
+    if (specType == _twodlong){
+      data = (PyArrayObject*)PyArray_SimpleNewFromData(dim, dims, NPY_INT, addr);
+    }
+    else if (specType == _twodword){
+      data = (PyArrayObject*)PyArray_SimpleNewFromData(dim, dims, NPY_SHORT, addr);
+    }
+    else if (specType == _twodbyte){
+      data = (PyArrayObject*)PyArray_SimpleNewFromData(dim, dims, NPY_BYTE, addr);
+    }
   }
+
   return (PyObject*)data;
+}
+
+
+PyObject*
+CPyConverter::vectorToList_Int(const std::vector<int> &data) {
+  PyObject* listObj = PyList_New(data.size() );
+  if (!listObj) throw std::logic_error("Unable to allocate memory for Python list");
+  for (unsigned int i = 0; i < data.size(); i++) {
+    PyObject *num = PyLong_FromLong(data[i]);
+    if (!num) {
+      Py_DECREF(listObj);
+      throw std::logic_error("Unable to allocate memory for Python list");
+    }
+    PyList_SET_ITEM(listObj, i, num);
+  }
+  return listObj;
 }
 
 PyObject*
@@ -212,20 +258,4 @@ CPyConverter::vectorToList_String(const std::vector<std::string> &data) {
     PyList_SET_ITEM(listObj, i, newstring);  
   }
   return listObj;
-}
-
-
-PyObject*
-CPyConverter::vectorToList_Int(const std::vector<int>& data) {
-    PyObject* listObj = PyList_New(data.size());
-    if (!listObj) throw std::logic_error("Unable to allocate memory for Python list");
-    for (unsigned int i = 0; i < data.size(); i++) {
-        PyObject* num = PyLong_FromLong((long)data[i]);
-        if (!num) {
-            Py_DECREF(listObj);
-            throw std::logic_error("Unable to allocate memory for Python list");
-        }
-        PyList_SET_ITEM(listObj, i, num);
-    }
-    return listObj;
 }

@@ -96,6 +96,8 @@ struct spec_shared : shared_memory
   char *getname(spec_title name, int id);
   char *getinfo(spec_title info, int id);
 
+  bool isOned(int type);
+
   // summary info
   int GetSpectrumList(char ***list);
   int GetSpectrumId(char *name);

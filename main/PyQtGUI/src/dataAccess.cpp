@@ -20,8 +20,7 @@
  */
 
 #include <stdio.h>
-#ifdef _WIN64
-#else
+#ifndef _WIN64
 #include <strings.h>
 #endif
 #include <memory.h>
@@ -29,14 +28,17 @@
 #include <string.h>
 #include <stdlib.h>
 #include <map>
-#include <iostream>
 
 #include "dataAccess.h"
 #include "dataRetriever.h"
+#include "dataTypes.h"
+#include <iostream>
+
 extern bool debug;
 
-
-#define dbgprint(s) if(debug) {std::cerr << s << std::endl; }
+#ifdef _WIN64
+#define strcasecmp _stricmp
+#endif
 
 typedef char chooser_name[128];
 chooser_name names[MAXSPEC];
@@ -152,6 +154,7 @@ spec_shared::GetSpectrumId(char *name)
   return id;
 }
 
+
 int
 spec_shared::GetSpectrumId(std::string name)
 {
@@ -159,8 +162,8 @@ spec_shared::GetSpectrumId(std::string name)
     if (dataRetriever::getInstance()->GetShMem()->gettype(i) != _undefined)  {
       spec_title aname;
       dataRetriever::getInstance()->GetShMem()->getname(aname, i);
-      if (name == aname) {
-	       return i;
+      if (strcasecmp(aname, name.c_str()) == 0) {
+	return i;
       }
     }
   }
@@ -171,45 +174,50 @@ spec_shared::GetSpectrumId(std::string name)
 int
 spec_shared::GetSpectrumList(char ***list)
 {
-  dbgprint("spec_shared::GetSpectrumList note undefined is: " << _undefined);
+
   spec_title aname;
   std::map<std::string, NumberAndName> NameInfo;
 
   // First a list of spectrum name pointers is generated for the defined spectra:
   int i;
   for(i = 0; i < MAXSPEC; i++) {
-    dbgprint("Spectrum " << i << "type is " << dataRetriever::getInstance()->GetShMem()->gettype(i));
     if(dataRetriever::getInstance()->GetShMem()->gettype(i) != _undefined) {
       dataRetriever::getInstance()->GetShMem()->getname(aname, i); 
       if(strlen(aname) == 0) {        // spectra don't require names...
-	      strcpy(aname, "<Untitled>");
+	strcpy(aname, "<Untitled>");
       }
-      dbgprint("Spectrum name: " << aname);
       NameInfo[std::string(aname)] = NumberAndName(i, std::string(aname));
     }
   }
   // Pull the names out of the NumberAndName map (they'll be sorted) and encode them into names:
 
   int nspec =0;
-  int type, nbins_x, nbins_y;
+  int type, nbins_x, nbins_y, dim;
   float xmin, xmax, ymin, ymax;
   spec_shared* d = dataRetriever::getInstance()->GetShMem();
   for(std::map<std::string,NumberAndName>::iterator i = NameInfo.begin(); i != NameInfo.end(); i++) {
-    type = d->GetSpectrumType(i->second.first);
+    type = d->gettype(i->second.first);
     nbins_x = d->getxdim(i->second.first);
     xmin = d->getxmin_map(i->second.first);
-    xmax = d->getxmax_map(i->second.first);    
-    if (d->getydim(i->second.first) == 0){
+    xmax = d->getxmax_map(i->second.first);   
+    if (isOned(type)) {
+        if (debug) {
+            std::cout << names[nspec] << " is 1d\n";
+        }
       nbins_y = 0;
       ymin = 0;
-      ymax = 0;    
+      ymax = 0;
+      dim = 1;    
     } else {
+        if (debug) {
+            std::cout << names[nspec] << " is 2d type: " << type << std::endl;
+        }
       nbins_y = d->getydim(i->second.first);    
       ymin = d->getymin_map(i->second.first);
       ymax = d->getymax_map(i->second.first);
+      dim = 2;
     }
-    sprintf(names[nspec], "%d %s %d %d %f %f %d %f %f", i->second.first, i->first.c_str(), type, nbins_x, xmin, xmax, nbins_y, ymin, ymax);
-    dbgprint("Encoded name for " << nspec << " " << names[nspec]);
+    sprintf(names[nspec], "%d %s %d %d %d %f %f %d %f %f", i->second.first, i->first.c_str(), type, dim, nbins_x, xmin, xmax, nbins_y, ymin, ymax);
     nspec++;
   }
 
@@ -234,9 +242,10 @@ Address_t
 spec_shared::CreateSpectrum(int id)
 {
   uint32_t nOffset = dataRetriever::getInstance()->GetShMem()->dsp_offsets[id];
-  
+
   switch(dataRetriever::getInstance()->GetShMem()->dsp_types[id]) { 
   case _twodlong:
+    // std::cout<<"Simon - CreateSpectrum _twodlong "<<std::endl;
   case _onedlong:
     nOffset = nOffset*sizeof(int32_t);
     break;
@@ -253,4 +262,24 @@ spec_shared::CreateSpectrum(int id)
   Address_t p_storage = (Address_t)(dataRetriever::getInstance()->GetShMem()->dsp_spectra._b + nOffset);
 
   return p_storage;
+}
+/**
+*   It is not safe to assume that the y dimension is set to 0 for 1d spectra.  Specificallly,
+* rustogramer sets it to 1.  so given a type get the dimensionality:
+* 
+*   @param type - Spectrum type:
+*   @return bool
+*   @retval true - the spectrum type  is for a 1d.
+ */
+bool 
+spec_shared::isOned(int type) {
+    spec_type eType = static_cast<spec_type>(type);
+
+    switch (type) {
+    case _onedlong:
+    case _onedword:
+        return true;
+    default:
+        return false;
+    }
 }

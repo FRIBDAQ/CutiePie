@@ -38,7 +38,7 @@ typedef int ssize_t;
 #include <sys/types.h>
 #endif
 
-// #define DEBUGGING
+//#define DEBUGGING
 #ifdef DEBUGGING
 #define DEBUG(msg) std::cout << msg << std::endl; std::cout.flush()
 #else
