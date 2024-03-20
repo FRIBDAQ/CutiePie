@@ -20,7 +20,9 @@
  */
 
 #include <stdio.h>
+#ifndef _WIN64
 #include <strings.h>
+#endif
 #include <memory.h>
 #include <ctype.h>
 #include <string.h>
@@ -29,6 +31,10 @@
 
 #include "dataAccess.h"
 #include "dataRetriever.h"
+
+#ifdef _WIN64
+#define strcasecmp _stricmp
+#endif
 
 typedef char chooser_name[128];
 chooser_name names[MAXSPEC];

@@ -63,17 +63,7 @@ class dataRetriever{
   static dataRetriever* getInstance();
   void SetShMem(spec_shared* p);
   spec_shared* GetShMem();
-
-  // Test function (not for public use). Shared memory requests have to go through the mirrorclient.
-  // These function were thought and deployed BEFORE the SpecTclMirrorClient was even an idea. So please don't use them
-  // because they fullfil the needs of something now obsolete
-  void SetHostPortTest(std::string host, std::string port);  
-  void InitShMemTest();
-  std::string ShMemKeyGetTest() { return key; }
-  unsigned int ShMemSizeGetTest() { return size; }
-  static void PrintOffsets();
-  static spec_shared* mapmem(char* name, unsigned int size);
-  char *MemoryTop();
+//  static void PrintOffsets();
 
   
 };

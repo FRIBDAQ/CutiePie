@@ -64,7 +64,7 @@ class CPyConverter {
   PyObject* vectorToList_Int(const std::vector<int> &data);  
   PyObject* vectorToList_Float(const std::vector<float> &data);
   PyObject* vectorToList_String(const std::vector<std::string> &data);  
-  PyObject* DebugFillSpectra();
+  
 
 
   

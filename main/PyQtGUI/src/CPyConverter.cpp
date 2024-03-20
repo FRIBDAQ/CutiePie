@@ -21,7 +21,6 @@
 
 #include "CPyConverter.h"
 #include <stdexcept>
-#include <sys/shm.h>
 #include <sys/stat.h>
 #include <cstdint>
 #include <iostream>
@@ -31,6 +30,7 @@
 #include "dataTypes.h"
 #include "dataAccess.h"
 #include <numpy/arrayobject.h>
+#include <memory>
 
 bool debug = false;
 
@@ -124,10 +124,7 @@ CPyConverter::Update(char* hostname, char* port, char* mirror, char* user)
   d->SetShMem(p);
 
 
-  if (debug){
-    d->PrintOffsets();
-    DebugFillSpectra();
-  }
+  
   
   // Create list of spectra
   char **speclist;
@@ -135,7 +132,10 @@ CPyConverter::Update(char* hostname, char* port, char* mirror, char* user)
   lsize = p->GetSpectrumList(&speclist);
 
   Address_t addr;
-  PyObject* data[lsize];
+  
+
+  // PyObject* data[lsize];
+  PyObject** data(new PyObject*[lsize]);
   PyObject* listData = PyList_New(lsize);
   
 for (int i = 0; i < lsize; i++){
@@ -160,6 +160,7 @@ for (int i = 0; i < lsize; i++){
   PyTuple_SetItem(result, 8, vectorToList_Float(m_maxy));
   PyTuple_SetItem(result, 9, listData);
   // PyTuple_SetItem(result, 10, vectorToList_Int(m_types));
+  delete[]data;
   
   return result;
   
@@ -183,7 +184,7 @@ CPyConverter::ShMemToNpArray(void* addr, int dim, int nbinx, int nbiny, int type
     }
   }
   else {
-    npy_intp dims[dim] = {nbiny, nbinx};
+    npy_intp dims[2] = {nbiny, nbinx};
     if (specType == _twodlong){
       data = (PyArrayObject*)PyArray_SimpleNewFromData(dim, dims, NPY_INT, addr);
     }
@@ -198,44 +199,6 @@ CPyConverter::ShMemToNpArray(void* addr, int dim, int nbinx, int nbiny, int type
   return (PyObject*)data;
 }
 
-/////////////////////////////////////////////////////////////////////////////////////////////
-//
-// Quick debugging test for the shared memory
-//
-/////////////////////////////////////////////////////////////////////////////////////////////
-
-PyObject*
-CPyConverter::DebugFillSpectra()
-{
-  dataRetriever* d = dataRetriever::getInstance();
-  spec_shared *dp = d->GetShMem();
-
-  import_array();
-
-  char **speclist;
-  int lsize;
-  lsize = dp->GetSpectrumList(&speclist);
-
-  // testing
-  Address_t addr[2];
-  PyArrayObject* data[2];
-  int id = 0;  
-  addr[id] = dp->CreateSpectrum(id);
-  
-  // 1D this is fine
-  npy_intp dims = {dp->getxdim(id)};
-  data[id] = (PyArrayObject*)PyArray_SimpleNewFromData(1, &dims, NPY_INT, addr[id]);
-
-  //2d
-  id = 1;
-  addr[id] = dp->CreateSpectrum(id);  
-  npy_intp dims2[2];
-  dims2[0] = dp->getxdim(id);
-  dims2[1] = dp->getydim(id);  
-  data[id] = (PyArrayObject*)PyArray_SimpleNewFromData(2, dims2, NPY_INT, addr[id]);
-  
-  return Py_BuildValue("NN", (PyObject*)data[0], (PyObject*)data[1]);
-}
 
 PyObject*
 CPyConverter::vectorToList_Int(const std::vector<int> &data) {
