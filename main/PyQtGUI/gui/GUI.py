@@ -120,7 +120,7 @@ from WebWindow import WebWindow
 
 SETTING_BASEDIR = "workdir"
 SETTING_EXECUTABLE = "exec"
-DEBUG = True
+DEBUG = False
 DEBOUNCE_DUR = 0.25
 t = None
 
