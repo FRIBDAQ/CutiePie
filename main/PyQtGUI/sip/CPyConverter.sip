@@ -32,7 +32,7 @@ class CPyConverter {
    
    void extractInfo(char* speclist);
    PyObject* Update(char* hostname, char* port, char* mirror, char* user);
-   PyObject* ShMemToNpArray(void* addr, int size, int nbinx, int nbiny); 
+   PyObject* ShMemToNpArray(void* addr, int size, int nbinx, int nbiny, int type); 
 
    PyObject* vectorToList_Int(const std::vector<int> &data);
    PyObject* vectorToList_Float(const std::vector<float> &data);

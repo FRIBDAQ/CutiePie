@@ -7,3 +7,7 @@ install-exec-hook:
 	cp CPyConverter.so @libdir@/CPyConverter.so
 
 EXTRA_DIST = configure.py CPyConverter.sip CPyConverter.h dataAccess.h dataTypes.h
+
+clean-local:
+	if test -e @builddir@/Makefile.sip; \
+        then  make -f @builddir@/Makefile.sip clean ; fi
