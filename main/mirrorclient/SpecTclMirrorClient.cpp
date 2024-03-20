@@ -30,7 +30,7 @@
 #include <stdio.h>
 #include <thread>
 
-// #define DEBUGGING 1
+//#define DEBUGGING 1
 #ifdef DEBUGGING
 #define DEBUG(msg) std::cout << msg << std::endl; std::cout.flush()
 #else
@@ -327,7 +327,7 @@ void MirrorThread(MirrorClient* pClient, unsigned interval) {
         try {
             DEBUG("Trying to update");
             pClient->update();
-            DEBUG("It workd");
+            DEBUG("It worked");
         }
         catch (...) {
             DEBUG("Exception caught in update");
