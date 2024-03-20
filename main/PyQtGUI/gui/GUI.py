@@ -120,7 +120,7 @@ from WebWindow import WebWindow
 
 SETTING_BASEDIR = "workdir"
 SETTING_EXECUTABLE = "exec"
-DEBUG = False
+DEBUG = True
 DEBOUNCE_DUR = 0.25
 t = None
 
@@ -1844,7 +1844,8 @@ class MainWindow(QMainWindow):
             self.logger.debug("connectShMem - attempting update from CPYConverter.")
             s = cpy.CPyConverter().Update(bytes(hostname, encoding='utf-8'), bytes(port, encoding='utf-8'), bytes(mirror, encoding='utf-8'), bytes(user, encoding='utf-8'))
             self.logger.debug("connectShMem CPyConverter updated without failure")
-            
+       
+
             # creates a dataframe for spectrum info
             # use the spectrum name to merge both sources (REST and shared memory) of spectrum info
             # info = {"id":[],"names":[],"dim":[],"binx":[],"minx":[],"maxx":[],"biny":[],"miny":[],"maxy":[],"data":[],"parameters":[],"type":[]}
@@ -1852,14 +1853,20 @@ class MainWindow(QMainWindow):
             otherInfo = self.getSpectrumInfoFromReST()
             self.logger.debug("connectShMem Got spectrum information from REST")
             for i, name in enumerate(s[1]):
+                self.logger.debug("Looking at: %s", name)
                 if name in otherInfo:
+                    self.logger.debug("It's in otherinfo.")
                     if s[2][i] == 2:
+                        self.logger.debug("s[2][i] == 2")
                         data = s[9][i][ 1:-1, 1:-1]
                     else:
+                        self.logger.debug("s[2][i] != 2 ")
                         data = s[9][i][0:-1]
                         data[0] = 0
                     # print("Simon connectShMem ", s[3][i], s[4][i], s[5][i], s[6][i], s[7][i], s[8][i],otherInfo[name]["type"])
+                    self.logger.debug("Setting spectrum info")
                     self.setSpectrumInfoREST(name, dim=s[2][i], binx=s[3][i]-2, minx=s[4][i], maxx=s[5][i], biny=s[6][i]-2, miny=s[7][i], maxy=s[8][i], data=data, parameters=otherInfo[name]["parameters"], type=otherInfo[name]["type"])
+                    self.logger.debug('-------------------')
 
             # update and create parameter, spectrum, and gate lists
             # updateSpectrumList has True flag/arg only here, to define searchable list
