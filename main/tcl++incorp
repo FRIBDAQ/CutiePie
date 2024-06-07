@@ -1,15 +1,18 @@
 #!/bin/bash
 
-#  Manage the submodule for libtclplus
-#  Usage ./tcl++incorp tag-to-switch-to
-#
-#  e.g. ./tcl++incorp libtclplus-v4.3-001
-#  last used in this branch.
-#
-URL=https://github.com/FRIBDAQ/libtclplus
-tag=$1
+##  Incorporate tcl++:
 
-rm -rf libtclplus
-git clone $URL
+# Most recently used version libtclplus-v4.3-002
 
-(cd libtclplus; git checkout $tag; autoreconf -if)
+REPOSITORY="https://github.com/FRIBDAQ/libtclplus"
+TAG=$1
+TARGET="libtclplus"
+
+if [[ ! $TAG ]]
+then
+  TAG="libtclplus-v4.3-002"
+fi
+
+rm -rf $TARGET
+git clone $REPOSITORY $TARGET
+(cd $TARGET; git checkout $TAG; autoreconf -if)

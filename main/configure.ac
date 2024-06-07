@@ -1,6 +1,6 @@
 # Process this file with autoconf to produce a configure script.
 
-AC_INIT(SpecTcl,5.13-013, daqhelp@frib.msu.edu)
+AC_INIT(CutiePie, v1.5-001, daqhelp@frib.msu.edu)
 
 #AC_CONFIG_SRCDIR(SpecTcl/MySpecTclApp.cpp)
 AC_CONFIG_AUX_DIR(config)
@@ -88,15 +88,13 @@ AC_CHECK_LIB(rt, shm_open, [RTLIB=-lrt
 AC_DEFINE([HAVE_SHM_OPEN], [1])],[RTLIB=""])
 AC_SUBST(RTLIB)
 
-AC_CHECK_FILE([${srcdir}/libtclplus], [havelibtcldir="yes"], [havelibtcldir="no"])
-	  if test $havelibtcldir = "yes"
-  	then
-      AC_MSG_RESULT([Need to build local tagged copy])
-      AC_CHECK_FILE([${srcdir}/libtclplus/configure], [havelibtcldir="yes"], [havelibtcldir="no"])
-		  (cd ${srcdir}/libtclplus; ./configure --prefix=${prefix}; make clean install)
-	  else
-		  AC_MSG_ERROR([I seem to be missing libtcl, please use tcl++incorp.sh to fill it with a tagged release of libtclplus])
-	  fi
+AC_CHECK_FILE([${srcdir}/libtclplus/configure.ac],
+	[AC_MSG_NOTICE([Using previously incorporated tcl++ from the source tree at ${srcdir}/libtclplus])],
+	[AC_MSG_NOTICE([Need to build local tagged copy of tcl++])
+	${srcdir}/tcl++incorp])
+(cd ${srcdir}/libtclplus; ./configure --prefix=${prefix}; make clean install)
+result=$?
+AS_VAR_IF([result], [0], [], AC_MSG_ERROR([Failed to build and install tcl++ with result: ${result}]))
 AC_SUBST(TCLPLUS_CFLAGS, [-I${prefix}/include])
 AC_SUBST(TCLPLUS_LDFLAGS, ["-L${prefix}/lib -ltclPlus -lException"])
 
