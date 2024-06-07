@@ -56,9 +56,4 @@ install-exec-local:
 	$(INSTALL_DATA) _mirrorclient.hdr @includedir@/MirrorClient.h
 
 
-
-
-
-TESTS=unittests
-
 EXTRA_DIST=mirrorclientscript.tcl
