@@ -98,18 +98,6 @@ AS_VAR_IF([result], [0], [], AC_MSG_ERROR([Failed to build and install tcl++ wit
 AC_SUBST(TCLPLUS_CFLAGS, [-I${prefix}/include])
 AC_SUBST(TCLPLUS_LDFLAGS, ["-L${prefix}/lib -ltclPlus -lException"])
 
-#AC_CHECK_FILE([${srcdir}/libtclplus], [havelibtcldir="yes"], [havelibtcldir="no"])
-#	  if test $havelibtcldir = "yes"
-#  	then
-#      AC_MSG_RESULT([Need to build local tagged copy])
-#      AC_CHECK_FILE([${srcdir}/libtclplus/configure], [havelibtcldir="yes"], [havelibtcldir="no"])
-#		  (cd ${srcdir}/libtclplus; ./configure --prefix=${prefix}; make clean install)
-#	  else
-#		  AC_MSG_ERROR([I seem to be missing libtcl, please use tcl++incorp.sh to fill it with a tagged release of libtclplus])
-#	  fi
-#AC_SUBST(TCLPLUS_CFLAGS, [-I${prefix}/include])
-#AC_SUBST(TCLPLUS_LDFLAGS, ["-L${prefix}/lib -ltclPlus -lException"])
-
 
 # PAGESIZE in limits.h
 AC_MSG_CHECKING([for PAGESIZE in limits.h])
