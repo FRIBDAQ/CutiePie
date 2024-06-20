@@ -13,6 +13,8 @@ mydir = os.path.dirname(__file__)
 sys.path.append(mydir)
 libdir = mydir + '/../lib'
 sys.path.append(libdir)
+scriptdir = mydir + '/../Script'   # SpecTcl install
+sys.path.append(scriptdir)
 
 #  If we are in windows, we need to allow DLL's to be loaded
 #  from our script dir so:
