@@ -43,6 +43,7 @@ class Fncts1D(QDialog):
         self.peak_width = QLineEdit()
         self.peak_width.setText("20")
         self.peak_analysis = QPushButton("Scan", self)
+        self.peak_analysis.setStyleSheet("background-color:#bcee68;")
         self.peak_analysis_clear = QPushButton("Clear", self)
 
         self.peak_results_label = QLabel("Output")
@@ -71,12 +72,12 @@ class Fncts1D(QDialog):
         jupBox = QGroupBox("Jupyter Notebook")        
 
         self.jup_start = QPushButton("Start", self)
+        self.jup_start.setStyleSheet("background-color:#bcee68;")
         self.jup_stop = QPushButton("Stop", self)
         self.jup_df_filename = QLineEdit()
         filename = "df-"+time.strftime("%Y%m%d-%H%M%S")+".gzip"
         self.jup_df_filename.setText(filename)
 
-        self.jup_start.setStyleSheet("background-color:#3CB371;")
         self.jup_stop.setEnabled(False)
 
         layout = QHBoxLayout()

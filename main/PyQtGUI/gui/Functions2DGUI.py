@@ -53,6 +53,7 @@ class Fncts2D(QDialog):
         self.loadButton = QPushButton("Open File", self)
         self.loadLISE_name = QLineEdit(self)
         self.addButton = QPushButton("Add", self)
+        self.addButton.setStyleSheet("background-color:#bcee68;")
         self.deleteButton = QPushButton("Delete", self)                        
         self.alpha_label = QLabel("Transparency Level (20 %)")        
         self.alpha_slider = QSlider(QtCore.Qt.Horizontal, self)

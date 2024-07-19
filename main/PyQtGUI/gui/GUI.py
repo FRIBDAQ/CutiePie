@@ -275,7 +275,6 @@ class MainWindow(QMainWindow):
         #list of summing region line labels of the displayed spectrum {spectrumName : [sumRegionLabel, ...]}
         self.sumRegionDict = {} 
 
-
         # default min/max for x,y
         self.minX = 0
         self.maxX = 1024
@@ -396,6 +395,8 @@ class MainWindow(QMainWindow):
 
         # extra popup
         self.extraPopup.fit_button.clicked.connect(self.fit)
+        self.extraPopup.all_fitIdx_button.clicked.connect(self.printFitLineLabels)
+        self.extraPopup.delete_button.clicked.connect(self.deleteFit)
 
         self.extraPopup.peak.peak_analysis.clicked.connect(self.analyzePeak)
         self.extraPopup.peak.peak_analysis_clear.clicked.connect(self.peakAnalClear)
@@ -4740,7 +4741,6 @@ class MainWindow(QMainWindow):
             QMessageBox.about(self, "Warning", "xmin > xmax, the provided limits will be swapped for the fit")
         return left, right
 
-
     #Main fit function, reads user defined intial parameters and calls appropriate fit model
     def fit(self):
         self.logger.info('fit')
@@ -4806,11 +4806,13 @@ class MainWindow(QMainWindow):
                     x = np.array(x)
                     y = np.array(y)
 
+                    fitResultsText = QTextEdit()
                     if fit_funct == "Skeleton":
                         fitln = fit.start(x, y, xmin, xmax, fitpar, ax)
+                        self.setFitLineLabel(ax, fitln, fitResultsText, histo_name)
                     else:
-                        fitln = fit.start(x, y, xmin, xmax, fitpar, ax, self.extraPopup.fit_results)
-
+                        fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
+                        self.setFitLineLabel(ax, fitln, fitResultsText, histo_name)
                 else:
                     QMessageBox.about(self, "Warning", "Sorry 2D fitting is not implemented yet")
             else:
@@ -4821,6 +4823,81 @@ class MainWindow(QMainWindow):
         except NameError as err:
             print(err)
             pass
+
+
+    # Set fit outputs title based on fit line label, and set fit_results text
+    def setFitResultsLineLabel(self, fitLineLabelIdx, resultsText, histo_name):
+        self.logger.info('setFitResultsLineLabel - fitLineLabelIdx: %d',fitLineLabelIdx)
+        title = 'Fit '+str(fitLineLabelIdx)+' ('+ histo_name +')66 :'
+        self.extraPopup.fit_results.append(title)
+        self.extraPopup.fit_results.append(resultsText.toPlainText())
+        self.extraPopup.fit_results.append(' ')
+
+
+    # Set fit line label, proper to an axis
+    # Increment a fit line index used as line label
+    def setFitLineLabel(self, ax, line, resultsText, histo_name):
+        self.logger.info('setFitLineLabel')
+        fitLineLabel = "fit-_-"
+        fitLabels = self.listFitLineLabels(ax)
+        fitIdxs = [int(label) for label in fitLabels]
+        fitIdx = 0
+
+        if not fitIdxs:
+            fitLineLabel += "0"
+        else:
+            i = 0
+            while i in fitIdxs:
+                i += 1
+            fitIdx = i
+            fitLineLabel += str(i)
+
+        line.set_label(fitLineLabel)
+        self.setFitResultsLineLabel(fitIdx, resultsText, histo_name)
+        self.logger.debug('setFitLineLabel - line label: %s',line.get_label())
+
+
+    # Delete fit function (delete_button callback), reads user defined fit indexes list and delete corresponding lines
+    def deleteFit(self):
+        self.logger.info('deleteFit')
+        index = self.autoIndex()
+        ax = self.getSpectrumInfo("axis", index=index)
+        userFitIdxs = self.extraPopup.delete_fitIdx_list.text().split()
+        availableFitIdxs = self.listFitLineLabels(ax)
+        notAvailableFitIdxs = [fitIdx for fitIdx in userFitIdxs if fitIdx not in availableFitIdxs]
+        if notAvailableFitIdxs:
+            self.logger.warning('deleteFit - fit line(s) index(es): %s cannot be deleted', notAvailableFitIdxs)
+        else:
+            for fitIdx in userFitIdxs:
+                fitLineIdentifier = "fit-_-" + fitIdx
+                for fitLine in ax.get_children():
+                    if type(fitLine) == matplotlib.lines.Line2D and fitLineIdentifier in fitLine.get_label():
+                        fitLine.remove()
+                        self.logger.debug('deleteFit - removed fit line: %s', fitLineIdentifier)
+
+
+    # Find all fit lines from ax and extract their labels
+    def listFitLineLabels(self, ax):
+        self.logger.info('listFitLineLabels')
+        fitLabels = []
+        fitLineIdentifier = "fit-_-"
+        fitLineLabels = [fitLine.get_label() for fitLine in ax.get_children() if type(fitLine) == matplotlib.lines.Line2D and fitLineIdentifier in fitLine.get_label()]
+        for label in fitLineLabels :
+            labelSplit = label.split("-_-")
+            fitLabels.append(labelSplit[1])
+        return fitLabels
+
+
+    # all_fitIdx_button callback, print in extraPopup.delete_fitIdx_list the indexes of all fit lines in axis
+    def printFitLineLabels(self):
+        self.logger.info('printFitLineLabels')
+        index = self.autoIndex()
+        ax = self.getSpectrumInfo("axis", index=index)
+        fitLabels = self.listFitLineLabels(ax)
+        textLabels = ''
+        for label in fitLabels :
+            textLabels += label + " "
+        self.extraPopup.delete_fitIdx_list.setText(textLabels)
 
 
     ############################
