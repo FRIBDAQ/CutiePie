@@ -4808,7 +4808,7 @@ class MainWindow(QMainWindow):
 
                     fitResultsText = QTextEdit()
                     if fit_funct == "Skeleton":
-                        fitln = fit.start(x, y, xmin, xmax, fitpar, ax)
+                        fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
                         self.setFitLineLabel(ax, fitln, fitResultsText, histo_name)
                     else:
                         fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
@@ -4828,7 +4828,7 @@ class MainWindow(QMainWindow):
     # Set fit outputs title based on fit line label, and set fit_results text
     def setFitResultsLineLabel(self, fitLineLabelIdx, resultsText, histo_name):
         self.logger.info('setFitResultsLineLabel - fitLineLabelIdx: %d',fitLineLabelIdx)
-        title = 'Fit '+str(fitLineLabelIdx)+' ('+ histo_name +')66 :'
+        title = 'Fit '+str(fitLineLabelIdx)+' ('+ histo_name +') :'
         self.extraPopup.fit_results.append(title)
         self.extraPopup.fit_results.append(resultsText.toPlainText())
         self.extraPopup.fit_results.append(' ')
@@ -4842,6 +4842,10 @@ class MainWindow(QMainWindow):
         fitLabels = self.listFitLineLabels(ax)
         fitIdxs = [int(label) for label in fitLabels]
         fitIdx = 0
+
+        if line is None:
+            self.logger.debug('setFitLineLabel - line is None')
+            return
 
         if not fitIdxs:
             fitLineLabel += "0"
