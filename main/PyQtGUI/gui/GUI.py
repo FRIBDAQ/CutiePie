@@ -1422,7 +1422,7 @@ class MainWindow(QMainWindow):
                     binx = info[0]["axes"][0]["bins"]
                     minx = info[0]["axes"][0]["low"]
                     maxx = info[0]["axes"][0]["high"]
-                    if "1" in info[0]["type"] or "b" in info[0]["type"] or "g1" in info[0]["type"] or "s" in info[0]["type"] :
+                    if "1" in info[0]["type"] or "b" in info[0]["type"] or "g1" in info[0]["type"] :
                         dim = 1
                         biny = miny = maxy = None
                         nameIndex = s[1].index(name)
@@ -1433,6 +1433,37 @@ class MainWindow(QMainWindow):
                             debugstring = "updateFromTraces - nameIndex not in shmem np array for :" + name
                             self.logger.debug(debugstring, exc_info=True)
                             # print("updateFromTraces - nameIndex not in shmem np array for : ", name)
+                        self.setSpectrumInfoREST(name, dim=dim, binx=binx, minx=minx, maxx=maxx, biny=biny, miny=miny, maxy=maxy, parameters=info[0]["parameters"], type=info[0]["type"], data=data)
+                    elif "s" in info[0]["type"] :
+                        dim = 2
+                        # only the y axis in info[0]["axes"]
+                        biny = binx
+                        miny = minx
+                        maxy = maxx
+                        # get x axis from parameters list
+                        binx = 0
+                        minx = 9e+6
+                        maxx = 0
+                        for par in info[0]["parameters"]:
+                            ipar = self.getLastDigitParam(par)
+                            if ipar < minx :
+                                minx = ipar
+                            if ipar > maxx :
+                                maxx = ipar
+                        nameIndex = s[1].index(name)
+                        maxx += 1
+                        # Assuming 1 parameter per bin
+                        # ! maybe different than the binning chosen by user !
+                        # Because compared to shmem for summary spec the x binning is not provided.
+                        # If want the same auto x axis definition at connection to shmem, see commented lines in connectShMem
+                        binx = maxx - minx
+                        try :
+                            #print("Simon - data - min, max, binx ", s[9][nameIndex][:,:],minx,maxx, binx)
+                            data = s[9][nameIndex][1:-1, 1:-1]
+                            # data = s[9][nameIndex][0:-1]
+                        except:
+                            debugstring = "updateFromTraces - nameIndex not in shmem np array for :" + name
+                            self.logger.debug(debugstring, exc_info=True)
                         self.setSpectrumInfoREST(name, dim=dim, binx=binx, minx=minx, maxx=maxx, biny=biny, miny=miny, maxy=maxy, parameters=info[0]["parameters"], type=info[0]["type"], data=data)
                     else :
                         dim = 2
@@ -1860,13 +1891,41 @@ class MainWindow(QMainWindow):
                     if s[2][i] == 2:
                         self.logger.debug("s[2][i] == 2")
                         data = s[9][i][ 1:-1, 1:-1]
+                        # -- begin -- for auto x-axis definition summary spec
+                        if "s" in otherInfo[name]["type"]:
+                            minx = s[4][i]
+                            maxx = s[5][i] + 1
+                        # # get x axis from parameters list
+                        # binx = 0
+                        # minx = 9e+6
+                        # maxx = 0
+                        # for par in otherInfo[name]["parameters"]:
+                        #     ipar = self.getLastDigitParam(par)
+                        #     if ipar < minx :
+                        #         minx = ipar
+                        #     if ipar > maxx :
+                        #         maxx = ipar
+                        # maxx += 1
+                        # # Assuming 1 parameter per bin
+                        # binx = maxx - minx
+                        # -- end -- for auto x-axis definition summary spec
                     else:
                         self.logger.debug("s[2][i] != 2 ")
                         data = s[9][i][0:-1]
                         data[0] = 0
-                    # print("Simon connectShMem ", s[3][i], s[4][i], s[5][i], s[6][i], s[7][i], s[8][i],otherInfo[name]["type"])
+
+
+
+
+                    # print("Simon connectShMem ", name, s[2][i], s[3][i], s[4][i], s[5][i], s[6][i], s[7][i], s[8][i],otherInfo[name]["type"])
                     self.logger.debug("Setting spectrum info")
-                    self.setSpectrumInfoREST(name, dim=s[2][i], binx=s[3][i]-2, minx=s[4][i], maxx=s[5][i], biny=s[6][i]-2, miny=s[7][i], maxy=s[8][i], data=data, parameters=otherInfo[name]["parameters"], type=otherInfo[name]["type"])
+                    # -- begin -- for auto x-axis definition summary spec
+                    if "s" in otherInfo[name]["type"]:
+                        self.setSpectrumInfoREST(name, dim=s[2][i], binx=s[3][i]-2, minx=minx, maxx=maxx, biny=s[6][i]-2, miny=s[7][i], maxy=s[8][i], data=data, parameters=otherInfo[name]["parameters"], type=otherInfo[name]["type"])
+                    else:
+                        self.setSpectrumInfoREST(name, dim=s[2][i], binx=s[3][i]-2, minx=s[4][i], maxx=s[5][i], biny=s[6][i]-2, miny=s[7][i], maxy=s[8][i], data=data, parameters=otherInfo[name]["parameters"], type=otherInfo[name]["type"])
+                    # -- end -- for auto x-axis definition summary spec
+                    # self.setSpectrumInfoREST(name, dim=s[2][i], binx=s[3][i]-2, minx=s[4][i], maxx=s[5][i], biny=s[6][i]-2, miny=s[7][i], maxy=s[8][i], data=data, parameters=otherInfo[name]["parameters"], type=otherInfo[name]["type"])
                     self.logger.debug('-------------------')
 
             # update and create parameter, spectrum, and gate lists
@@ -2848,7 +2907,11 @@ class MainWindow(QMainWindow):
                 self.removeRectangle()
                 self.currentPlot.recDashed = self.createDashedRectangle(self.currentPlot.figure.axes[self.currentPlot.next_plot_index])
 
-                self.currentPlot.figure.tight_layout()
+                try:
+                    self.currentPlot.figure.tight_layout()
+                except ValueError:
+                    self.logger.debug('addPlot - ValueError exception', exc_info=True)
+                    pass
 
                 # print("Simon - in drawPlot - before canvas draw")
                 # for testAx in self.currentPlot.figure.axes:
@@ -5382,6 +5445,18 @@ class MainWindow(QMainWindow):
             return str(f"{color}" + string + f"{reset}")
         else :
             return string
+
+    # For summary spectrum, extract the last number from the parameter name
+    def getLastDigitParam(self, parameterName):
+        self.logger.info('getLastDigitParam - parameterName: %s', parameterName)
+        parts = parameterName.split(".")
+        if not any(part.isdigit() for part in parts):
+            return None
+        try:
+            return int(parts[-1])
+        except ValueError:
+            self.logger.debug('getLastDigitParam - ValueError exception', exc_info=True)
+            return None
 
 
 # redirect logging
