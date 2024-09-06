@@ -2,6 +2,7 @@
 import io
 import re
 import sys, os, platform
+
 cwd = os.getcwd()
 
 #  Sadly it seems that environment variables sent in via setenv
@@ -15,6 +16,8 @@ libdir = mydir + '/../lib'
 sys.path.append(libdir)
 scriptdir = mydir + '/../Script'   # SpecTcl install
 sys.path.append(scriptdir)
+
+import CPyConverter as cpy
 
 #  If we are in windows, we need to allow DLL's to be loaded
 #  from our script dir so:
