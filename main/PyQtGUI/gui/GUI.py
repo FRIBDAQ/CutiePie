@@ -1,5 +1,6 @@
 #!/usr/bin/env python3os
 # import modules and packages
+
 import sys, os, ast
 import logging, copy, cv2
 import threading, time, math, re
@@ -8,6 +9,8 @@ from copy import copy, deepcopy
 import pandas as pd
 import numpy as np
 import logging, logging.handlers
+import CPyConverter as cpy
+
 
 # import importlib
 # import io, pickle, traceback, sys, os, subprocess, ast, csv, gzip
@@ -76,7 +79,7 @@ from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 import matplotlib.text as mtext
 
-import CPyConverter as cpy
+
 
 # List of implementation topics
 # 0) Class definition
