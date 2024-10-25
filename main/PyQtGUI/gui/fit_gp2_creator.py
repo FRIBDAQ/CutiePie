@@ -33,19 +33,24 @@ class GPol2Fit:
 
     # implementation of the fitting algorithm
     def start(self, x, y, xmin, xmax, fitpar, axis, fit_results):
+        # We have to drop zeroes for Neyman's chisq:
+        zeroes = np.where(y == 0)[0]
+        x = np.delete(x, zeroes)
+        y = np.delete(y, zeroes)
+        
         fitln = None
         if (fitpar[0] != 0.0):
             self.amplitude = fitpar[0]
         else:
-            self.amplitude = 1000
+            self.amplitude = np.max(y)
         if (fitpar[1] != 0.0):
             self.mean = fitpar[1]
         else:
-            self.mean = xmin+(xmax-xmin)/2
+            self.mean = np.mean(x)
         if (fitpar[2] != 0.0):
             self.standard_deviation = fitpar[2]
         else:
-            self.standard_deviation = self.mean/10
+            self.standard_deviation = np.std(x)
         if (fitpar[3] != 0.0):
             self.p0 = fitpar[3]
         else:
@@ -67,6 +72,11 @@ class GPol2Fit:
         # Changes for aschester/issue34:
         # - Set bounds such that standard_deviation >= 0 and 0 <= f <= 1.
         # - Weight the fit by the sqrt of the # counts.
+
+        # We have to drop zeroes for Neyman's chisq:
+        zeroes = np.where(y == 0)[0]
+        x = np.delete(x, zeroes)
+        y = np.delete(y, zeroes)
         
         pbounds=([-np.inf, -np.inf, 0, -np.inf, -np.inf, -np.inf, 0], [np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, 1])
         

@@ -21,6 +21,11 @@ class ExpFit:
 
     # implementation of the fitting algorithm
     def start(self, x, y, xmin, xmax, fitpar, axis, fit_results):
+        # We have to drop zeroes for Neyman's chisq:
+        zeroes = np.where(y == 0)[0]
+        x = np.delete(x, zeroes)
+        y = np.delete(y, zeroes)
+        
         fitln = None
         if (fitpar[0] != 0.0):
             self.a = fitpar[0]
