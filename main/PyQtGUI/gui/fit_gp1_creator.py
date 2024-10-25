@@ -58,7 +58,14 @@ class GPol1Fit:
         else:
             self.f = 0.9
         p_init = [self.amplitude, self.mean, self.standard_deviation, self.p0, self.p1, self.f]
-        popt, pcov = curve_fit(self.gpol1, x, y, p0=p_init, maxfev=1000000)
+
+        # Changes for aschester/issue34:
+        # - Set bounds such that standard_deviation >= 0 and 0 <= f <= 1.
+        # - Weight the fit by the sqrt of the # counts.
+        
+        pbounds=([-np.inf, -np.inf, 0, -np.inf, -np.inf, 0], [np.inf, np.inf, np.inf, np.inf, np.inf, 1])
+        
+        popt, pcov = curve_fit(self.gpol1, x, y, p0=p_init, bounds=pbounds, sigma=np.sqrt(y), absolute_sigma=True, maxfev=1000000)
 
         # plotting fit curve and printing results
         try:

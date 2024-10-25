@@ -36,7 +36,11 @@ class ExpFit:
             self.c = -1
 
         p_init = [self.a, self.b, self.c]
-        popt, pcov = curve_fit(self.exp, x, y, p0=p_init, maxfev=1000000)
+
+        # Changes for aschester/issue34:
+        # - Weight the fit by the sqrt of the # counts.
+        
+        popt, pcov = curve_fit(self.exp, x, y, p0=p_init, sigma=np.sqrt(y), absolute_sigma=True, maxfev=1000000)
 
         # plotting fit curve and printing results
         try:

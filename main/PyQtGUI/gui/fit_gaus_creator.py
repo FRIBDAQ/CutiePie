@@ -38,7 +38,14 @@ class GausFit:
         p_init = [self.amplitude, self.mean, self.standard_deviation]
         #sometime doesn't converge with maxfev iterations and raise an error in curve_fit, this closes CutiePie window.
         #consider changing library
-        popt, pcov = curve_fit(self.gauss, x, y, p0=p_init, maxfev=1000000)
+
+        # Changes for aschester/issue34:
+        # - Set bounds such that standard_deviation >= 0.
+        # - Weight the fit by the sqrt of the # counts.
+
+        pbounds = ([-np.inf, -np.inf, 0], [np.inf, np.inf, np.inf])
+        
+        popt, pcov = curve_fit(self.gauss, x, y, p0=p_init, bounds=pbounds, sigma=np.sqrt(y), absolute_sigma=True, maxfev=1000000)
 
         # plotting fit curve and printing results
         try:
