@@ -5,7 +5,7 @@ import numpy as np
 
 class SkelFit(FitFunction):
     def __init__(self, param_1, param_2, param_3):
-        params = [param_1, param_2, param_3)
+        params = np.array([param_1, param_2, param_3], dtype=np.float64)
         super().__init__(params)        
 
     def model(self, params):

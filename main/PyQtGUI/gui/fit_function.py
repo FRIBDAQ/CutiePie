@@ -12,8 +12,8 @@ class FitFunction:
     """Base class for curve fitting by Poisson MLE. It is up to the derived
     classes to implement the model function and (possibly) inital parameter 
     estimation.
+    
     """
-
     def __init__(self, params):
         self.p_init = params # Initial guesses
 
@@ -26,32 +26,31 @@ class FitFunction:
         self.p_init = params[0:len(self.p_init)]
 
     def neg_log_likelihood_p(self, params, x, y):
-        """Poisson negative log-likelihood. The parameters must be the first 
+        """Poisson negative log-likelihood. The fit parameters must be first 
         parameter in the signiture as it is set by x0 in the minimize call.
-        Note that gammaln(x+1) = log(x!).
         """
-        pred = self.model(x, params)
-        
-        if np.any(pred <= 0):
+        pred = self.model(x, params)        
+        if np.any(pred <= 0): # protect against log(x <= 0) 
             return np.inf
-        
         return -np.sum(poisson.logpmf(y, pred))
 
     def start(self, x, y, xmin, xmax, params, axis, fit_results):
         """Perform the fit and show the results. Return the data to plot."""
+        fitln = None # data to plot        
         self.set_initial_parameters(x, y, params)
-        result = minimize(self.neg_log_likelihood_p, x0=self.p_init, args=(x,y), options={"maxiter": 1000000})
+        result = minimize(self.neg_log_likelihood_p, x0=self.p_init, args=(x,y))
+        if not result.success:
+            print(f"Fit terminted unexpectedly: {result.message}")
 
-        fitln = None
         try:
             x_fit = np.linspace(x[0],x[-1], 10000)
             y_fit = self.model(x_fit, result.x)
             fitln, = axis.plot(x_fit,y_fit, 'r-')
-            # Inverse Hessian is ~ Cov
+            # Inverse Hessian is ~ Cov:
             for i in range(len(result.x)):
                 s = 'Par['+str(i)+']: '+str(round(result.x[i],3))+'+/-'+str(round(result.hess_inv[i][i],3))
                 fit_results.append(s)
         except:
-            pass
+            pass # can't plot, ignored
         
         return fitln

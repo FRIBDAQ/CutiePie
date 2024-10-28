@@ -5,7 +5,7 @@ import numpy as np
 
 class GausFit(FitFunction):
     def __init__(self, amplitude, mean, standard_deviation):
-        params = [amplitude, mean, standard_deviation]
+        params = np.array([amplitude, mean, standard_deviation], dtype=np.float64)
         super().__init__(params)
 
     # function defined by the user
@@ -26,7 +26,7 @@ class GausFit(FitFunction):
         if (params[2] != 0.0):
             self.p_init[2] = params[2]
         else:
-            self.p_init[2] = np.std(x)
+            self.p_init[2] = abs(self.p_init[1])/10
 
 class GausFitBuilder:
     def __init__(self):

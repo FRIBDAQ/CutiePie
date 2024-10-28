@@ -13,7 +13,7 @@ def pol1(self, x, params):
 
 class GPol1Fit(FitFunction):
     def __init__(self, amplitude, mean, standard_deviation, p0, p1, f):
-        params = [amplitude, mean, standard_deviation, p0, p1, f]
+        params = np.array([amplitude, mean, standard_deviation, p0, p1, f], dtype=np.float64)
         super().__init__(params)
         
     # function defined by the user
@@ -37,7 +37,7 @@ class GPol1Fit(FitFunction):
         if (params[2] != 0.0):
             self.p_init[2] = params[2]
         else:
-            self.p_init[2] = np.std(x)
+            self.p_init[2] = abs(self.p_init[1])/10
         if (params[3] != 0.0):
             self.p_init[3] = params[3]
         else:

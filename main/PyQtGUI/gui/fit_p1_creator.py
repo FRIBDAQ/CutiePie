@@ -5,7 +5,7 @@ import numpy as np
 
 class Pol1Fit(FitFunction):
     def __init__(self, p0, p1):
-        params = [p0, p1]
+        params = np.array([p0, p1], dtype=np.float64)
         super().__init__(params)
 
     def model(self, x, params):

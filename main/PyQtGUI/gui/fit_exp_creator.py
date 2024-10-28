@@ -5,7 +5,7 @@ import numpy as np
 
 class ExpFit(FitFunction):
     def __init__(self, a, b, c):
-        params = [a, b, c]
+        params = np.array([a, b, c], dtype=np.float64)
         super().__init__(params)
 
     def model(self, x, params):
