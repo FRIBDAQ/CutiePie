@@ -1,64 +1,31 @@
 #!/usr/bin/env python
-import io
-import sys, os
-sys.path.append(os.getcwd())
 
-import pandas as pd
+from fit_function import FitFunction
 import numpy as np
-from scipy.optimize import curve_fit
 
-import fit_factory
-
-class ExpFit:
+class ExpFit(FitFunction):
     def __init__(self, a, b, c):
-        self.a = a
-        self.b = b
-        self.c = c
+        params = [a, b, c]
+        super().__init__(params)
 
-    # function defined by the user
-    def exp(self, x, a, b, c):
-        return a+b*np.exp(x*c)
+    def model(self, x, params):
+        """Simple exponential with constant offset"""
+        return params[0] + params[1]*np.exp(params[2]*(x-x[0]))
 
-    # implementation of the fitting algorithm
-    def start(self, x, y, xmin, xmax, fitpar, axis, fit_results):
-        # We have to drop zeroes for Neyman's chisq:
-        zeroes = np.where(y == 0)[0]
-        x = np.delete(x, zeroes)
-        y = np.delete(y, zeroes)
-        
-        fitln = None
-        if (fitpar[0] != 0.0):
-            self.a = fitpar[0]
+    def set_initial_parameters(self, x, y, params):
+        super().set_initial_parameters(x, y, params)
+        if (params[0] != 0.0):
+            self.p_init[0] = params[0]
         else:
-            self.a = 1
-        if (fitpar[1] != 0.0):
-            self.b = fitpar[1]
+            self.p_init[0] = min(y[0], y[-1])
+        if (params[1] != 0.0):
+            self.p_init[1] = params[1]
         else:
-            self.b = 5
-        if (fitpar[2] != 0.0):
-            self.c = fitpar[2]
+            self.p_init[1] = max(y) - self.p_init[0]
+        if (params[2] != 0.0):
+            self.p_init[2] = params[2]
         else:
-            self.c = -1
-
-        p_init = [self.a, self.b, self.c]
-
-        # Changes for aschester/issue34:
-        # - Weight the fit by the sqrt of the # counts.
-        
-        popt, pcov = curve_fit(self.exp, x, y, p0=p_init, sigma=np.sqrt(y), absolute_sigma=True, maxfev=1000000)
-
-        # plotting fit curve and printing results
-        try:
-            x_fit = np.linspace(x[0],x[-1], 10000)
-            y_fit = self.gauss(x_fit, *popt)
-
-            fitln, = axis.plot(x_fit,y_fit, 'r-')
-            for i in range(len(popt)):
-                s = 'Par['+str(i)+']: '+str(round(popt[i],3))+'+/-'+str(round(pcov[i][i],3))
-                fit_results.append(s)
-        except:
-            pass
-        return fitln
+            self.p_init[2] = -1
 
 class ExpFitBuilder:
     def __init__(self):

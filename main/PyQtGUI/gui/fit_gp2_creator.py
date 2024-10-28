@@ -1,105 +1,65 @@
 #!/usr/bin/env python
-import io
-import sys, os
-sys.path.append(os.getcwd())
 
-import pandas as pd
+from fit_function import FitFunction
 import numpy as np
-from scipy.optimize import curve_fit
 
-import fit_factory
+def gauss(self, x, params):
+    """Unnormalized Gaussian."""
+    return params[0]*np.exp(-(x-params[1])**2 / (2*params[2]**2))
 
-class GPol2Fit:
+def pol2(self, x, params):
+    """Quadratic function."""
+    return params[0] + params[1]*x + params[2]*x*x
+
+class GPol2Fit(FitFunction):
     def __init__(self, amplitude, mean, standard_deviation, p0, p1, p2, f):
-        self.amplitude = amplitude
-        self.mean = mean
-        self.standard_deviation = standard_deviation
-        self.p0 = p0
-        self.p1 = p1
-        self.p2 = p2
-        self.f = f
-
-    def gauss(self, x, amplitude, mean, standard_deviation):
-        return amplitude*np.exp(-(x-mean)**2.0 / (2*standard_deviation**2))
-
-    def pol2(self, x, p0, p1, p2):
-        return p0+p1*x+p2*x*x
-
+        params = [amplitude, mean, standard_deviation, p0, p1, p2, f]
+        super().__init__(params)
+        
     # function defined by the user
-    def gpol2(self, x, amplitude, mean, standard_deviation, p0, p1, p2, f):
-        g = self.gauss(x, amplitude, mean, standard_deviation)
-        pol2 = self.pol2(x,p0,p1,p2)
-        return f*g+(1-f)*pol2
+    def model(self, x, params):
+        """Gaussian + linear"""
+        frac = params[6]
+        gauss = gauss(x, params[0:3])
+        pol2 = pol2(x, params[3:6])
+        return frac*gauss + (1-frac)*pol2
 
-    # implementation of the fitting algorithm
-    def start(self, x, y, xmin, xmax, fitpar, axis, fit_results):
-        # We have to drop zeroes for Neyman's chisq:
-        zeroes = np.where(y == 0)[0]
-        x = np.delete(x, zeroes)
-        y = np.delete(y, zeroes)
-        
-        fitln = None
-        if (fitpar[0] != 0.0):
-            self.amplitude = fitpar[0]
+    def set_initial_parameters(self, x, y, params):
+        super().set_initial_parameters(x, y, params)
+        if (params[0] != 0.0):
+            self.p_init[0] = params[0]
         else:
-            self.amplitude = np.max(y)
-        if (fitpar[1] != 0.0):
-            self.mean = fitpar[1]
+            self.p_init[0] = np.max(y)
+        if (params[1] != 0.0):
+            self.p_init[1] = params[1]
         else:
-            self.mean = np.mean(x)
-        if (fitpar[2] != 0.0):
-            self.standard_deviation = fitpar[2]
+            self.p_init[1] = x[np.argmax(y)]
+        if (params[2] != 0.0):
+            self.p_init[2] = params[2]
         else:
-            self.standard_deviation = np.std(x)
-        if (fitpar[3] != 0.0):
-            self.p0 = fitpar[3]
+            self.p_init[2] = np.std(x)
+        if (params[3] != 0.0):
+            self.p_init[3] = params[3]
         else:
-            self.p0 = 100
-        if (fitpar[4] != 0.0):
-            self.p1 = fitpar[4]
+            self.p_init[3] = min(y[0], y[-1])
+        if (params[4] != 0.0):
+            self.p_init[4] = params[4]
         else:
-            self.p1 = 10
-        if (fitpar[5] != 0.0):
-            self.p2 = fitpar[5]
+            self.p_init[4] = (y[-1] - y[0])/(x[-1] - x[0])
+        if (params[5] != 0.0):
+            self.p_init[5] = params[5]
         else:
-            self.p2 = 10
-        if (fitpar[6] != 0.0):
-            self.f = fitpar[6]
+            self.p_init[5] =0.0
+        if (params[6] != 0.0):
+            self.p_init[6] = params[6]
         else:
-            self.f = 0.9
-        p_init = [self.amplitude, self.mean, self.standard_deviation, self.p0, self.p1, self.p2, self.f]
-
-        # Changes for aschester/issue34:
-        # - Set bounds such that standard_deviation >= 0 and 0 <= f <= 1.
-        # - Weight the fit by the sqrt of the # counts.
-
-        # We have to drop zeroes for Neyman's chisq:
-        zeroes = np.where(y == 0)[0]
-        x = np.delete(x, zeroes)
-        y = np.delete(y, zeroes)
-        
-        pbounds=([-np.inf, -np.inf, 0, -np.inf, -np.inf, -np.inf, 0], [np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, 1])
-        
-        popt, pcov = curve_fit(self.gpol2, x, y, p0=p_init, bounds=pbounds, sigma=np.sqrt(y), absolute_sigma=True, maxfev=1000000)
-
-        # plotting fit curve and printing results
-        try:
-            x_fit = np.linspace(x[0],x[-1], 10000)
-            y_fit = self.gpol2(x_fit, *popt)
-
-            fitln, = axis.plot(x_fit,y_fit, 'r-')
-            for i in range(len(popt)):
-                s = 'Par['+str(i)+']: '+str(round(popt[i],3))+'+/-'+str(round(pcov[i][i],3))
-                fit_results.append(s)
-        except:
-            pass
-        return fitln
+            self.p_init[6] = 0.9
 
 class GPol2FitBuilder:
     def __init__(self):
         self._instance = None
 
-    def __call__(self, amplitude=1000, mean=100, standard_deviation=10, p0=100, p1=10, p2=10, f=0.9):
+    def __call__(self, amplitude=1000, mean=100, standard_deviation=10, p0=100, p1=10, p2=1, f=0.9):
         if not self._instance:
             self._instance = GPol2Fit(amplitude, mean, standard_deviation, p0, p1, p2, f)
         return self._instance

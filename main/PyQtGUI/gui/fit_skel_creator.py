@@ -1,33 +1,29 @@
 #!/usr/bin/env python
-import io
-import sys, os
-sys.path.append(os.getcwd())
 
-import pandas as pd
+from fit_function import FitFunction
 import numpy as np
 
-import fit_factory
-
-# Skeleton fit parameters
-# param_1 = 1
-# param_2 = 1,
-# param_3 = 10
-
-class SkelFit:
+class SkelFit(FitFunction):
     def __init__(self, param_1, param_2, param_3):
-        self.param_1 = param_1
-        self.param_2 = param_2
-        self.param_3 = param_3
+        params = [param_1, param_2, param_3)
+        super().__init__(params)        
 
-    # implementation of the algorithm, the argument are mandatory even if not used
-    def start(self, x, y, xmin, xmax, fitpar, axis, fit_results):
-        print("Skeleton example. Implementation is all yours.")
+    def model(self, params):
+        """Users need to implement thier own fit functions."""
+        raise RuntimeError("Implementation of a model function is up to you.")
 
+    #def set_inital_parameters(self, x, y, params):
+    #    """Uncomment and override this funciton to customize the parameter
+    #    initialization for your fits. Otherwise use the default (read from
+    #    fit panel).
+    #    """
+    #    # Custom initialization goes here.
+    
 class SkelFitBuilder:
     def __init__(self):
         self._instance = None
 
-    def __call__(self, param_1 = 1, param_2 = 2, param_3 = 10, **_ignored):
+    def __call__(self, param_1=1, param_2=2, param_3=10, **_ignored):
         if not self._instance:
             self._instance = SkelFit(param_1, param_2, param_3)
         return self._instance
