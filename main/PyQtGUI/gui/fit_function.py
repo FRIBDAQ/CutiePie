@@ -38,9 +38,10 @@ class FitFunction:
         """Perform the fit and show the results. Return the data to plot."""
         fitln = None # data to plot        
         self.set_initial_parameters(x, y, params)
-        result = minimize(self.neg_log_likelihood_p, x0=self.p_init, args=(x,y))
+        # Relax the tolerances to get good convergence with finite difference:
+        result = minimize(self.neg_log_likelihood_p, x0=self.p_init, args=(x,y), method='bfgs', options={'maxiter': 1000000, 'gtol': 1e-3, 'eps': 1e-6})
         if not result.success:
-            print(f"Fit terminted unexpectedly: {result.message}")
+            print(f"WARNING: fit did not terminate successfully:\n{result}")
 
         try:
             x_fit = np.linspace(x[0],x[-1], 10000)
@@ -48,7 +49,7 @@ class FitFunction:
             fitln, = axis.plot(x_fit,y_fit, 'r-')
             # Inverse Hessian is ~ Cov:
             for i in range(len(result.x)):
-                s = 'Par['+str(i)+']: '+str(round(result.x[i],3))+'+/-'+str(round(result.hess_inv[i][i],3))
+                s = 'Par['+str(i)+']: '+str(round(result.x[i],6))+'+/-'+str(round(result.hess_inv[i][i],6))
                 fit_results.append(s)
         except:
             pass # can't plot, ignored

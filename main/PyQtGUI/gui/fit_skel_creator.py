@@ -8,8 +8,10 @@ class SkelFit(FitFunction):
         params = np.array([param_1, param_2, param_3], dtype=np.float64)
         super().__init__(params)        
 
-    def model(self, params):
-        """Users need to implement thier own fit functions."""
+    def model(self, x, params):
+        """Users need to implement thier own fit functions. If you run this 
+        skeleton fit the program will crash and show you this error message.
+        """
         raise RuntimeError("Implementation of a model function is up to you.")
 
     #def set_inital_parameters(self, x, y, params):
