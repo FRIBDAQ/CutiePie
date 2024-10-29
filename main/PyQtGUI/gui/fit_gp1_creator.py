@@ -21,9 +21,7 @@ class GPol1Fit(FitFunction):
     def model(self, x, params):
         """Gaussian + linear background."""
         frac = params[5]
-        gauss = gauss(x, params[0:3])
-        pol1 = pol1(x, params[3:5])
-        return frac*gauss + (1-frac)*pol1
+        return frac*gauss(x, params[0:3]) + (1-frac)*pol1(x, params[3:5])
 
     def set_initial_parameters(self, x, y, params):
         super().set_initial_parameters(x, y, params)
