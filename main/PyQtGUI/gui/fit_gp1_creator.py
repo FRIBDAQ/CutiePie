@@ -1,77 +1,55 @@
 #!/usr/bin/env python
-import io
-import sys, os
-sys.path.append(os.getcwd())
 
-import pandas as pd
+from fit_function import FitFunction
 import numpy as np
-from scipy.optimize import curve_fit
 
-import fit_factory
+def gauss(self, x, params):
+    """Unnormalized Gaussian."""
+    return params[0]*np.exp(-(x-params[1])**2 / (2*params[2]**2))
 
-class GPol1Fit:
+def pol1(self, x, params):
+    """Linear function."""
+    return params[0] + params[1]*x
+
+class GPol1Fit(FitFunction):
     def __init__(self, amplitude, mean, standard_deviation, p0, p1, f):
-        self.amplitude = amplitude
-        self.mean = mean
-        self.standard_deviation = standard_deviation
-        self.p0 = p0
-        self.p1 = p1
-        self.f = f
-
-    def gauss(self, x, amplitude, mean, standard_deviation):
-        return amplitude*np.exp(-(x-mean)**2.0 / (2*standard_deviation**2))
-
-    def pol1(self, x, p0, p1):
-        return p0+p1*x
-
+        params = np.array([amplitude, mean, standard_deviation, p0, p1, f], dtype=np.float64)
+        super().__init__(params)
+        
     # function defined by the user
-    def gpol1(self, x, amplitude, mean, standard_deviation, p0, p1, f):
-        g = self.gauss(x, amplitude, mean, standard_deviation)
-        pol1 = self.pol1(x,p0,p1)
-        return f*g+(1-f)*pol1
+    def model(self, x, params):
+        """Gaussian + linear"""
+        frac = params[5]
+        gauss = gauss(x, params[0:3])
+        pol1 = pol1(x, params[3:5])
+        return frac*gauss + (1-frac)*pol1
 
-    # implementation of the fitting algorithm
-    def start(self, x, y, xmin, xmax, fitpar, axis, fit_results):
-        fitln = None
-        if (fitpar[0] != 0.0):
-            self.amplitude = fitpar[0]
+    def set_initial_parameters(self, x, y, params):
+        super().set_initial_parameters(x, y, params)
+        if (params[0] != 0.0):
+            self.p_init[0] = params[0]
         else:
-            self.amplitude = 1000
-        if (fitpar[1] != 0.0):
-            self.mean = fitpar[1]
+            self.p_init[0] = np.max(y)
+        if (params[1] != 0.0):
+            self.p_init[1] = params[1]
         else:
-            self.mean = xmin+(xmax-xmin)/2
-        if (fitpar[2] != 0.0):
-            self.standard_deviation = fitpar[2]
+            self.p_init[1] = x[np.argmax(y)]
+        if (params[2] != 0.0):
+            self.p_init[2] = params[2]
         else:
-            self.standard_deviation = self.mean/10
-        if (fitpar[3] != 0.0):
-            self.p0 = fitpar[3]
+            self.p_init[2] = abs(self.p_init[1])/10
+        if (params[3] != 0.0):
+            self.p_init[3] = params[3]
         else:
-            self.p0 = 100
-        if (fitpar[4] != 0.0):
-            self.p1 = fitpar[4]
+            self.p_init[3] = min(y[0], y[-1])
+        if (params[4] != 0.0):
+            self.p_init[4] = params[4]
         else:
-            self.p1 = 10
-        if (fitpar[5] != 0.0):
-            self.f = fitpar[5]
+            self.p_init[4] = (y[-1] - y[0])/(x[-1] - x[0])
+        if (params[5] != 0.0):
+            self.p_init[5] = params[5]
         else:
-            self.f = 0.9
-        p_init = [self.amplitude, self.mean, self.standard_deviation, self.p0, self.p1, self.f]
-        popt, pcov = curve_fit(self.gpol1, x, y, p0=p_init, maxfev=1000000)
-
-        # plotting fit curve and printing results
-        try:
-            x_fit = np.linspace(x[0],x[-1], 10000)
-            y_fit = self.gpol1(x_fit, *popt)
-
-            fitln, = axis.plot(x_fit,y_fit, 'r-')
-            for i in range(len(popt)):
-                s = 'Par['+str(i)+']: '+str(round(popt[i],3))+'+/-'+str(round(pcov[i][i],3))
-                fit_results.append(s)
-        except:
-            pass
-        return fitln
+            self.p_init[5] = 0.9
 
 class GPol1FitBuilder:
     def __init__(self):

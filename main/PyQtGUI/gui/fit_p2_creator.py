@@ -1,60 +1,37 @@
 #!/usr/bin/env python
-import io
-import sys, os
-sys.path.append(os.getcwd())
 
-import pandas as pd
+from fit_function import FitFunction
 import numpy as np
-from scipy.optimize import curve_fit
 
-import fit_factory
-
-class Pol2Fit:
+class Pol2Fit(FitFunction):
     def __init__(self, p0, p1, p2):
-        self.p0 = p0
-        self.p1 = p1
-        self.p2 = p2
+        params = np.array([p0, p1, p2], dtype=np.float64)
+        super().__init__(params)
 
-    # function defined by the user
-    def pol2(self, x, p0, p1, p2):
-        return p0+p1*x+p2*x*x
-
-    # implementation of the fitting algorithm
-    def start(self, x, y, xmin, xmax, fitpar, axis, fit_results):
-        fitln = None
-        if (fitpar[0] != 0.0):
-            self.p0 = fitpar[0]
+    def model(self, x, params):
+        """Quadratic function."""
+        return params[0] + params[1]*x + params[2]*x*x
+    
+    def set_initial_parameters(self, x, y, params):
+        super().set_initial_parameters(x, y, params)
+        if (params[0] != 0.0):
+            self.p_init[0] = params[0]
         else:
-            self.p0 = 100
-        if (fitpar[1] != 0.0):
-            self.p1 = fitpar[1]
+            self.p_init[0] = min(y[0], y[-1])
+        if (params[1] != 0.0):
+            self.p_init[1] = params[1]
         else:
-            self.p1 = 10
-        if (fitpar[2] != 0.0):
-            self.p2 = fitpar[2]
+            self.p_init[1] = (y[-1] - y[0])/(x[-1] - x[0])
+        if (params[2] != 0.0):
+            self.p_init[2] = params[2]
         else:
-            self.p2 = 10
-        p_init = [self.p0, self.p1, self.p2]
-        popt, pcov = curve_fit(self.pol2, x, y, p0=p_init, maxfev=1000000)
-
-        # plotting fit curve and printing results
-        try:
-            x_fit = np.linspace(x[0],x[-1], 10000)
-            y_fit = self.pol2(x_fit, *popt)
-
-            fitln, = axis.plot(x_fit,y_fit, 'r-')
-            for i in range(len(popt)):
-                s = 'Par['+str(i)+']: '+str(round(popt[i],3))+'+/-'+str(round(pcov[i][i],3))
-                fit_results.append(s)
-        except:
-            pass
-        return fitln
-
+            self.p_init[2] = 0.0
+            
 class Pol2FitBuilder:
     def __init__(self):
         self._instance = None
 
-    def __call__(self, p0=100, p1=10, p2=10):
+    def __call__(self, p0=100, p1=10, p2=1):
         if not self._instance:
             self._instance = Pol2Fit(p0, p1, p2)
         return self._instance

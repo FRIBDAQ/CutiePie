@@ -1,50 +1,28 @@
 #!/usr/bin/env python
-import io
-import sys, os
-sys.path.append(os.getcwd())
 
-import pandas as pd
+from fit_function import FitFunction
 import numpy as np
-from scipy.optimize import curve_fit
 
-import fit_factory
-
-class Pol1Fit:
+class Pol1Fit(FitFunction):
     def __init__(self, p0, p1):
-        self.p0 = p0
-        self.p1 = p1
+        params = np.array([p0, p1], dtype=np.float64)
+        super().__init__(params)
 
-    # function defined by the user
-    def pol1(self, x, p0, p1):
-        return p0+p1*x
-
-    # implementation of the fitting algorithm
-    def start(self, x, y, xmin, xmax, fitpar, axis, fit_results):
-        fitln = None
-        if (fitpar[0] != 0.0):
-            self.p0 = fitpar[0]
+    def model(self, x, params):
+        """Linear function."""
+        return params[0] + params[1]*x
+    
+    def set_initial_parameters(self, x, y, params):
+        super().set_initial_parameters(x, y, params)
+        if (params[0] != 0.0):
+            self.p_init[0] = params[0]
         else:
-            self.p0 = 100
-        if (fitpar[1] != 0.0):
-            self.p1 = fitpar[1]
+            self.p_init[0] = min(y[0], y[-1])
+        if (params[1] != 0.0):
+            self.p_init[1] = params[1]
         else:
-            self.p1 = 10
-        p_init = [self.p0, self.p1]
-        popt, pcov = curve_fit(self.pol1, x, y, p0=p_init, maxfev=1000000)
-
-        # plotting fit curve and printing results
-        try:
-            x_fit = np.linspace(x[0],x[-1], 10000)
-            y_fit = self.pol1(x_fit, *popt)
-
-            fitln, = axis.plot(x_fit,y_fit, 'r-')
-            for i in range(len(popt)):
-                s = 'Par['+str(i)+']: '+str(round(popt[i],3))+'+/-'+str(round(pcov[i][i],3))
-                fit_results.append(s)
-        except:
-            pass
-        return fitln
-
+            self.p_init[1] = (y[-1] - y[0])/(x[-1] - x[0])
+            
 class Pol1FitBuilder:
     def __init__(self):
         self._instance = None
