@@ -66,7 +66,7 @@ class FitFunction:
             fitln, = axis.plot(x_fit,y_fit, 'r-')
             # Inverse Hessian is ~ Cov matrix:
             for i in range(len(result.x)):
-                s = 'Par['+str(i)+']: '+str(round(result.x[i],6))+'+/-'+str(round(result.hess_inv[i][i],6))
+                s = 'Par['+str(i)+']: '+str(round(result.x[i],6))+'+/-'+str(round(np.sqrt(result.hess_inv[i][i],6)))
                 fit_results.append(s)
         except:
             pass # Can't plot, ignored
