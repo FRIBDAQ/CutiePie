@@ -4,7 +4,7 @@ from fit_function import FitFunction
 import numpy as np
 
 def gauss(self, x, params):
-    """Unnormalized Gaussian."""
+    """Un-normalized Gaussian."""
     return params[0]*np.exp(-(x-params[1])**2 / (2*params[2]**2))
 
 def pol1(self, x, params):
@@ -13,12 +13,13 @@ def pol1(self, x, params):
 
 class GPol1Fit(FitFunction):
     def __init__(self, amplitude, mean, standard_deviation, p0, p1, f):
-        params = np.array([amplitude, mean, standard_deviation, p0, p1, f], dtype=np.float64)
+        params = np.array([amplitude, mean, standard_deviation, p0, p1, f],
+                          dtype=np.float64)
         super().__init__(params)
         
     # function defined by the user
     def model(self, x, params):
-        """Gaussian + linear"""
+        """Gaussian + linear background."""
         frac = params[5]
         gauss = gauss(x, params[0:3])
         pol1 = pol1(x, params[3:5])
@@ -37,7 +38,7 @@ class GPol1Fit(FitFunction):
         if (params[2] != 0.0):
             self.p_init[2] = params[2]
         else:
-            self.p_init[2] = abs(self.p_init[1])/10
+            self.p_init[2] = np.std(x) # From width of fit range.
         if (params[3] != 0.0):
             self.p_init[3] = params[3]
         else:
@@ -55,7 +56,9 @@ class GPol1FitBuilder:
     def __init__(self):
         self._instance = None
 
-    def __call__(self, amplitude=1000, mean=100, standard_deviation=10, p0=100, p1=10, f=0.9):
+    def __call__(self, amplitude=1000, mean=100, standard_deviation=10,
+                 p0=100, p1=10, f=0.9):
         if not self._instance:
-            self._instance = GPol1Fit(amplitude, mean, standard_deviation, p0, p1, f)
+            self._instance = GPol1Fit(amplitude, mean, standard_deviation,
+                                      p0, p1, f)
         return self._instance

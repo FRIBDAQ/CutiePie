@@ -5,12 +5,12 @@ import numpy as np
 
 class GausFit(FitFunction):
     def __init__(self, amplitude, mean, standard_deviation):
-        params = np.array([amplitude, mean, standard_deviation], dtype=np.float64)
+        params = np.array([amplitude, mean, standard_deviation],
+                          dtype=np.float64)
         super().__init__(params)
 
-    # function defined by the user
     def model(self, x, params):
-        """Unnormalized Gaussian."""
+        """Un-normalized Gaussian."""
         return params[0]*np.exp(-(x-params[1])**2 / (2*params[2]**2))
 
     def set_initial_parameters(self, x, y, params):
@@ -26,7 +26,7 @@ class GausFit(FitFunction):
         if (params[2] != 0.0):
             self.p_init[2] = params[2]
         else:
-            self.p_init[2] = abs(self.p_init[1])/10
+            self.p_init[2] = np.std(x) # From width of fit range
 
 class GausFitBuilder:
     def __init__(self):

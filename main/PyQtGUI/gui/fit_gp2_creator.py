@@ -4,21 +4,22 @@ from fit_function import FitFunction
 import numpy as np
 
 def gauss(self, x, params):
-    """Unnormalized Gaussian."""
+    """Un-normalized Gaussian."""
     return params[0]*np.exp(-(x-params[1])**2 / (2*params[2]**2))
 
 def pol2(self, x, params):
     """Quadratic function."""
-    return params[0] + params[1]*x + params[2]*x*x
+    return params[0] + params[1]*x + params[2]*x**2
 
 class GPol2Fit(FitFunction):
     def __init__(self, amplitude, mean, standard_deviation, p0, p1, p2, f):
-        params = np.array([amplitude, mean, standard_deviation, p0, p1, p2, f], dtype=np.float64)
+        params = np.array([amplitude, mean, standard_deviation, p0, p1, p2, f],
+                          dtype=np.float64)
         super().__init__(params)
         
     # function defined by the user
     def model(self, x, params):
-        """Gaussian + linear"""
+        """Gaussian + quadratic background."""
         frac = params[6]
         gauss = gauss(x, params[0:3])
         pol2 = pol2(x, params[3:6])
@@ -59,7 +60,9 @@ class GPol2FitBuilder:
     def __init__(self):
         self._instance = None
 
-    def __call__(self, amplitude=1000, mean=100, standard_deviation=10, p0=100, p1=10, p2=1, f=0.9):
+    def __call__(self, amplitude=1000, mean=100, standard_deviation=10,
+                 p0=100, p1=10, p2=1, f=0.9):
         if not self._instance:
-            self._instance = GPol2Fit(amplitude, mean, standard_deviation, p0, p1, p2, f)
+            self._instance = GPol2Fit(amplitude, mean, standard_deviation,
+                                      p0, p1, p2, f)
         return self._instance

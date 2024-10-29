@@ -10,7 +10,7 @@ class Pol2Fit(FitFunction):
 
     def model(self, x, params):
         """Quadratic function."""
-        return params[0] + params[1]*x + params[2]*x*x
+        return params[0] + params[1]*x + params[2]*x**2
     
     def set_initial_parameters(self, x, y, params):
         super().set_initial_parameters(x, y, params)
@@ -25,7 +25,7 @@ class Pol2Fit(FitFunction):
         if (params[2] != 0.0):
             self.p_init[2] = params[2]
         else:
-            self.p_init[2] = 0.0
+            self.p_init[2] = 0.001 # Some small-ish number
             
 class Pol2FitBuilder:
     def __init__(self):
