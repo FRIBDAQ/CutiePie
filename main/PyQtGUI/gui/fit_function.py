@@ -32,14 +32,15 @@ class FitFunction:
         pred = self.model(x, params)        
         if np.any(pred <= 0): # protect against log(x <= 0) 
             return np.inf
-        return -np.sum(poisson.logpmf(y, pred))
+        return -np.sum(y*np.log(pred) - pred) # negative log likelihood
 
     def start(self, x, y, xmin, xmax, params, axis, fit_results):
         """Perform the fit and show the results. Return the data to plot."""
         fitln = None # data to plot        
         self.set_initial_parameters(x, y, params)
         # Relax the tolerances to get good convergence with finite difference:
-        result = minimize(self.neg_log_likelihood_p, x0=self.p_init, args=(x,y), method='bfgs', options={'maxiter': 1000000, 'gtol': 1e-3, 'eps': 1e-6})
+        result = minimize(self.neg_log_likelihood_p, x0=self.p_init, args=(x,y), method='bfgs', jac='3-point')
+        
         if not result.success:
             print(f"WARNING: fit did not terminate successfully:\n{result}")
 
