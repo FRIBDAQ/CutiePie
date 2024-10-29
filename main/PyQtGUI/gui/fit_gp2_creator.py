@@ -3,14 +3,6 @@
 from fit_function import FitFunction
 import numpy as np
 
-def gauss(self, x, params):
-    """Un-normalized Gaussian."""
-    return params[0]*np.exp(-(x-params[1])**2 / (2*params[2]**2))
-
-def pol2(self, x, params):
-    """Quadratic function."""
-    return params[0] + params[1]*x + params[2]*x**2
-
 class GPol2Fit(FitFunction):
     def __init__(self, amplitude, mean, standard_deviation, p0, p1, p2, f):
         params = np.array([amplitude, mean, standard_deviation, p0, p1, p2, f],
@@ -20,6 +12,10 @@ class GPol2Fit(FitFunction):
     # function defined by the user
     def model(self, x, params):
         """Gaussian + quadratic background."""
+        def gauss(x, params):
+            return params[0]*np.exp(-(x-params[1])**2 / (2*params[2]**2))
+        def pol2(x, params):
+            return params[0] + params[1]*x + params[2]*x**2
         frac = params[6]
         return frac*gauss(x, params[0:3]) + (1-frac)*pol2(x, params[3:6])
 
