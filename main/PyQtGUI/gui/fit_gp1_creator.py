@@ -3,14 +3,6 @@
 from fit_function import FitFunction
 import numpy as np
 
-def gauss(self, x, params):
-    """Un-normalized Gaussian."""
-    return params[0]*np.exp(-(x-params[1])**2 / (2*params[2]**2))
-
-def pol1(self, x, params):
-    """Linear function."""
-    return params[0] + params[1]*x
-
 class GPol1Fit(FitFunction):
     def __init__(self, amplitude, mean, standard_deviation, p0, p1, f):
         params = np.array([amplitude, mean, standard_deviation, p0, p1, f],
@@ -20,10 +12,12 @@ class GPol1Fit(FitFunction):
     # function defined by the user
     def model(self, x, params):
         """Gaussian + linear background."""
+        def gauss(x, params):
+            return params[0]*np.exp(-(x-params[1])**2 / (2*params[2]**2))
+        def pol1(x, params):
+            return params[0] + params[1]*x
         frac = params[5]
-        gauss = gauss(x, params[0:3])
-        pol1 = pol1(x, params[3:5])
-        return frac*gauss + (1-frac)*pol1
+        return frac*gauss(x, params[0:3]) + (1-frac)*pol1(x, params[3:5])
 
     def set_initial_parameters(self, x, y, params):
         super().set_initial_parameters(x, y, params)
