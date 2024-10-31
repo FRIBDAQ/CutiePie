@@ -87,13 +87,6 @@ import cannye_creator
 ##  Fitting
 #######################################
 fitfactory = fit_factory.FitFactory()
-# Configurable parameters for Skel (for the full param list, please see skel_creator.py)
-config_fit_skel = {
-    'param_1': 1,
-    'param_2': 1,
-    'param_3': 10
-}
-
 # Configurable parameters for Gaussian fit - NB technically they are not needed as the initial values are extracted from the plot itself
 config_fit_gaus = {
     'amplitude': 1000,
@@ -142,6 +135,13 @@ config_fit_gp2 = {
     'f': 0.9
 }
 
+# Configurable parameters for Skel (for the full param list, please see skel_creator.py)
+config_fit_skel = {
+    'param_1': 1,
+    'param_2': 1,
+    'param_3': 10
+}
+
 
 #######################################
 ##  ML
@@ -184,13 +184,13 @@ config_algo_canny = {
 }
 '''
 # Fitting function registration
-fitfactory.register_builder('Skeleton', fit_skel_creator.SkelFitBuilder(), config_fit_skel)
 fitfactory.register_builder('Gauss', fit_gaus_creator.GausFitBuilder(), config_fit_gaus)
 fitfactory.register_builder('Exp', fit_exp_creator.ExpFitBuilder(), config_fit_exp)
 fitfactory.register_builder('Pol1', fit_p1_creator.Pol1FitBuilder(), config_fit_p1)
 fitfactory.register_builder('Pol2', fit_p2_creator.Pol2FitBuilder(), config_fit_p2)
 fitfactory.register_builder('G+Pol1', fit_gp1_creator.GPol1FitBuilder(), config_fit_gp1)
 fitfactory.register_builder('G+Pol2', fit_gp2_creator.GPol2FitBuilder(), config_fit_gp2)
+fitfactory.register_builder('Skeleton', fit_skel_creator.SkelFitBuilder(), config_fit_skel)
 
 # ML Algorithm registration
 algofactory.register_builder('Skeleton', algo_skel_creator.SkelAlgoBuilder(), config_algo_skel)

@@ -43,7 +43,7 @@ class SpecialFunctions(QWidget):
         fitBox = QGroupBox("Fitting Functions")
         
         self.fit_label = QLabel("Fitting Functions 1D")
-        self.fit_label.setToolTip("Skeleton\nUser-defined function (needs implementation)\n\nGauss\np0*exp(-(x-p1)^2/(2*p2^2))\n\nExpo\np0+p1*exp(x*p2)\n\nPol1\np0+p1*x\n\nPol2\np0+p1*x+p2*x^2\n\nG+Pol1\np5*p0*exp(-(x-p1)^2/(2*p2^2))+(1-p5)*(p3+p4*x)\n\nG+Pol2\np6*p0*exp(-(x-p1)^2/(2*p2^2))+(1-p6)*(p3+p4*x+p5*x^2)")
+        self.fit_label.setToolTip("Gauss\np0*exp(-(x-p1)^2/(2*p2^2))\n\nExpo\np0+p1*exp(x*p2)\n\nPol1\np0+p1*x\n\nPol2\np0+p1*x+p2*x^2\n\nG+Pol1\np5*p0*exp(-(x-p1)^2/(2*p2^2))+(1-p5)*(p3+p4*x)\n\nG+Pol2\np6*p0*exp(-(x-p1)^2/(2*p2^2))+(1-p6)*(p3+p4*x+p5*x^2)\n\nSkeleton\nUser-defined function (needs implementation)")
         self.fit_list = QComboBox()
         self.fit_button = QPushButton("Fit", self)
         self.fit_button.setStyleSheet("background-color:#bcee68;")
