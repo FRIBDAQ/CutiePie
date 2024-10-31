@@ -4794,11 +4794,17 @@ class MainWindow(QMainWindow):
         left, right = ax.get_xlim()
         self.logger.info('axisLimitsForFit - left, right: %s, %s', left, right)
         if self.extraPopup.fit_range_min.text():
-            left = float(self.extraPopup.fit_range_min.text())
+            try:
+                left = float(self.extraPopup.fit_range_min.text())
+            except ValueError:
+                self.logger.warning('axisLimitsForFit - Invalid input for Min X. Please enter a valid number.')
         else:
             left = ax.get_xlim()[0]
         if self.extraPopup.fit_range_max.text():
-            right = float(self.extraPopup.fit_range_max.text())
+            try:
+                right = float(self.extraPopup.fit_range_max.text())
+            except ValueError:
+                self.logger.warning('axisLimitsForFit - Invalid input for Max X. Please enter a valid number.')
         else:
             right = ax.get_xlim()[1]
         # Make sure xmin is always smaller than xmax.
@@ -4857,17 +4863,13 @@ class MainWindow(QMainWindow):
                               float(self.extraPopup.fit_p6.text()), float(self.extraPopup.fit_p7.text())]
                     
                     ytmp = (self.getSpectrumInfoREST("data", index=index)).tolist()
-                    # if (DEBUG):
-                    #     print("xtmp", type(xtmp), "with len", len(xtmp), "ytmp", type(ytmp), "with len", len(ytmp))
                     xmin, xmax = self.axisLimitsForFit(ax)
 
-                    # if (DEBUG):
-                    #     print("fitting axis limits", xmin, xmax)
-                        # print(type(xtmp), type(x), type(xtmp[0]), type(xmin))
                     # create new tmp list with subrange for fitting
                     for i in range(len(xtmp)):
-                        if (xtmp[i]>=xmin and xtmp[i]<xmax):
-                            x.append(xtmp[i])
+                        if (xtmp[i]>xmin and xtmp[i]<=xmax):
+                            # xtmp and ytmp offset by one bin compared to data because of ytmp obtained with tolist(), correct x:
+                            x.append(xtmp[i-1]+(xtmp[i]-xtmp[i-1])/2)
                             y.append(ytmp[i])
                     x = np.array(x)
                     y = np.array(y)
