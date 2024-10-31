@@ -41,7 +41,7 @@ class FitFunction:
             # jumps in the objective function value when the parameters are
             # close to values which give pred <= 0. Also the return value is
             # always defined.
-            pred = np.minimum(pred, 1e-10)
+            pred = np.maximum(pred, 1e-10)
             return -np.sum(y*np.log(pred) - pred)
 
     def start(self, x, y, xmin, xmax, params, axis, fit_results):
