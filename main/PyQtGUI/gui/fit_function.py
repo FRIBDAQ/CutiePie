@@ -35,13 +35,14 @@ class FitFunction:
             print("ERROR: Model function is not defined!")
             return np.inf
         else:
-            # Negative log likelihood (nll) or np.inf if data has values with
-            # invalid logaritms. Note only terms which depend on the params
-            # are kept in the nll. 
-            if np.any(pred <= 0):
-                return np.inf
-            else:
-                return -np.sum(y*np.log(pred) - pred)
+            # Replace small values with some small number to ensure log(pred)
+            # is valid. I chose to modify the likelihood this way over
+            # returning, e.g, np.inf if any pred <= 0 because it prevents huge
+            # jumps in the objective function value when the parameters are
+            # close to values which give pred <= 0. Also the return value is
+            # always defined.
+            pred = np.minimum(pred, 1e-10) # Some small number
+            return -np.sum(y*np.log(pred) - pred)
 
     def start(self, x, y, xmin, xmax, params, axis, fit_results):
         """Perform the fit and show the results. Return the data to plot."""
@@ -53,7 +54,8 @@ class FitFunction:
                           x0=self.p_init,
                           args=(x,y),
                           method='bfgs',
-                          jac='3-point')
+                          jac='3-point',
+                          options={"gtol": 1e-3})
         # Most often an issue with final precision on error estimates:
         if not result.success:
             print(f"WARNING: fit did not terminate successfully:\n{result}")
