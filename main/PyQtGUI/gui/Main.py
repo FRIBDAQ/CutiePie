@@ -29,7 +29,7 @@ if system.startswith("Windows"):
 # Our dlls might be here as well.
 
 # use preprocessor macro __file__ to get the installation directory
-# caveat : expects a particular format of installation directory (N.NN-NNNN)
+# caveat : expects a particular format of installation directory (N.NN-NNN)
 instPath = ""
 fileDir = os.path.dirname(os.path.abspath(__file__))
 subDirList = fileDir.split("/")
