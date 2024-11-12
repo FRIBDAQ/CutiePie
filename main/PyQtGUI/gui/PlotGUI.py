@@ -16,9 +16,10 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 debug = False
 
 class Tabs(QTabWidget):
-    def __init__(self):
+    def __init__(self, loggerMain):
         QTabWidget.__init__(self)
         self.wPlot = {}
+        self.logger = loggerMain
         #spectrum_dict {key:geo_index_spectrum, value:{info_spectrum - including spectrum name}}, user can change spectrum_info.
         self.spectrum_dict = {} #dict of dict
         self.spectrum_dict[0] = {}
@@ -26,39 +27,122 @@ class Tabs(QTabWidget):
         self.zoomPlotInfo[0] = [] #dict of list
         self.countClickTab = {} #dict of flag to know if widgets already have dynamic bind
         self.createTabs()
+        self.setTabsClosable(True)
+
 
     def createTabs(self):
-        self.wPlot[0] = Plot()
+        self.wPlot[0] = Plot(self.logger)
         self.countClickTab[0] = False
         self.setUpdatesEnabled(True)
         self.insertTab(0, self.wPlot[0], "Tab" )
-        self.insertTab(1,QWidget(),'  +  ')
+        self.insertTab(1, QWidget(),'  +  ')
         self.selected_plot_index_bak = []
         self.selected_plot_index_bak.append(None)
         #layout is a list that keeps for each tab [numberOfRow, numberOfColumn]
         self.layout = []
         self.layout.append([1,1])
-        self.h_dict_geo_bak = {}
-        self.h_log_bak = {}
-        self.currentChanged.connect(self.addTab)
+
 
     def addTab(self, index):
-        if index == self.count()-1:
-            self.wPlot[index] = Plot()
-            if (debug):
-                print("Inserting tab at index", index)
-            # last tab was clicked. add tab
-            self.insertTab(index, self.wPlot[index], "Tab %d" %(index+1))
-            self.setCurrentIndex(index)
-            self.selected_plot_index_bak.append(None)
-            self.layout.append([1,1])
-            self.spectrum_dict[index] = {}
-            self.zoomPlotInfo[index] = []
-            self.countClickTab[index] = False
+        self.wPlot[index] = Plot(self.logger)
+        self.logger.debug('addTab -- Inserting tab at index: %d',index)
+        # last tab was clicked. add tab
+        self.insertTab(index, self.wPlot[index], "Tab %d" %(index+1))
+        self.resetTabText()
+        self.setCurrentIndex(index)
+        self.selected_plot_index_bak.append(None)
+        self.layout.append([1,1])
+        self.spectrum_dict[index] = {}
+        self.zoomPlotInfo[index] = []
+        self.countClickTab[index] = False
+        # remove the default close button
+        self.tabBar().setTabButton(index, QTabBar.RightSide, None)
+
+
+    # keep the default naming ordered, when add/delete a tab
+    def resetTabText(self):
+        # First check if tab + is not the last and relocate.
+        tabPlusIndex = None
+        for i in range(0, self.count()):
+            if "  +  " == self.tabText(i):
+                tabPlusIndex = i
+                self.logger.debug('resetTabText - Found tab + at index: %d among %d tabs', i, self.count())
+                break
+        if tabPlusIndex is None: 
+            self.logger.warning('resetTabText - Tab + not found')
+        else:
+            self.tabBar().moveTab(tabPlusIndex,self.count()-1)
+            # Make sure none of the tabs have close button visible 
+            for i in range(0, self.count()):
+                self.tabBar().setTabButton(i, QTabBar.RightSide, None)
+        self.orderDefaultName()
+
+
+    # Order default tab name only ! might be confusing not sure if useful
+    def orderDefaultName(self):
+        for i in range(0, self.count() - 1):
+            # Skip user defined tab name
+            if "Tab" != self.tabText(i)[:3]:
+                continue
+            elif i == 0:
+                self.setTabText(i, "Tab")
+            else:
+                self.setTabText(i, "Tab %d" %(i))
+
+
+    # Deletes the specified key from a dictionary and reassigns remaining keys.
+    # Assuming keys are successive numbers.
+    def deleteDictEntry(self, dict, keyToDelete):
+        del dict[keyToDelete]
+        newDict = {}
+        for i, (k, v) in enumerate(dict.items()):
+            newDict[i] = v
+        return newDict
+
+
+    def deleteTab(self, index):
+        self.logger.info('deleteTab -- at index %d', index)
+        # -1 in upper bound to avoid the last "+" tab 
+        if index >= 0 and index < self.count()-1:
+            # Remove the tab from the QTabWidget
+            self.removeTab(index)
+            # Update related data structures
+            self.wPlot = self.deleteDictEntry(self.wPlot, index)
+            self.spectrum_dict = self.deleteDictEntry(self.spectrum_dict, index)
+            self.zoomPlotInfo = self.deleteDictEntry(self.zoomPlotInfo, index)
+            self.countClickTab = self.deleteDictEntry(self.countClickTab, index)
+            del self.selected_plot_index_bak[index]
+            del self.layout[index]
+            return True
+        elif index == self.count() - 1:
+            self.logger.warning('deleteTab -- Trying to delete last + tab')
+            return False
+        
+
+    # Swap tab dict/list items
+    def swapItems(self, dictionary, indexFrom, indexTo):
+        valTo = dictionary[indexTo]
+        dictionary[indexTo] = dictionary[indexFrom]
+        dictionary[indexFrom] = valTo
+        return dictionary
+        
+
+    # Swap all tab dicts
+    def swapTabDict(self, indexFrom, indexTo):
+        self.logger.info('swapTabDict - indexFrom %d indexTo %d', indexFrom, indexTo)
+        if indexTo < self.count()-1:
+            self.wPlot = self.swapItems(self.wPlot, indexFrom, indexTo)
+            self.spectrum_dict = self.swapItems(self.spectrum_dict, indexFrom, indexTo)
+            self.zoomPlotInfo = self.swapItems(self.zoomPlotInfo, indexFrom, indexTo)
+            self.countClickTab = self.swapItems(self.countClickTab, indexFrom, indexTo)
+            self.selected_plot_index_bak = self.swapItems(self.selected_plot_index_bak, indexFrom, indexTo)
+            self.layout = self.swapItems(self.layout, indexFrom, indexTo)
+        else :
+            self.logger.warning('swapTabDict -- Trying to swap tab dictionaries with last tab') 
 
 
 class Plot(QWidget):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, loggerMain, *args, **kwargs):
         super(Plot, self).__init__(*args, **kwargs)
 
         self.figure = plt.figure()
@@ -88,6 +172,8 @@ class Plot(QWidget):
             "QPushButton:pressed { background-color: grey }" )
         self.customHomeButton = QPushButton("Reset", self)
         self.customHomeButton.setFixedWidth(70)
+
+        self.logger = loggerMain
 
 
 
@@ -136,10 +222,8 @@ class Plot(QWidget):
 
         self.h_dict = {}
         self.h_dict_geo = {}
-        self.h_dict_geo_bak = {}
         self.axbkg = {}
         self.h_log = {} # bool dict for linear/log axes
-        self.h_log_bak = {} # bool dict for linear/log axes - backup
         self.h_dim = []
         self.h_lst = []
         self.axis_lst = []
@@ -193,9 +277,7 @@ class Plot(QWidget):
 
 
     def InitializeCanvas(self, row, col, flag = True):
-        if (debug):
-            print("InitializeCanvas with dimensions", row, col)
-            print("old size", self.old_row, self.old_col, "--> new size", row, col)
+        self.logger.debug('InitializeCanvas -- with dimensions (row, col): %d %d', row, col)
         if flag:
             self.h_dict.clear()
             self.h_dict_geo.clear()
@@ -203,20 +285,11 @@ class Plot(QWidget):
             self.index = 0
             self.idx = 0
 
-        if (debug):
-            print("The following three should be empty!")
-            print("self.h_dict",self.h_dict)
-            print("self.h_dict_geo",self.h_dict_geo)
-
         self.figure.clear()
         self.InitializeFigure(self.CreateFigure(row, col), row, col, flag)
         self.figure.tight_layout()
         self.canvas.draw()
 
-        if (debug):
-            print("The following three should NOT be empty!")
-            print("self.h_dict",self.h_dict)
-            print("self.h_dict_geo",self.h_dict_geo)
 
     def CreateFigure(self, row, col):
         self.grid = gridspec.GridSpec(ncols=col, nrows=row, figure=self.figure)
@@ -239,10 +312,8 @@ class Plot(QWidget):
         return lst
 
     def InitializeFigure(self, grid, row, col, flag = True):
-        if (debug):
-            print("InitializeFigure")
-            print("Test of InitializeHistogram", self.InitializeHistogram())
-            print("row", row, "col", col)
+        self.logger.debug('InitializeFigure')
+
         for i in range(row):
             for j in range(col):
                 a = self.figure.add_subplot(grid[i,j])
@@ -263,15 +334,3 @@ class Plot(QWidget):
                 self.h_lst.append(None)
                 self.axis_lst.append(None)
             self.h_dim = self.get_histo_key_list(self.h_dict, "dim")
-
-
-    # def autoscaleAxis(self, b):
-    #     if b.text() == "Autoscale":
-    #         if b.isChecked() == True:
-    #             self.autoScale = True
-    #             if (debug):
-    #                 print(b.text()+" is selected")
-    #         else:
-    #             self.autoScale = False
-    #             if (debug):
-    #                 print(b.text()+" is deselected")
