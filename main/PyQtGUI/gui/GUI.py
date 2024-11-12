@@ -221,8 +221,14 @@ class MainWindow(QMainWindow):
         # self.wConf.setFixedHeight(40)
 
         # plot widget
-        self.wTab = Tabs()
+        self.wTab = Tabs(self.logger)
+        self.wTab.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.wTab.customContextMenuRequested.connect(self.tab_handle_right_click)
         self.wTab.setMovable(True)
+        # with setTabsClosable comes a close button, don't want/need it...
+        for i in range(self.wTab.count()):
+            self.wTab.tabBar().setTabButton(i, QTabBar.RightSide, None)
+
         self.currentPlot = None
 
         # gui composition
@@ -327,7 +333,7 @@ class MainWindow(QMainWindow):
 
         # new tab creation
         self.wTab.tabBarClicked.connect(self.clickedTab)
-        self.wTab.tabBarDoubleClicked.connect(self.doubleclickedTab)
+        self.wTab.tabBar().tabMoved.connect(self.movedTab)
 
         # config menu signals
         self.wConf.histo_geo_add.clicked.connect(self.addPlot)
@@ -436,7 +442,6 @@ class MainWindow(QMainWindow):
 
         # create helpers
         self.wConf.histo_list.installEventFilter(self)
-        # self.wConf.listGate.installEventFilter(self)
 
         # Hotkeys
         # zoom (click-drag)
@@ -496,7 +501,7 @@ class MainWindow(QMainWindow):
         self.wTab.wPlot[self.wTab.currentIndex()].canvas.mpl_disconnect(self.pressID)
 
 
-    #Event filter for search in histo_list widget
+    #Event filter for search in histo_list widget, and restrict position of moved tab
     def eventFilter(self, obj, event):
         if (obj == self.wConf.histo_list or self.gatePopup.gateNameList) and event.type() == QtCore.QEvent.HoverEnter:
             self.onHovered(obj)
@@ -664,7 +669,7 @@ class MainWindow(QMainWindow):
         # selected a colorbar, dont want to interact with it
         if "colorbar_" in event.inaxes.get_label():
             return
-
+        
         index = list(self.currentPlot.figure.axes).index(event.inaxes)
 
         if self.currentPlot.isEnlarged:
@@ -1110,8 +1115,53 @@ class MainWindow(QMainWindow):
         self.close()
 
 
-    def doubleclickedTab(self, index):
-        self.logger.info('doubleclickedTab')
+     #callback when right click on tab
+    def tab_handle_right_click(self):
+        self.logger.info('tab_handle_right_click')
+        menu = QMenu()
+        item1 = menu.addAction("Rename")
+        item2 = menu.addAction("Delete")
+        item1.triggered.connect(lambda: self.renameTab(self.wTab.currentIndex()))
+        item2.triggered.connect(lambda: self.closeTab(self.wTab.currentIndex()))
+
+        tab = self.wTab.tabBar()
+        tabRect = tab.rect()
+
+        sizeSubTab = QtCore.QPoint(tabRect.width()/self.wTab.count(), tabRect.height()/2)
+        pos = QtCore.QPoint(sizeSubTab.x()*self.wTab.currentIndex(), sizeSubTab.y())
+
+        menuPos = tab.mapToGlobal(pos)
+        menuPos = QtCore.QPoint(menuPos.x(), menuPos.y())
+        # Shows menu at button position, need to calibrate with 0,0 position
+        menu.exec_(menuPos)
+
+
+    def closeTab(self, index):
+        self.logger.info('closeTab')
+        #For now, if change tab while working on gate, close any ongoing gate action
+        if self.currentPlot.toCreateGate or self.currentPlot.toEditGate or self.gatePopup.isVisible():
+            self.cancelGate()
+
+        # Can't use removeTab of QTabWidget on current tab so change the current index to another tab
+        newIndex = 0
+        if index > 0:
+            newIndex = index - 1
+            self.wTab.setCurrentIndex(newIndex)
+        elif index == 0 and self.wTab.count() > 2 :
+            self.wTab.setCurrentIndex(1)
+
+        if index == self.wTab.currentIndex():
+            self.logger.warning('closeTab - trying to close current tab, please change tab and retry')
+        else:
+            # Delete Tab at user picked index
+            if self.wTab.deleteTab(index):
+                # Show a remaining tab
+                self.clickedTab(newIndex)
+                self.wTab.resetTabText()
+
+
+    def renameTab(self, index):
+        self.logger.info('renameTab')
         #For now, if change tab while working on gate, close any ongoing gate action
         if self.currentPlot.toCreateGate or self.currentPlot.toEditGate or self.gatePopup.isVisible():
             self.cancelGate()
@@ -1126,8 +1176,10 @@ class MainWindow(QMainWindow):
 
     def okTab(self):
         txt = self.wTab.tabText(self.wTab.currentIndex())
-        if self.tabp.lineedit.text() != "":
+        if self.tabp.lineedit.text() != "" and self.tabp.lineedit.text() != "  +  ":
             txt = self.tabp.lineedit.text()
+        else:
+            self.logger.warning('okTab - Please choose another tab name')
 
         self.wTab.setTabText(self.wTab.currentIndex(), txt)
         self.tabp.lineedit.setText("")
@@ -1148,16 +1200,47 @@ class MainWindow(QMainWindow):
 
         self.wTab.setCurrentIndex(index)
 
-        try:
+        if index == self.wTab.count()-1:
+            self.wTab.addTab(index)
             self.currentPlot = self.wTab.wPlot[index]
-            nRow = self.wTab.layout[index][0]
-            nCol = self.wTab.layout[index][1]
-            self.logger.debug('clickedTab - canvas layout: %s, %s',nRow, nCol)
+        else:
+            try:
+                self.currentPlot = self.wTab.wPlot[index]
+                nRow = self.wTab.layout[index][0]
+                nCol = self.wTab.layout[index][1]
+                self.logger.debug('clickedTab - canvas layout: %s, %s',nRow, nCol)
 
+                #nRow-1 because nRow (nCol) is the number of row and the following sets an index starting at 0
+                self.wConf.histo_geo_row.setCurrentIndex(nRow-1)
+                self.wConf.histo_geo_col.setCurrentIndex(nCol-1)
+
+                #enable/disable some widgets depending if enlarge mode of not, flags set also in on_dblclick 
+                self.wConf.histo_geo_add.setEnabled(not self.currentPlot.isEnlarged)
+                self.wConf.histo_geo_row.setEnabled(not self.currentPlot.isEnlarged)
+                self.wConf.histo_geo_col.setEnabled(not self.currentPlot.isEnlarged)
+                self.wConf.createGate.setEnabled(self.currentPlot.isEnlarged)
+                self.removeRectangle()
+                self.bindDynamicSignal()
+            except:
+                self.logger.debug('clickedTab - exception occured', exc_info=True)
+                pass
+
+
+    def movedTab(self, indexFrom, indexTo):
+        # Moving tab (indexFrom) is the one moving around currentTab
+        self.logger.info('movedTab - index from: %s to: %s',indexFrom, indexTo)
+        # if '+' tab not last, move to last
+        if indexFrom == self.wTab.count()-1:
+            self.wTab.tabBar().moveTab(indexTo, indexFrom)
+        else: 
+            self.wTab.swapTabDict(indexFrom, indexTo)
+            # Following similar as in clickedTab
+            self.currentPlot = self.wTab.wPlot[indexFrom]
+            nRow = self.wTab.layout[indexFrom][0]
+            nCol = self.wTab.layout[indexFrom][1]
             #nRow-1 because nRow (nCol) is the number of row and the following sets an index starting at 0
             self.wConf.histo_geo_row.setCurrentIndex(nRow-1)
             self.wConf.histo_geo_col.setCurrentIndex(nCol-1)
-
             #enable/disable some widgets depending if enlarge mode of not, flags set also in on_dblclick 
             self.wConf.histo_geo_add.setEnabled(not self.currentPlot.isEnlarged)
             self.wConf.histo_geo_row.setEnabled(not self.currentPlot.isEnlarged)
@@ -1165,9 +1248,9 @@ class MainWindow(QMainWindow):
             self.wConf.createGate.setEnabled(self.currentPlot.isEnlarged)
             self.removeRectangle()
             self.bindDynamicSignal()
-        except:
-            self.logger.debug('clickedTab - exception occured', exc_info=True)
-            pass
+
+        # change only default tab text ! might be confusing not sure if useful
+        self.wTab.orderDefaultName()
 
 
     #set geometry of the canvas
