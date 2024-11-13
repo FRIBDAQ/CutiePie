@@ -4899,11 +4899,11 @@ class MainWindow(QMainWindow):
     #Main fit function, reads user defined intial parameters and calls appropriate fit model
     def fit(self):
         self.logger.info('fit')
-        histo_name = str(self.wConf.histo_list.currentText())
         fit_funct = self.extraPopup.fit_list.currentText()
         index = self.autoIndex()
+        spectrumName = self.nameFromIndex(index)
         ax = self.getSpectrumInfo("axis", index=index)
-        self.logger.debug('fit - histo_name, fit_funct, index: %s, %s, %s', histo_name, fit_funct, index)
+        self.logger.debug('fit - spectrumName, fit_funct, index: %s, %s, %s', spectrumName, fit_funct, index)
 
 
         dim = self.getSpectrumInfoREST("dim", index=index)
@@ -4917,7 +4917,7 @@ class MainWindow(QMainWindow):
         fit = self.fit_factory.create(fit_funct, **config)
 
         try:
-            if histo_name != "":
+            if spectrumName != "":
                 if dim == 1:
                     x = []
                     y = []
@@ -4960,10 +4960,10 @@ class MainWindow(QMainWindow):
                     fitResultsText = QTextEdit()
                     if fit_funct == "Skeleton":
                         fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
-                        self.setFitLineLabel(ax, fitln, fitResultsText, histo_name)
+                        self.setFitLineLabel(ax, fitln, fitResultsText, spectrumName)
                     else:
                         fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
-                        self.setFitLineLabel(ax, fitln, fitResultsText, histo_name)
+                        self.setFitLineLabel(ax, fitln, fitResultsText, spectrumName)
                 else:
                     QMessageBox.about(self, "Warning", "Sorry 2D fitting is not implemented yet")
             else:
@@ -4977,9 +4977,9 @@ class MainWindow(QMainWindow):
 
 
     # Set fit outputs title based on fit line label, and set fit_results text
-    def setFitResultsLineLabel(self, fitLineLabelIdx, resultsText, histo_name):
+    def setFitResultsLineLabel(self, fitLineLabelIdx, resultsText, spectrumName):
         self.logger.info('setFitResultsLineLabel - fitLineLabelIdx: %d',fitLineLabelIdx)
-        title = 'Fit '+str(fitLineLabelIdx)+' ('+ histo_name +') :'
+        title = 'Fit '+str(fitLineLabelIdx)+' ('+ spectrumName +') :'
         self.extraPopup.fit_results.append(title)
         self.extraPopup.fit_results.append(resultsText.toPlainText())
         self.extraPopup.fit_results.append(' ')
@@ -4987,7 +4987,7 @@ class MainWindow(QMainWindow):
 
     # Set fit line label, proper to an axis
     # Increment a fit line index used as line label
-    def setFitLineLabel(self, ax, line, resultsText, histo_name):
+    def setFitLineLabel(self, ax, line, resultsText, spectrumName):
         self.logger.info('setFitLineLabel')
         fitLineLabel = "fit-_-"
         fitLabels = self.listFitLineLabels(ax)
@@ -5008,7 +5008,7 @@ class MainWindow(QMainWindow):
             fitLineLabel += str(i)
 
         line.set_label(fitLineLabel)
-        self.setFitResultsLineLabel(fitIdx, resultsText, histo_name)
+        self.setFitResultsLineLabel(fitIdx, resultsText, spectrumName)
         self.logger.debug('setFitLineLabel - line label: %s',line.get_label())
 
 
