@@ -10,6 +10,9 @@ from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 
 class MenuGate(QWidget):
+
+    clearInfoSignal = pyqtSignal()
+
     def __init__(self, parent=None):
         super(MenuGate, self).__init__(parent)
 
@@ -111,7 +114,9 @@ class MenuGate(QWidget):
 
     #override close method, want to reset all info if close with [X]
     def closeEvent(self, event):
-        self.clearInfo()
+        # Use a signal to call clearInfo from main thread and 
+        # avoid threading error (due to self.gateNameList.setCurrentText('None'))
+        self.clearInfoSignal.emit()
         event.accept()
 
 

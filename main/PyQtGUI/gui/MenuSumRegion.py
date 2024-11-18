@@ -10,6 +10,9 @@ from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 
 class MenuSumRegion(QWidget):
+
+    clearInfoSignal = pyqtSignal()
+
     def __init__(self, parent=None):
         super(MenuSumRegion, self).__init__(parent)
 
@@ -44,8 +47,7 @@ class MenuSumRegion(QWidget):
 
         self.ok = QPushButton("Ok", self)       
         self.cancel = QPushButton("Cancel", self)         
-        self.delete = QPushButton("Delete", self)      
-        # self.delete.setEnabled(False)
+        self.delete = QPushButton("Delete", self)    
 
         # Holds previous points [x,y] for drawing 2d region 
         self.prevPoint = []   
@@ -97,7 +99,9 @@ class MenuSumRegion(QWidget):
 
     #override close method, want to reset all info if close with [X]
     def closeEvent(self, event):
-        self.clearInfo()
+        # Use a signal to call clearInfo from main thread and 
+        # avoid threading error (due to self.sumRegionNameList.setCurrentText('None'))
+        self.clearInfoSignal.emit()
         event.accept()
 
 

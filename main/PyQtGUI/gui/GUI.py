@@ -130,40 +130,8 @@ t = None
 # 0) Class definition
 class MainWindow(QMainWindow):
 
-    stop_signal = pyqtSignal()
-
-    #Simon - flag that gives the status of the ReST thred
-    restThreadFlag = False
-
-    #Simon - initialize a status bar with ReST thread status
-    # def initStatusBar(self):
-    #     self.statBar = self.statusBar()
-    #     self.statBar.showMessage('Thread for trace : OFF')
-    #     self.lineEdit = QLineEdit()
-    #     self.setCentralWidget(self.lineEdit)
-    #     self.lineEdit.textEdited.connect(self.updateStatusBar)
-
-    #Simon - update status bar with ReST thread status
-    # def updateStatusBar(self):
-        # status = "Thread for trace : ON" if self.restThreadFlag else "Thread for trace : OFF"
-        # self.topMenu.setConnectSatus(self.restThreadFlag)
-        # self.statBar.showMessage(status)
-
     def __init__(self, factory, fit_factory, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
-
-        #Simon - status bar for ReST thread
-        # self.initStatusBar()
-
-        # status = "Thread for trace : ON" if self.restThreadFlag else "Thread for trace : OFF"
-        # self.statusBarLabel = QLabel("Thread for trace : OFF")
-        # self.statusbar.addPermanentWidget(self.statusBarLabel)
-        # self.statBar.showMessage('Thread for trace : OFF')
-        # self.lineEdit = QLineEdit()
-        # self.setCentralWidget(self.lineEdit)
-        # self.lineEdit.textEdited.connect(self.updateStatusBar)
-        # self.updateStatusBar()
-
 
         # initialize debug logging 
         logging.basicConfig(datefmt='%d-%b-%y %H:%M:%S')        
@@ -202,6 +170,14 @@ class MainWindow(QMainWindow):
         self.setMouseTracking(True)
 
 
+        self.stopAutoUpdateThread = threading.Event() 
+        self.skipAutoUpdateThread = threading.Event() 
+        self.threadAutoUpdate = False
+
+        self.stopRestThread = threading.Event() 
+        self.threadRest = False
+
+
         #######################
         # 1) Main layout GUI
         #######################
@@ -211,10 +187,6 @@ class MainWindow(QMainWindow):
         mainLayout.setContentsMargins(10, 10, 10, 0)
         fullLayout.setContentsMargins(0, 0, 0, 0)
 
-        # top menu
-        #self.wTop = Menu()
-        #comment the following if use collapsable
-        # self.wTop.setFixedHeight(40)
 
         # config menu
         self.wConf = Configuration()
@@ -243,10 +215,6 @@ class MainWindow(QMainWindow):
         # widget.setLayout(mainLayout)
         self.setCentralWidget(widget)
 
-        # output popup window
-        # self.resPopup = OutputPopup()
-        # self.table_row = []
-        # self.ctr = 0
 
         # extra popup window
         self.extraPopup = SpecialFunctions()
@@ -349,12 +317,17 @@ class MainWindow(QMainWindow):
         self.gatePopup.cancel.clicked.connect(self.cancelGate)
         self.gatePopup.gateActionCreate.clicked.connect(self.createGate)
         self.gatePopup.gateActionEdit.clicked.connect(self.editGate)
+        self.gatePopup.clearInfoSignal.connect(self.gatePopup.clearInfo)
+        self.gatePopup.clearInfoSignal.connect(self.autoUpdateResume) 
 
         # summing region
         self.wConf.createSumRegionButton.clicked.connect(self.createSumRegion)
         self.sumRegionPopup.ok.clicked.connect(self.okSumRegion)
         self.sumRegionPopup.cancel.clicked.connect(self.cancelSumRegion)
-        self.sumRegionPopup.delete.clicked.connect(self.deleteSumRegion)
+        self.sumRegionPopup.delete.clicked.connect(self.deleteSumRegion)  
+        self.sumRegionPopup.clearInfoSignal.connect(self.sumRegionPopup.clearInfo)
+        self.sumRegionPopup.clearInfoSignal.connect(self.autoUpdateResume)      
+
 
         # self.wConf.editGate.setToolTip("Key bindings for Modify->Edit:\n"
         #                               "'i' insert vertex\n"
@@ -416,6 +389,7 @@ class MainWindow(QMainWindow):
         self.extraPopup.options.gateAnnotation.clicked.connect(self.gateAnnotationCallBack)
         self.extraPopup.options.gateHide.clicked.connect(self.updatePlot)
         self.extraPopup.options.debugMode.clicked.connect(self.debugModeCallBack)
+        self.extraPopup.options.autoUpdate.valueChanged.connect(self.autoUpdateStart)
 
         self.extraPopup.imaging.loadButton.clicked.connect(self.loadFigure)
         self.extraPopup.imaging.addButton.clicked.connect(self.addFigure)
@@ -659,12 +633,8 @@ class MainWindow(QMainWindow):
 
         if not event.inaxes: return
 
-        # if gatePopup exit with [X], want to reset everything as if gateEditor hasn't been openned
-        if (self.currentPlot.toCreateGate or self.currentPlot.toEditGate) and not self.gatePopup.isVisible():
-            self.cancelGate()
-        # if sumRegionPopup exit with [X]
-        if self.currentPlot.toCreateSumRegion and not self.sumRegionPopup.isVisible():
-            self.cancelSumRegion()
+        # if gatePopup or sumRegionPopup exit with [X], want to reset everything as if gate/SumReg Editor hasn't been openned
+        self.cleanPopupExit(False)
 
         # selected a colorbar, dont want to interact with it
         if "colorbar_" in event.inaxes.get_label():
@@ -1111,7 +1081,6 @@ class MainWindow(QMainWindow):
     #callback for exitButton
     def closeAll(self):
         self.logger.info('closeAll')
-        self.restThreadFlag = False
         self.close()
 
 
@@ -1448,16 +1417,17 @@ class MainWindow(QMainWindow):
         self.token = self.rest.startTraces(retention)
         if self.token is None:
             return
-        self.restThreadFlag = True
-        # self.updateStatusBar()
-        # self.topMenu.setConnectSatus(self.restThreadFlag)
+        self.stopRestThread.clear()
         self.wConf.connectButton.setStyleSheet("background-color:#bcee68;")
         self.wConf.connectButton.setText("Connected")
 
-        while self.restThreadFlag:
-            #Sleep time < retention to avoid loosing information
-            # time.sleep(3)
-            time.sleep(retention/2)
+        print('Simon - resTHread - ',self.stopRestThread.is_set())
+
+        while not self.stopRestThread.is_set():
+            # Wait while stop event is false, if event true break loop
+            # waits time < retention to avoid loosing information
+            if self.stopRestThread.wait(retention/2):
+                break
             tracesDetails = self.rest.pollTraces(self.token)
             if tracesDetails is None :
                 break
@@ -1943,12 +1913,13 @@ class MainWindow(QMainWindow):
 
             # configuration of the REST plugin
             self.rest = PyREST(self.logger,hostname,port)
-            self.restThreadFlag = False
             self.wConf.connectButton.setStyleSheet("background-color:rgb(252, 48, 3);")
             self.wConf.connectButton.setText("Disconnected")
-            # set traces
-            threadRest = threading.Thread(target=self.restThread, args=(6,))
-            threadRest.start()
+            # check if thread already exists, if yes reset, and set traces
+            self.stopRestThread.set()
+            self.endThread(self.threadRest)
+            self.threadRest = threading.Thread(target=self.restThread, args=(6,))
+            self.threadRest.start()
 
             # way to stop connectShMem, url checks are done on trace thread but if find issue it wont be communicated here
             if self.rest.checkSpecTclREST() == False:
@@ -3088,13 +3059,8 @@ class MainWindow(QMainWindow):
         #     self.logger.debug('updatePlot - index is None or self.getSpectrumInfoREST("dim", name=name) is None')
         #     return
             
-
-        # if gatePopup exit with [X]
-        if (self.currentPlot.toCreateGate or self.currentPlot.toEditGate) and not self.gatePopup.isVisible():
-            self.cancelGate()
-        # if sumRegionPopup exit with [X]
-        if self.currentPlot.toCreateSumRegion and not self.sumRegionPopup.isVisible():
-            self.cancelSumRegion()
+        # if gatePopup or sumRegionPopup exit with [X]
+        self.cleanPopupExit(False)
 
         try:
             #x_range, y_range = self.getAxisProperties(index)
@@ -3753,6 +3719,8 @@ class MainWindow(QMainWindow):
     #callback for createSumRegionButton, show popup to define name
     def createSumRegion(self):
         self.logger.info('createSumRegion CallBack')
+        # Pause auto update when edit sum region
+        self.skipAutoUpdateThread.set()
         self.sumRegionPopup.sumRegionNameList.setEditable(True)
         self.sumRegionPopup.sumRegionNameList.setInsertPolicy(QComboBox.NoInsert)
 
@@ -3831,11 +3799,23 @@ class MainWindow(QMainWindow):
 
 
     #close sumRegionPopup
-    def cancelSumRegion(self):
+    def cancelSumRegion(self, doClose=True):
         self.logger.info('cancelSumRegion')
         self.currentPlot.toCreateSumRegion = False
-        self.sumRegionPopup.close()
+        if doClose :
+            self.sumRegionPopup.close()
         self.updatePlot()
+        # self.autoUpdsateStart()
+
+
+    # Close gatePopup/sumRegionPopup and set flags properly
+    def cleanPopupExit(self, doClose=True):
+        # if gatePopup exit with [X]
+        if (self.currentPlot.toCreateGate or self.currentPlot.toEditGate) and not self.gatePopup.isVisible():
+            self.cancelGate(doClose)
+        # if sumRegionPopup exit with [X]
+        if self.currentPlot.toCreateSumRegion and not self.sumRegionPopup.isVisible():
+            self.cancelSumRegion(doClose)
 
 
     #delete summing region according to self.sumRegionPopup.sumRegionNameList.currentText()
@@ -3924,7 +3904,6 @@ class MainWindow(QMainWindow):
         self.logger.info('cancelGate')
         self.currentPlot.toCreateGate = False
         self.currentPlot.toEditGate = False
-        # self.gatePopup.clearInfo()
         self.disconnectGateSignals()
         self.gatePopup.close()
         self.updatePlot()
@@ -3990,6 +3969,8 @@ class MainWindow(QMainWindow):
     #The flag self.currentPlot.toCreateGate determines if by clicking one sets the gate points (in on_singleclick)
     def createGate(self):
         self.logger.info('createGate')
+        # Pause auto update when edit gate
+        self.skipAutoUpdateThread.set()
         #Default gate actions is gate creation
         self.gatePopup.gateActionCreate.setChecked(True)
         self.gatePopup.preview.setEnabled(False)
@@ -5430,6 +5411,69 @@ class MainWindow(QMainWindow):
     ##############################
     # 17) Misc tools
     ##############################
+        
+    # Override close method of main window
+    def closeEvent(self, event):
+        self.logger.info('closeEvent - MainWindow')
+        # end threads (auto update, poll rest interface)
+        self.stopAutoUpdateThread.set()
+        self.endThread(self.threadAutoUpdate)
+        self.stopRestThread.set()
+        self.endThread(self.threadRest)
+        event.accept()
+
+    
+    # End openned threads, probably useless if threads close events are set correctly
+    def endThread(self, thread):
+        self.logger.info('endThread')
+        if thread:
+            if thread.is_alive():
+                thread.join()
+
+
+    # Gate and summing region popup close is connected to that, resume auto update
+    def autoUpdateResume(self):
+        self.logger.info('autoUpdateResume')
+        self.skipAutoUpdateThread.clear()
+
+
+    # Triggered when auto update slider value change 
+    def autoUpdateStart(self):
+        self.logger.info('autoUpdateStart')
+        # Get interval from QSlider and update label
+        updateInterval = self.extraPopup.options.autoUpdateIntervals[self.extraPopup.options.autoUpdate.value()]
+        updateIntervalUser = self.extraPopup.options.autoUpdateIntervalsUser[self.extraPopup.options.autoUpdate.value()]
+        self.extraPopup.options.autoUpdateLabel.setText("Update every: {}".format(updateIntervalUser))
+        try:
+            # If already a thread end it, and start a new 
+            if self.threadAutoUpdate:
+                if self.threadAutoUpdate.is_alive():
+                    self.stopAutoUpdateThread.set()
+            self.stopAutoUpdateThread.clear()
+            self.skipAutoUpdateThread.clear()
+            
+            self.threadAutoUpdate = threading.Thread(target=self.autoUpdateThread, args=(updateInterval,))
+            self.threadAutoUpdate.start()
+        except ValueError:
+            self.logger.debug('autoUpdateStart - ValueError exception', exc_info=True)
+
+
+    #Spectrum update periodically, run on separated thread.
+    def autoUpdateThread(self, interval):
+        self.logger.info('autoUpdateThread')
+        # Loop while stop event is false
+        while not self.stopAutoUpdateThread.is_set():
+            # Keep loop running but skip update if skip event 
+            if self.skipAutoUpdateThread.is_set():
+                continue
+            # Wait while stop event is false, if event true break loop
+            if self.stopAutoUpdateThread.wait(interval):
+                break
+            try:
+                self.updatePlot()
+            except ValueError:
+                self.logger.debug('autoUpdateThread - ValueError exception', exc_info=True)
+
 
     def createRectangle(self, plot):
         self.logger.info('createRectangle')
