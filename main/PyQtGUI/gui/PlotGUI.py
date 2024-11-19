@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import matplotlib.gridspec as gridspec
 
-from PyQt5 import QtCore
+from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 from PyQt5.QtWidgets import *
 
@@ -56,7 +56,7 @@ class Tabs(QTabWidget):
         self.zoomPlotInfo[index] = []
         self.countClickTab[index] = False
         # remove the default close button
-        self.tabBar().setTabButton(index, QTabBar.RightSide, None)
+        self.tabBar().setTabButton(index, QTabBar.RightSide, None)        
 
 
     # keep the default naming ordered, when add/delete a tab
