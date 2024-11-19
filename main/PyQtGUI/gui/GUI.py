@@ -1110,6 +1110,8 @@ class MainWindow(QMainWindow):
         #For now, if change tab while working on gate, close any ongoing gate action
         if self.currentPlot.toCreateGate or self.currentPlot.toEditGate or self.gatePopup.isVisible():
             self.cancelGate()
+        if self.currentPlot.toCreateSumRegion or self.sumRegionPopup.isVisible():
+            self.cancelSumRegion()
 
         # Can't use removeTab of QTabWidget on current tab so change the current index to another tab
         newIndex = 0
@@ -1134,6 +1136,8 @@ class MainWindow(QMainWindow):
         #For now, if change tab while working on gate, close any ongoing gate action
         if self.currentPlot.toCreateGate or self.currentPlot.toEditGate or self.gatePopup.isVisible():
             self.cancelGate()
+        if self.currentPlot.toCreateSumRegion or self.sumRegionPopup.isVisible():
+            self.cancelSumRegion()
 
         self.tabp.setWindowTitle("Rename tab...")
         self.tabp.setGeometry(200,350,100,50)
@@ -1162,9 +1166,16 @@ class MainWindow(QMainWindow):
     def clickedTab(self, index):
         self.logger.info('clickedTab - index: %s',index)
 
-        #For now, if change tab while working on gate, close any ongoing gate action
+        # End current auto update thread, to avoid thread issu, will start a new thread if/when tab is not empty 
+        self.stopAutoUpdateThread.set()
+        self.endThread(self.threadAutoUpdate)
+
+        # For now, if change tab while working on gate, close any ongoing gate action
         if self.currentPlot.toCreateGate or self.currentPlot.toEditGate or self.gatePopup.isVisible():
             self.cancelGate()
+            return
+        if self.currentPlot.toCreateSumRegion or self.sumRegionPopup.isVisible():
+            self.cancelSumRegion()
             return
 
         self.wTab.setCurrentIndex(index)
@@ -1190,6 +1201,13 @@ class MainWindow(QMainWindow):
                 self.wConf.createGate.setEnabled(self.currentPlot.isEnlarged)
                 self.removeRectangle()
                 self.bindDynamicSignal()
+
+                # If tab not empty, (re)start auto update
+                for indexPlot, name in self.getGeo().items():
+                    if name:
+                        ax = self.getSpectrumInfo("axis", index=indexPlot)
+                        if ax is not None :
+                            self.autoUpdateStart()
             except:
                 self.logger.debug('clickedTab - exception occured', exc_info=True)
                 pass
@@ -1420,8 +1438,6 @@ class MainWindow(QMainWindow):
         self.stopRestThread.clear()
         self.wConf.connectButton.setStyleSheet("background-color:#bcee68;")
         self.wConf.connectButton.setText("Connected")
-
-        print('Simon - resTHread - ',self.stopRestThread.is_set())
 
         while not self.stopRestThread.is_set():
             # Wait while stop event is false, if event true break loop
@@ -2983,6 +2999,8 @@ class MainWindow(QMainWindow):
                 self.currentPlot.isSelected = False
         except NameError:
             raise
+        if self.stopAutoUpdateThread.is_set():
+            self.autoUpdateStart()
 
 
     #why not using np.linspace(vmin, vmax, bins)
@@ -3900,12 +3918,13 @@ class MainWindow(QMainWindow):
 
 
     #callback for gatePopup.cancel button
-    def cancelGate(self):
+    def cancelGate(self, doClose=True):
         self.logger.info('cancelGate')
         self.currentPlot.toCreateGate = False
         self.currentPlot.toEditGate = False
         self.disconnectGateSignals()
-        self.gatePopup.close()
+        if doClose :
+            self.gatePopup.close()
         self.updatePlot()
 
     
@@ -5652,26 +5671,3 @@ class centeredNorm(colors.Normalize):
             halfrange = np.max(np.abs(data - vcenter))
         super().__init__(vmin=vcenter - halfrange, vmax=vcenter + halfrange, clip=clip)
 
-
-# class summingRegionPopup(QDialog):
-#     def __init__(self, parent=None):
-#         super().__init__(parent)
-
-#         self.labelName = QLabel(self)
-#         self.labelName.setText("Name")
-#         self.lineEditName = QLineEdit(self)
-#         self.okButton = QPushButton("Ok", self)
-#         self.cancelButton = QPushButton("Cancel", self)
-
-#         mainLayout = QGridLayout()
-#         buttonsLayout = QHBoxLayout()
-#         fieldsLayout = QHBoxLayout()
-#         fieldsLayout.addWidget(self.labelName)
-#         fieldsLayout.addWidget(self.lineEditName)
-#         buttonsLayout.addWidget(self.okButton)
-#         buttonsLayout.addWidget(self.cancelButton)
-
-#         mainLayout.addLayout(fieldsLayout, 1, 0, 1, 0)
-#         mainLayout.addLayout(buttonsLayout, 2, 0, 1, 0)
-#         self.setLayout(mainLayout)
-        
