@@ -1180,25 +1180,15 @@ class MainWindow(QMainWindow):
 
         self.wTab.setCurrentIndex(index)
 
+        # Check if create or switch between existing tabs
+        # First if when new tab
         if index == self.wTab.count()-1:
             self.wTab.addTab(index)
             self.currentPlot = self.wTab.wPlot[index]
+            self.tabGeoWidgetAndFlags(index)            
         else:
             try:
-                self.currentPlot = self.wTab.wPlot[index]
-                nRow = self.wTab.layout[index][0]
-                nCol = self.wTab.layout[index][1]
-                self.logger.debug('clickedTab - canvas layout: %s, %s',nRow, nCol)
-
-                #nRow-1 because nRow (nCol) is the number of row and the following sets an index starting at 0
-                self.wConf.histo_geo_row.setCurrentIndex(nRow-1)
-                self.wConf.histo_geo_col.setCurrentIndex(nCol-1)
-
-                #enable/disable some widgets depending if enlarge mode of not, flags set also in on_dblclick 
-                self.wConf.histo_geo_add.setEnabled(not self.currentPlot.isEnlarged)
-                self.wConf.histo_geo_row.setEnabled(not self.currentPlot.isEnlarged)
-                self.wConf.histo_geo_col.setEnabled(not self.currentPlot.isEnlarged)
-                self.wConf.createGate.setEnabled(self.currentPlot.isEnlarged)
+                self.tabGeoWidgetAndFlags(index)
                 self.removeRectangle()
                 self.bindDynamicSignal()
 
@@ -1208,9 +1198,28 @@ class MainWindow(QMainWindow):
                         ax = self.getSpectrumInfo("axis", index=indexPlot)
                         if ax is not None :
                             self.autoUpdateStart()
+                            break
             except:
                 self.logger.debug('clickedTab - exception occured', exc_info=True)
                 pass
+
+
+    # Helper to set histo_geo widget and enable/disable buttons, when interact with tabs
+    def tabGeoWidgetAndFlags(self, index):
+        self.currentPlot = self.wTab.wPlot[index]
+        nRow = self.wTab.layout[index][0]
+        nCol = self.wTab.layout[index][1]
+        self.logger.debug('tabGeoWidgetAndFlags - canvas layout: %s, %s',nRow, nCol)
+
+        #nRow-1 because nRow (nCol) is the number of row (col) and the following sets an index starting at 0
+        self.wConf.histo_geo_row.setCurrentIndex(nRow-1)
+        self.wConf.histo_geo_col.setCurrentIndex(nCol-1)
+
+        #enable/disable some widgets depending if enlarge mode of not, flags set also in on_dblclick 
+        self.wConf.histo_geo_add.setEnabled(not self.currentPlot.isEnlarged)
+        self.wConf.histo_geo_row.setEnabled(not self.currentPlot.isEnlarged)
+        self.wConf.histo_geo_col.setEnabled(not self.currentPlot.isEnlarged)
+        self.wConf.createGate.setEnabled(self.currentPlot.isEnlarged)
 
 
     def movedTab(self, indexFrom, indexTo):
@@ -1221,18 +1230,7 @@ class MainWindow(QMainWindow):
             self.wTab.tabBar().moveTab(indexTo, indexFrom)
         else: 
             self.wTab.swapTabDict(indexFrom, indexTo)
-            # Following similar as in clickedTab
-            self.currentPlot = self.wTab.wPlot[indexFrom]
-            nRow = self.wTab.layout[indexFrom][0]
-            nCol = self.wTab.layout[indexFrom][1]
-            #nRow-1 because nRow (nCol) is the number of row and the following sets an index starting at 0
-            self.wConf.histo_geo_row.setCurrentIndex(nRow-1)
-            self.wConf.histo_geo_col.setCurrentIndex(nCol-1)
-            #enable/disable some widgets depending if enlarge mode of not, flags set also in on_dblclick 
-            self.wConf.histo_geo_add.setEnabled(not self.currentPlot.isEnlarged)
-            self.wConf.histo_geo_row.setEnabled(not self.currentPlot.isEnlarged)
-            self.wConf.histo_geo_col.setEnabled(not self.currentPlot.isEnlarged)
-            self.wConf.createGate.setEnabled(self.currentPlot.isEnlarged)
+            self.tabGeoWidgetAndFlags(indexFrom)
             self.removeRectangle()
             self.bindDynamicSignal()
 
@@ -2999,8 +2997,14 @@ class MainWindow(QMainWindow):
                 self.currentPlot.isSelected = False
         except NameError:
             raise
+
+        # (Re)start auto update once there is a spectrum
         if self.stopAutoUpdateThread.is_set():
             self.autoUpdateStart()
+
+        # When create a new tab, signals are enabled once a spectrum is added 
+        if not  self.wTab.countClickTab[self.wTab.currentIndex()]:
+            self.bindDynamicSignal()
 
 
     #why not using np.linspace(vmin, vmax, bins)
@@ -3187,11 +3191,13 @@ class MainWindow(QMainWindow):
                 self.currentPlot.index = self.check_index()
                 self.wTab.selected_plot_index_bak[tabIndex]= self.currentPlot.index
                 self.currentPlot.next_plot_index = self.setIndex(self.currentPlot.next_plot_index)
+
         #second case when select a plot before clicking "Add"
         elif self.currentPlot.selected_plot_index == self.currentPlot.next_plot_index:
             self.currentPlot.index = self.currentPlot.selected_plot_index
             self.wTab.selected_plot_index_bak[tabIndex]= self.currentPlot.selected_plot_index
             self.currentPlot.next_plot_index = self.setIndex(self.currentPlot.next_plot_index)
+
         #third case when click "Add" without selecting a plot, will draw in the next frame
         elif self.currentPlot.selected_plot_index != self.currentPlot.next_plot_index and self.currentPlot.next_plot_index>=0:
             self.forNextIndex(tabIndex,self.currentPlot.next_plot_index)
