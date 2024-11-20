@@ -158,6 +158,10 @@ class Plot(QWidget):
         self.pointerLabel.setText("Pointer: \nX: Y: Count:")
         # self.createSumRegionButton = QPushButton("Summing region", self)
         self.histo_autoscale = QCheckBox("Autoscale",self)
+        self.customZoomButton = QPushButton("", self)
+        self.customZoomButton.setFixedWidth(30)
+        self.customZoomButton.setStyleSheet("QPushButton { background-color: light gray }"
+            "QPushButton:pressed { background-color: grey }" )
         self.logButton = QPushButton("Log", self)
         self.logButton.setFixedWidth(50)
         self.logButton.setStyleSheet("QPushButton { background-color: light gray }"
@@ -172,6 +176,7 @@ class Plot(QWidget):
             "QPushButton:pressed { background-color: grey }" )
         self.customHomeButton = QPushButton("Reset", self)
         self.customHomeButton.setFixedWidth(70)
+
 
         self.logger = loggerMain
 
@@ -194,7 +199,13 @@ class Plot(QWidget):
 
         # set actions in desired order
         self.toolbar.addWidget(self.histo_autoscale)
+        # zoom action triggered by customZoomButton so setVisible(False)
         self.toolbar.addAction(zoomAction)
+        zoomAction.setVisible(False)
+        # Copy zoom icon for customZoomButton
+        zoomIcon = zoomAction.icon()
+        self.customZoomButton.setIcon(zoomIcon)
+        self.toolbar.addWidget(self.customZoomButton)
         self.toolbar.addWidget(self.plusButton)
         self.toolbar.addWidget(self.minusButton)
         self.toolbar.addWidget(self.logButton)

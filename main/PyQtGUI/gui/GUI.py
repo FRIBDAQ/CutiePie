@@ -350,6 +350,10 @@ class MainWindow(QMainWindow):
         self.wTab.wPlot[self.wTab.currentIndex()].copyButton.clicked.connect(self.copyPopup)
         # autoscale
         self.wTab.wPlot[self.wTab.currentIndex()].histo_autoscale.clicked.connect(lambda: self.autoScaleAxisBox(None))
+        # Custom Zoom button
+        self.wTab.wPlot[self.wTab.currentIndex()].customZoomButton.clicked.connect(self.customZoomButtonCallback)
+        self.wTab.wPlot[self.wTab.currentIndex()].customZoomButton.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.wTab.wPlot[self.wTab.currentIndex()].customZoomButton.customContextMenuRequested.connect(self.zoom_handle_right_click)
         # plus button
         self.wTab.wPlot[self.wTab.currentIndex()].plusButton.clicked.connect(lambda: self.zoomInOut("in"))
         # minus button
@@ -437,6 +441,7 @@ class MainWindow(QMainWindow):
                 self.wTab.wPlot[index].logButton.disconnect()
                 self.wTab.wPlot[index].cutoffButton.disconnect()
                 self.wTab.wPlot[self.wTab.currentIndex()].histo_autoscale.disconnect()
+                self.wTab.wPlot[self.wTab.currentIndex()].customZoomButton.disconnect()
                 self.wTab.wPlot[self.wTab.currentIndex()].plusButton.disconnect()
                 self.wTab.wPlot[self.wTab.currentIndex()].minusButton.disconnect()
                 self.wTab.wPlot[self.wTab.currentIndex()].copyButton.disconnect()
@@ -445,6 +450,9 @@ class MainWindow(QMainWindow):
 
         self.wTab.wPlot[self.wTab.currentIndex()].canvas.toolbar.actions()[1].triggered.connect(self.zoomCallback)
         self.wTab.wPlot[self.wTab.currentIndex()].histo_autoscale.clicked.connect(lambda: self.autoScaleAxisBox(None))
+        self.wTab.wPlot[self.wTab.currentIndex()].customZoomButton.clicked.connect(self.customZoomButtonCallback)
+        self.wTab.wPlot[self.wTab.currentIndex()].customZoomButton.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.wTab.wPlot[self.wTab.currentIndex()].customZoomButton.customContextMenuRequested.connect(self.zoom_handle_right_click)
         self.wTab.wPlot[self.wTab.currentIndex()].plusButton.clicked.connect(lambda: self.zoomInOut("in"))
         self.wTab.wPlot[self.wTab.currentIndex()].minusButton.clicked.connect(lambda: self.zoomInOut("out"))
         self.wTab.wPlot[self.wTab.currentIndex()].cutoffButton.clicked.connect(self.cutoffButtonCallback)
@@ -580,6 +588,7 @@ class MainWindow(QMainWindow):
         self.logger.info('zoomKeyCallback')
         self.currentPlot.canvas.toolbar.actions()[1].triggered.emit()
         self.currentPlot.canvas.toolbar.actions()[1].setChecked(True)
+        self.currentPlot.customZoomButton.setDown(True)
 
 
     # Introduced for endding zoom action (toolbar) on release
@@ -591,6 +600,7 @@ class MainWindow(QMainWindow):
         if self.currentPlot.zoomPress:
             self.currentPlot.canvas.toolbar.actions()[1].triggered.emit()
             self.currentPlot.canvas.toolbar.actions()[1].setChecked(False)
+            self.currentPlot.customZoomButton.setDown(False)
             threadLimits = threading.Thread(target=self.updatePlotLimits, args=(0.05,))
             threadLimits.start()
             self.currentPlot.zoomPress = False
@@ -618,6 +628,7 @@ class MainWindow(QMainWindow):
         if not withinLimits:
             self.currentPlot.canvas.toolbar.actions()[1].triggered.emit()
             self.currentPlot.canvas.toolbar.actions()[1].setChecked(False)
+            self.currentPlot.customZoomButton.setDown(False)
             self.currentPlot.zoomPress = False
 
 
@@ -629,6 +640,7 @@ class MainWindow(QMainWindow):
         if self.currentPlot.zoomPress and not event.inaxes: 
             self.currentPlot.canvas.toolbar.actions()[1].triggered.emit()
             self.currentPlot.canvas.toolbar.actions()[1].setChecked(False)
+            self.currentPlot.customZoomButton.setDown(False)
             self.currentPlot.zoomPress = False
 
         if not event.inaxes: return
@@ -1178,9 +1190,16 @@ class MainWindow(QMainWindow):
             self.cancelSumRegion()
             return
 
+        # Abord zoom action if click a tab
+        if self.currentPlot.zoomPress:
+            self.currentPlot.canvas.toolbar.actions()[1].triggered.emit()
+            self.currentPlot.canvas.toolbar.actions()[1].setChecked(False)
+            self.currentPlot.customZoomButton.setDown(False)
+            self.currentPlot.zoomPress = False
+
         self.wTab.setCurrentIndex(index)
 
-        # Check if create or switch between existing tabs
+        # Check if create or switch/move existing tabs
         # First if when new tab
         if index == self.wTab.count()-1:
             self.wTab.addTab(index)
@@ -2523,6 +2542,13 @@ class MainWindow(QMainWindow):
         self.logger.info('zoomCallback')
         self.currentPlot.zoomPress = True
 
+    #Used by customZoom button, trigger toolbar zoom action
+    def customZoomButtonCallback(self):
+        self.logger.info('customZoomButtonCallback')
+        self.currentPlot.canvas.toolbar.actions()[1].triggered.emit()
+        self.currentPlot.canvas.toolbar.actions()[1].setChecked(True)
+        self.currentPlot.customZoomButton.setDown(True)
+
 
     #Used by customHome button, reset the axis limits to ReST definitions, for the specified plot at index or for all plots if index not provided
     def customHomeButtonCallback(self, index=None):
@@ -2609,6 +2635,21 @@ class MainWindow(QMainWindow):
             self.setAxisScale(ax, idx, "log")
         wPlot.canvas.draw()
 
+
+    #callback when right click on customZoomButton
+    def zoom_handle_right_click(self):
+        self.logger.info('handle_right_click')
+        menu = QMenu()
+        item1 = menu.addAction("Set range") 
+        #Empty agrument for customHomeButtonCallback means it will reset all spectra
+        # item1.triggered.connect(lambda: self.customHomeButtonCallback())
+        # mouse_pos = QCursor.pos()
+        plotgui = self.currentPlot
+        menuPosX = plotgui.mapToGlobal(QtCore.QPoint(0,0)).x() + plotgui.customZoomButton.geometry().topLeft().x()
+        menuPosY = plotgui.mapToGlobal(QtCore.QPoint(0,0)).y() + plotgui.customZoomButton.geometry().topLeft().y()
+        menuPos = QtCore.QPoint(menuPosX, menuPosY)
+        # Shows menu at button position, need to calibrate with 0,0 position
+        menu.exec_(menuPos) 
 
 
     #callback when right click on customHomeButton
