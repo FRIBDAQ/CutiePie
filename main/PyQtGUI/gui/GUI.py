@@ -240,6 +240,9 @@ class MainWindow(QMainWindow):
         # copy attributes windows
         self.copyAttr = CopyProperties()
 
+        # copy attributes windows
+        self.zoomSetRangePopup = zoomPopup()
+
         # initialize factory from algo_creator
         #self.factory.initialize(self.extraPopup.imaging.clusterAlgo)
         # initialize factory from fit_creator
@@ -346,6 +349,9 @@ class MainWindow(QMainWindow):
 
         # zoom callback
         self.wTab.wPlot[self.wTab.currentIndex()].canvas.toolbar.actions()[1].triggered.connect(self.zoomCallback)
+        # zoom set range popup
+        self.zoomSetRangePopup.okButton.clicked.connect(self.okZoomSetRange)
+        self.zoomSetRangePopup.cancelButton.clicked.connect(self.cancelZoomSetRange)
         # copy properties
         self.wTab.wPlot[self.wTab.currentIndex()].copyButton.clicked.connect(self.copyPopup)
         # autoscale
@@ -657,8 +663,7 @@ class MainWindow(QMainWindow):
         if self.currentPlot.isEnlarged:
             index = self.wTab.selected_plot_index_bak[self.wTab.currentIndex()]
         self.currentPlot.selected_plot_index = index
-        #removed the timer on thread, cause problem for populating regionPoint in the gate popup
-        #Dont know (Simon) why a small delay was needed
+
         if event.dblclick:
             if self.currentPlot.toCreateGate or self.currentPlot.toCreateSumRegion :
                 #dont need to do anything special here, the 2d line is closed when click okGate
@@ -1650,6 +1655,7 @@ class MainWindow(QMainWindow):
                 # print("Simon - setSpectrumInfo -",index, self.wTab.spectrum_dict[self.wTab.currentIndex()], self.wTab.spectrum_dict[self.wTab.currentIndex()][index])
                 #set axes info at the same time than spectrum
                 if key == "spectrum":
+                    print('Simon setSpectrumInfo axes -',value.axes.get_xlim())
                     self.wTab.spectrum_dict[self.wTab.currentIndex()][index]["axis"] = value.axes
 
 
@@ -2232,11 +2238,15 @@ class MainWindow(QMainWindow):
             if "y" or "log" in scale:
                 ymin = self.getSpectrumInfo("miny", index=index)
                 ymax = self.getSpectrumInfo("maxy", index=index)
+                print('Simon in axisScale ',ymin,ymax)
                 if (not ymin or ymin is None or ymin == 0) and (not ymax or ymax is None or ymax == 0):
                     ymin = self.minY
-                    ymax = self.maxY
+                    ymax = self.maxY               
+                    print('Simon in axisScale in if cond ',ymin,ymax)
+
                 if axisIsAutoScale:
                     #search in the current view
+                    print('Simon test axes limits axisScale ', ax.get_xlim())
                     xmin, xmax = ax.get_xlim()
                     #getMinMaxInRange returns only max for 1d 
                     ymax = self.getMinMaxInRange(index, xmin=xmin, xmax=xmax)
@@ -2249,6 +2259,8 @@ class MainWindow(QMainWindow):
                         ax.set_ylim(ymin,ymax)
                         ax.set_yscale("log")
                 else:
+                    print('Simon in axisScale before set ',ymin,ymax)
+
                     ax.set_ylim(ymin,ymax)
                     ax.set_yscale("linear")
                 self.setSpectrumInfo(miny=ymin, index=index)
@@ -2446,11 +2458,14 @@ class MainWindow(QMainWindow):
         stepx = (float(maxx)-float(minx))/float(binx)
         binminx = int((xmin-minx)/stepx)
         binmaxx = int((xmax-minx)/stepx)
+        print("Simon - getMinMaxInrange - ", binminx, binmaxx, xmin, minx, xmax, maxx, stepx)
         if dim == 1:
             try:
                 # get max in x range
                 #increase by 10% to get axis view a little bigger than max
                 result = data[binminx+1:binmaxx+2].max()*1.1
+                print("Simon - getMinMaxInrange - result ", result)
+
             except :
                 self.logger.debug('getMinMaxInRange - dim == 1 - exception occured', exc_info=True)
                 return self.maxY
@@ -2638,18 +2653,119 @@ class MainWindow(QMainWindow):
 
     #callback when right click on customZoomButton
     def zoom_handle_right_click(self):
-        self.logger.info('handle_right_click')
+        self.logger.info('zoom_handle_right_click')
         menu = QMenu()
         item1 = menu.addAction("Set range") 
         #Empty agrument for customHomeButtonCallback means it will reset all spectra
-        # item1.triggered.connect(lambda: self.customHomeButtonCallback())
-        # mouse_pos = QCursor.pos()
+        item1.triggered.connect(self.customZoomSetRange)
         plotgui = self.currentPlot
         menuPosX = plotgui.mapToGlobal(QtCore.QPoint(0,0)).x() + plotgui.customZoomButton.geometry().topLeft().x()
         menuPosY = plotgui.mapToGlobal(QtCore.QPoint(0,0)).y() + plotgui.customZoomButton.geometry().topLeft().y()
         menuPos = QtCore.QPoint(menuPosX, menuPosY)
         # Shows menu at button position, need to calibrate with 0,0 position
         menu.exec_(menuPos) 
+
+
+    def customZoomSetRange(self):
+        self.logger.info('customZoomSetRange')
+        # Set fields to current spectrum range, as starting points 
+        index = self.currentPlot.selected_plot_index
+        if index is None : 
+            return QMessageBox.about(self,"Warning!", "Please add/select a spectrum")
+        ax = self.getSpectrumInfo("axis", index=index)
+        if ax is None :
+            self.logger.warning('customZoomSetRange - axis is None')
+            return
+        name = self.getSpectrumInfo("name", index=index)
+        dim = self.getSpectrumInfo("dim", index=index)
+        self.zoomSetRangePopup.setWindowTitle(f"Set zoom for: {name}")
+        self.zoomSetRangePopup.indexSpectrum = index
+        xmin, xmax = ax.get_xlim()
+        ymin, ymax = ax.get_ylim()
+        self.zoomSetRangePopup.lineeditXmin.setText(f"{xmin:.2f}")
+        self.zoomSetRangePopup.lineeditXmax.setText(f"{xmax:.2f}")
+        self.zoomSetRangePopup.lineeditYmin.setText(f"{ymin:.2f}")
+        self.zoomSetRangePopup.lineeditYmax.setText(f"{ymax:.2f}")
+        # Adapt dialogue layout with dim
+        if dim == 1 :
+            self.zoomSetRangePopup.layout1d()
+        elif dim == 2 :
+            self.zoomSetRangePopup.layout2d()
+        self.zoomSetRangePopup.show()
+
+
+    def cancelZoomSetRange(self):
+        self.logger.info('cancelZoomSetRange')
+        self.zoomSetRangePopup.lineeditXmin.clear()
+        self.zoomSetRangePopup.lineeditXmax.clear()
+        self.zoomSetRangePopup.lineeditYmin.clear()
+        self.zoomSetRangePopup.lineeditYmax.clear()
+        self.zoomSetRangePopup.close()
+    
+
+    def okZoomSetRange(self):
+        self.logger.info('okZoomSetRange')
+        index = self.zoomSetRangePopup.indexSpectrum
+        ax = self.getSpectrumInfo("axis", index=index)
+        if ax is None :
+            self.logger.debug('okZoomSetRange - ax is None')
+            return
+        dim = self.getSpectrumInfoREST("dim", index=index)
+        rangeXmin = self.zoomSetRangePopup.lineeditXmin.text()
+        rangeXmax = self.zoomSetRangePopup.lineeditXmax.text()
+        rangeYmin = self.zoomSetRangePopup.lineeditYmin.text()
+        rangeYmax = self.zoomSetRangePopup.lineeditYmax.text()
+
+        # Convert and check expected format
+        try:
+            rangeXmin = float(rangeXmin)
+            rangeXmax = float(rangeXmax)
+            rangeYmin = float(rangeYmin)
+            rangeYmax = float(rangeYmax)
+        except ValueError:
+            self.logger.warning("okZoomSetRange - Invalid input format for zoom range(s). Please enter valid numbers.")
+            return
+        
+        print('Simon x limits ',rangeXmin, rangeXmax, rangeYmin, rangeYmax)
+
+        #Order X min/max may be inverted
+        if rangeXmin is not None and rangeXmax is not None and rangeXmax < rangeXmin:
+            buff = rangeXmin
+            rangeXmin = rangeXmax
+            rangeXmax = buff
+            self.logger.warning('okZoomSetRange - new range X values swapped because min > max')
+        #Order Y min/max may be inverted
+        if rangeYmin is not None and rangeYmax is not None and rangeYmax < rangeYmin:
+            buff = rangeYmin
+            rangeYmin = rangeYmax
+            rangeYmax = buff
+            self.logger.warning('okZoomSetRange - new range Y values swapped because min > max')
+
+        try:
+            #Set new axis limits and save new range in spectrum dict 
+            spectrum = self.getSpectrumInfo("spectrum", index=index)
+            if dim == 1 :
+                ax.set_xlim(float(rangeXmin), float(rangeXmax))
+                print('Simon test ax limits one ', ax.get_xlim())
+                self.setSpectrumInfo(minx=rangeXmin, index=index)
+                self.setSpectrumInfo(maxx=rangeXmax, index=index)
+            elif dim == 2 :
+                ax.set_xlim(rangeXmin, rangeXmax)
+                ax.set_ylim(rangeYmin, rangeYmax)
+                print('Simon test ax limits two ', ax.get_xlim(), ax.get_ylim())
+                self.setSpectrumInfo(minx=rangeXmin, index=index)
+                self.setSpectrumInfo(maxx=rangeXmax, index=index)
+                self.setSpectrumInfo(miny=rangeYmin, index=index)
+                self.setSpectrumInfo(maxy=rangeYmax, index=index)
+            self.setSpectrumInfo(spectrum=spectrum, index=index)
+            self.drawGate(index)
+            self.currentPlot.canvas.draw()
+        except NameError as err:
+            self.logger.debug('okZoomSetRange - NameError', exc_info=True)
+            pass
+
+        self.zoomSetRangePopup.close()
+
 
 
     #callback when right click on customHomeButton
@@ -2659,7 +2775,6 @@ class MainWindow(QMainWindow):
         item1 = menu.addAction("Reset all") 
         #Empty agrument for customHomeButtonCallback means it will reset all spectra
         item1.triggered.connect(lambda: self.customHomeButtonCallback())
-        # mouse_pos = QCursor.pos()
         plotgui = self.currentPlot
         menuPosX = plotgui.mapToGlobal(QtCore.QPoint(0,0)).x() + plotgui.customHomeButton.geometry().topLeft().x()
         menuPosY = plotgui.mapToGlobal(QtCore.QPoint(0,0)).y() + plotgui.customHomeButton.geometry().topLeft().y()
@@ -2677,7 +2792,6 @@ class MainWindow(QMainWindow):
         #Empty agrument for logButtonCallback means it will set log for all spectra
         item1.triggered.connect(lambda: self.logButtonCallback("logAll"))
         item2.triggered.connect(lambda: self.logButtonCallback("unlogAll"))
-        # mouse_pos = QCursor.pos()
         plotgui = self.currentPlot
         menuPosX = plotgui.mapToGlobal(QtCore.QPoint(0,0)).x() + plotgui.logButton.geometry().topLeft().x()
         menuPosY = plotgui.mapToGlobal(QtCore.QPoint(0,0)).y() + plotgui.logButton.geometry().topLeft().y()
@@ -3074,6 +3188,9 @@ class MainWindow(QMainWindow):
         spectrum = self.getSpectrumInfo("spectrum", index=index)
         w = self.getSpectrumInfoREST("data", index=index)
 
+        print('Simon test axes limits plotPlot before mod ', spectrum.axes.get_xlim())
+
+
         if self.getSpectrumInfo("cutoff", index=index) is not None:
             if len(self.getSpectrumInfo("cutoff", index=index))>0:
                 #if min/maxCutoff mask data bellow/above the cutoff values
@@ -3103,6 +3220,8 @@ class MainWindow(QMainWindow):
             # if (self.wConf.button2D_option.currentText() == 'Light'):
             w = np.ma.masked_where(w == 0, w)
             spectrum.set_data(w)
+        print('Simon test axes limits plotPlot after mod ', spectrum.axes.get_xlim())
+
         self.setSpectrumInfo(spectrum=spectrum, index=index)
         self.currentPlot = currentPlot
 
@@ -3163,11 +3282,13 @@ class MainWindow(QMainWindow):
                         if len(self.getSpectrumInfoDict()) == 0:
                             return QMessageBox.about(self,"Warning!", "Configuration file has probably changed, please reset the window geometry (add plots or load geo file)")
                         continue
+                    print('Simon test updatePlot ', ax.get_xlim(), ax, self.currentPlot.canvas)
                     self.plotPlot(index)
                     #reset the axis limits as it was before enlarge
                     #dont need to specify if log scale, it is checked inside setAxisScale, if 2D histo in log its z axis is set too.
                     dim = self.getSpectrumInfoREST("dim", index=index)
                     if dim == 1:
+                        print('Simon test axes limits updatePlot ', ax.get_xlim())
                         self.setAxisScale(ax, index, "x", "y")
                     elif dim == 2:
                         self.setAxisScale(ax, index, "x", "y", "z")
@@ -5711,6 +5832,84 @@ class cutoffPopup(QDialog):
         mainLayout.addLayout(fieldsLayout, 1, 0, 1, 0)
         mainLayout.addLayout(buttonsLayout, 2, 0, 1, 0)
         self.setLayout(mainLayout)
+
+
+class zoomPopup(QDialog):
+
+    # Hold the index of selected spectrum when openned zoomPopup 
+    indexSpectrum = None
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.lineeditXmin = QLineEdit(self)
+        self.lineeditXmax = QLineEdit(self)
+        self.lineeditYmin = QLineEdit(self)
+        self.lineeditYmax = QLineEdit(self)
+        self.labelXmin = QLabel(self)
+        self.labelXmin.setText("Xmin")
+        self.labelXmax = QLabel(self)
+        self.labelXmax.setText("Xmax")
+        self.labelYmin = QLabel(self)
+        self.labelYmin.setText("Ymin")
+        self.labelYmax = QLabel(self)
+        self.labelYmax.setText("Ymax")
+        self.okButton = QPushButton("Ok", self)
+        self.cancelButton = QPushButton("Cancel", self)
+        self.mainLayout = QGridLayout()
+
+    def setVisibleFields(self, value=True):
+        self.labelYmin.setVisible(value)
+        self.labelYmax.setVisible(value)
+        self.lineeditYmin.setVisible(value)
+        self.lineeditYmax.setVisible(value)
+
+    def layout1d(self):
+        # while self.mainLayout.count() > 0:
+        #     item = self.mainLayout.takeAt(0)
+        #     if item.widget():
+        #         item.widget().deleteLater()
+        self.setVisibleFields(False)
+        buttonsLayout = QHBoxLayout()
+        fields1Layout = QHBoxLayout()
+        fields1Layout.addWidget(self.labelXmin)
+        fields1Layout.addWidget(self.lineeditXmin)
+        fields1Layout.addWidget(self.labelXmax)
+        fields1Layout.addWidget(self.lineeditXmax)
+        buttonsLayout.addWidget(self.okButton)
+        buttonsLayout.addWidget(self.cancelButton)
+
+        self.mainLayout.addLayout(fields1Layout, 1, 0, 1, 0)
+        self.mainLayout.addLayout(buttonsLayout, 2, 0, 1, 0)
+
+        self.setLayout(self.mainLayout)
+
+    def layout2d(self):
+        # while self.mainLayout.count() > 0:
+        #     item = self.mainLayout.takeAt(0)
+        #     if item.widget():
+        #         item.widget().deleteLater()
+        self.setVisibleFields(True)
+        buttonsLayout = QHBoxLayout()
+        fields1Layout = QHBoxLayout()
+        fields1Layout.addWidget(self.labelXmin)
+        fields1Layout.addWidget(self.lineeditXmin)
+        fields1Layout.addWidget(self.labelXmax)
+        fields1Layout.addWidget(self.lineeditXmax)
+        fields2Layout = QHBoxLayout()
+        fields2Layout.addWidget(self.labelYmin)
+        fields2Layout.addWidget(self.lineeditYmin)
+        fields2Layout.addWidget(self.labelYmax)
+        fields2Layout.addWidget(self.lineeditYmax)
+        buttonsLayout.addWidget(self.okButton)
+        buttonsLayout.addWidget(self.cancelButton)
+
+        self.mainLayout.addLayout(fields1Layout, 1, 0, 1, 0)
+        self.mainLayout.addLayout(fields2Layout, 2, 0, 1, 0)
+        self.mainLayout.addLayout(buttonsLayout, 3, 0, 1, 0)
+        self.setLayout(self.mainLayout)
+
+
 
 class centeredNorm(colors.Normalize):
     def __init__(self, data, vcenter=0, halfrange=None, clip=False):
