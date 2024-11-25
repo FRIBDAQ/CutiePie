@@ -430,7 +430,8 @@ class MainWindow(QMainWindow):
         # Hotkeys
         # zoom (click-drag)
         self.shortcutZoomDrag = QShortcut(QKeySequence("Alt+Z"), self)
-        self.shortcutZoomDrag.activated.connect(self.zoomKeyCallback)
+        # self.shortcutZoomDrag.activated.connect(self.zoomKeyCallback)
+        self.shortcutZoomDrag.activated.connect(self.customZoomButtonCallback)
 
 
         self.currentPlot = self.wTab.wPlot[self.wTab.currentIndex()] # definition of current plot
@@ -589,14 +590,6 @@ class MainWindow(QMainWindow):
         self.currentPlot.canvas.draw()
 
 
-    #Hotkey triggering toolbar zoom action 
-    def zoomKeyCallback(self):
-        self.logger.info('zoomKeyCallback')
-        self.currentPlot.canvas.toolbar.actions()[1].triggered.emit()
-        self.currentPlot.canvas.toolbar.actions()[1].setChecked(True)
-        self.currentPlot.customZoomButton.setDown(True)
-
-
     # Introduced for endding zoom action (toolbar) on release
     # For this purpose dont need to check if release outside of axis (it can happen)
     # small delay introduced such that updatePlotLimits is executed after on_release.
@@ -607,7 +600,7 @@ class MainWindow(QMainWindow):
             self.currentPlot.canvas.toolbar.actions()[1].triggered.emit()
             self.currentPlot.canvas.toolbar.actions()[1].setChecked(False)
             self.currentPlot.customZoomButton.setDown(False)
-            threadLimits = threading.Thread(target=self.updatePlotLimits, args=(0.05,))
+            threadLimits = threading.Thread(target=self.updatePlotLimits, args=(0.1,))
             threadLimits.start()
             self.currentPlot.zoomPress = False
 
@@ -631,7 +624,7 @@ class MainWindow(QMainWindow):
 
         withinLimits = True if (event.x() in range(leftLimit,rightLimit)) and (event.y() in range(topLimit,bottomLimit)) else False
 
-        if not withinLimits:
+        if not withinLimits or event.button == 3:
             self.currentPlot.canvas.toolbar.actions()[1].triggered.emit()
             self.currentPlot.canvas.toolbar.actions()[1].setChecked(False)
             self.currentPlot.customZoomButton.setDown(False)
@@ -1040,9 +1033,6 @@ class MainWindow(QMainWindow):
             #setup single pad canvas
             self.currentPlot.InitializeCanvas(1,1,False)
 
-            # print("Simon - in dbl_click before reseet canvas - ", self.getSpectrumInfo("spectrum", index=idx).axes.get_xlim())
-
-
             self.add(idx)
             self.updatePlot()
         else:
@@ -1104,6 +1094,7 @@ class MainWindow(QMainWindow):
      #callback when right click on tab
     def tab_handle_right_click(self):
         self.logger.info('tab_handle_right_click')
+        if self.currentPlot.zoomPress: return
         menu = QMenu()
         item1 = menu.addAction("Rename")
         item2 = menu.addAction("Delete")
@@ -1182,7 +1173,6 @@ class MainWindow(QMainWindow):
     
     def clickedTab(self, index):
         self.logger.info('clickedTab - index: %s',index)
-
         # End current auto update thread, to avoid thread issu, will start a new thread if/when tab is not empty 
         self.stopAutoUpdateThread.set()
         self.endThread(self.threadAutoUpdate)
@@ -1655,7 +1645,6 @@ class MainWindow(QMainWindow):
                 # print("Simon - setSpectrumInfo -",index, self.wTab.spectrum_dict[self.wTab.currentIndex()], self.wTab.spectrum_dict[self.wTab.currentIndex()][index])
                 #set axes info at the same time than spectrum
                 if key == "spectrum":
-                    print('Simon setSpectrumInfo axes -',value.axes.get_xlim())
                     self.wTab.spectrum_dict[self.wTab.currentIndex()][index]["axis"] = value.axes
 
 
@@ -2238,15 +2227,11 @@ class MainWindow(QMainWindow):
             if "y" or "log" in scale:
                 ymin = self.getSpectrumInfo("miny", index=index)
                 ymax = self.getSpectrumInfo("maxy", index=index)
-                print('Simon in axisScale ',ymin,ymax)
                 if (not ymin or ymin is None or ymin == 0) and (not ymax or ymax is None or ymax == 0):
                     ymin = self.minY
                     ymax = self.maxY               
-                    print('Simon in axisScale in if cond ',ymin,ymax)
-
                 if axisIsAutoScale:
                     #search in the current view
-                    print('Simon test axes limits axisScale ', ax.get_xlim())
                     xmin, xmax = ax.get_xlim()
                     #getMinMaxInRange returns only max for 1d 
                     ymax = self.getMinMaxInRange(index, xmin=xmin, xmax=xmax)
@@ -2259,8 +2244,6 @@ class MainWindow(QMainWindow):
                         ax.set_ylim(ymin,ymax)
                         ax.set_yscale("log")
                 else:
-                    print('Simon in axisScale before set ',ymin,ymax)
-
                     ax.set_ylim(ymin,ymax)
                     ax.set_yscale("linear")
                 self.setSpectrumInfo(miny=ymin, index=index)
@@ -2458,14 +2441,11 @@ class MainWindow(QMainWindow):
         stepx = (float(maxx)-float(minx))/float(binx)
         binminx = int((xmin-minx)/stepx)
         binmaxx = int((xmax-minx)/stepx)
-        print("Simon - getMinMaxInrange - ", binminx, binmaxx, xmin, minx, xmax, maxx, stepx)
         if dim == 1:
             try:
                 # get max in x range
                 #increase by 10% to get axis view a little bigger than max
                 result = data[binminx+1:binmaxx+2].max()*1.1
-                print("Simon - getMinMaxInrange - result ", result)
-
             except :
                 self.logger.debug('getMinMaxInRange - dim == 1 - exception occured', exc_info=True)
                 return self.maxY
@@ -2560,9 +2540,16 @@ class MainWindow(QMainWindow):
     #Used by customZoom button, trigger toolbar zoom action
     def customZoomButtonCallback(self):
         self.logger.info('customZoomButtonCallback')
-        self.currentPlot.canvas.toolbar.actions()[1].triggered.emit()
-        self.currentPlot.canvas.toolbar.actions()[1].setChecked(True)
-        self.currentPlot.customZoomButton.setDown(True)
+        # Abord zoom action if one is ongoing
+        if self.currentPlot.zoomPress:
+            self.currentPlot.canvas.toolbar.actions()[1].triggered.emit()
+            self.currentPlot.canvas.toolbar.actions()[1].setChecked(False)
+            self.currentPlot.customZoomButton.setDown(False)
+            self.currentPlot.zoomPress = False
+        else:
+            self.currentPlot.canvas.toolbar.actions()[1].triggered.emit()
+            self.currentPlot.canvas.toolbar.actions()[1].setChecked(True)
+            self.currentPlot.customZoomButton.setDown(True)
 
 
     #Used by customHome button, reset the axis limits to ReST definitions, for the specified plot at index or for all plots if index not provided
@@ -2726,8 +2713,6 @@ class MainWindow(QMainWindow):
             self.logger.warning("okZoomSetRange - Invalid input format for zoom range(s). Please enter valid numbers.")
             return
         
-        print('Simon x limits ',rangeXmin, rangeXmax, rangeYmin, rangeYmax)
-
         #Order X min/max may be inverted
         if rangeXmin is not None and rangeXmax is not None and rangeXmax < rangeXmin:
             buff = rangeXmin
@@ -2746,13 +2731,11 @@ class MainWindow(QMainWindow):
             spectrum = self.getSpectrumInfo("spectrum", index=index)
             if dim == 1 :
                 ax.set_xlim(float(rangeXmin), float(rangeXmax))
-                print('Simon test ax limits one ', ax.get_xlim())
                 self.setSpectrumInfo(minx=rangeXmin, index=index)
                 self.setSpectrumInfo(maxx=rangeXmax, index=index)
             elif dim == 2 :
                 ax.set_xlim(rangeXmin, rangeXmax)
                 ax.set_ylim(rangeYmin, rangeYmax)
-                print('Simon test ax limits two ', ax.get_xlim(), ax.get_ylim())
                 self.setSpectrumInfo(minx=rangeXmin, index=index)
                 self.setSpectrumInfo(maxx=rangeXmax, index=index)
                 self.setSpectrumInfo(miny=rangeYmin, index=index)
@@ -2903,23 +2886,25 @@ class MainWindow(QMainWindow):
         time.sleep(sleepTime)
 
         try:
-            #Simon - modified the following lines
             x_range, y_range = self.getAxisProperties(index)
             self.setSpectrumInfo(minx=x_range[0], index=index)
             self.setSpectrumInfo(maxx=x_range[1], index=index)
             self.setSpectrumInfo(miny=y_range[0], index=index)
             self.setSpectrumInfo(maxy=y_range[1], index=index)
+
             #Set axis limits try with spectrum 
+            spectrum = self.getSpectrumInfo("spectrum", index=index)
             ax.set_xlim(x_range[0], x_range[1])
             ax.set_ylim(y_range[0], y_range[1])
-            spectrum = self.getSpectrumInfo("spectrum", index=index)
-            spectrum.axes.set_xlim(x_range[0], x_range[1])
-            spectrum.axes.set_ylim(y_range[0], y_range[1])
+
+            # spectrum = self.getSpectrumInfo("spectrum", index=index)
+            # spectrum.axes.set_xlim(x_range[0], x_range[1])
+            # spectrum.axes.set_ylim(y_range[0], y_range[1])
             self.setSpectrumInfo(spectrum=spectrum, index=index)
             self.drawGate(index)
         except NameError as err:
             self.logger.debug('updatePlotLimits - NameError', exc_info=True)
-            # print(err)
+            print(err)
             pass
 
 
@@ -3188,9 +3173,6 @@ class MainWindow(QMainWindow):
         spectrum = self.getSpectrumInfo("spectrum", index=index)
         w = self.getSpectrumInfoREST("data", index=index)
 
-        print('Simon test axes limits plotPlot before mod ', spectrum.axes.get_xlim())
-
-
         if self.getSpectrumInfo("cutoff", index=index) is not None:
             if len(self.getSpectrumInfo("cutoff", index=index))>0:
                 #if min/maxCutoff mask data bellow/above the cutoff values
@@ -3220,7 +3202,6 @@ class MainWindow(QMainWindow):
             # if (self.wConf.button2D_option.currentText() == 'Light'):
             w = np.ma.masked_where(w == 0, w)
             spectrum.set_data(w)
-        print('Simon test axes limits plotPlot after mod ', spectrum.axes.get_xlim())
 
         self.setSpectrumInfo(spectrum=spectrum, index=index)
         self.currentPlot = currentPlot
@@ -3282,13 +3263,11 @@ class MainWindow(QMainWindow):
                         if len(self.getSpectrumInfoDict()) == 0:
                             return QMessageBox.about(self,"Warning!", "Configuration file has probably changed, please reset the window geometry (add plots or load geo file)")
                         continue
-                    print('Simon test updatePlot ', ax.get_xlim(), ax, self.currentPlot.canvas)
                     self.plotPlot(index)
                     #reset the axis limits as it was before enlarge
                     #dont need to specify if log scale, it is checked inside setAxisScale, if 2D histo in log its z axis is set too.
                     dim = self.getSpectrumInfoREST("dim", index=index)
                     if dim == 1:
-                        print('Simon test axes limits updatePlot ', ax.get_xlim())
                         self.setAxisScale(ax, index, "x", "y")
                     elif dim == 2:
                         self.setAxisScale(ax, index, "x", "y", "z")
@@ -5841,6 +5820,8 @@ class zoomPopup(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+
+        self.setModal(True)
 
         self.lineeditXmin = QLineEdit(self)
         self.lineeditXmax = QLineEdit(self)
