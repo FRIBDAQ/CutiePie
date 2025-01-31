@@ -26,8 +26,8 @@ cmdline.h cmdline.c : @srcdir@/mirroropts.ggo
 
 
 
-include_HEADERS=MirrorClient-linux.h SpecTclMirrorClient.h
-libMirrorClient_la_SOURCES=MirrorClient-linux.cpp SpecTclMirrorClient.cpp \
+include_HEADERS=MirrorClient-linux.h MirrorClient-test.h SpecTclMirrorClient.h
+libMirrorClient_la_SOURCES=MirrorClient-linux.cpp MirrorClient-test.cpp SpecTclMirrorClient.cpp \
 	CPortManager.cpp CPortManager.h \
 	CPortManagerException.h CPortManagerException.cpp \
 	MirrorClientInternals.h MirrorClientInternals.cpp \

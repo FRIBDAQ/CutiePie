@@ -31,7 +31,7 @@ class CPyConverter {
    std::vector<float> m_maxy;
    
    void extractInfo(char* speclist);
-   PyObject* Update(char* hostname, char* port, char* mirror, char* user);
+   PyObject* getShMem(char* hostname, char* port, char* mirror, char* user, bool reset);
    PyObject* ShMemToNpArray(void* addr, int size, int nbinx, int nbiny, int type); 
 
    PyObject* vectorToList_Int(const std::vector<int> &data);

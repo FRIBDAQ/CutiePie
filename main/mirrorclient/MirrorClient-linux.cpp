@@ -27,7 +27,7 @@
 #include <string.h>
 #include <iostream>
 
-/// #define DEBUGGING
+// #define DEBUGGING
 #ifdef  DEBUGGING
 #define DBGPRINT(msg) std::cerr << msg << std::endl;
 #else
