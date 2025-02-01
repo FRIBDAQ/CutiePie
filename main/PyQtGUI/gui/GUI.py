@@ -2004,7 +2004,7 @@ class MainWindow(QMainWindow):
             port = str(self.connectConfig.rest.text())
             user = str(self.connectConfig.user.text())
             mirror = str(self.connectConfig.mirror.text())
-            self.logger.warning('connectShMem - host: %s -- user: %s -- RESTPort: %s -- MirrorPort: %s', hostname, user, port, mirror)
+            self.logger.debug('connectShMem - host: %s -- user: %s -- RESTPort: %s -- MirrorPort: %s', hostname, user, port, mirror)
 
             # configuration of the REST plugin
             self.rest = PyREST(self.logger,hostname,port)
