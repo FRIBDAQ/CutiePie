@@ -3041,8 +3041,7 @@ class MainWindow(QMainWindow):
         a = None
         if self.currentPlot.isEnlarged:
             #following line to work with multiple tabs, otherwise the default current axes are in the latest tab
-            plt.sca(self.currentPlot.figure.axes[0])
-            a = plt.gca()
+            a = self.currentPlot.figure.get_axes()[0]
         else:
             a = self.select_plot(index)
         #clear plot and if 2D remove color bar
