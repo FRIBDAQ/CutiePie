@@ -62,6 +62,7 @@ class dataRetriever{
  public:
 
   static dataRetriever* getInstance();
+  void deleteInstance();
   void SetShMem(spec_shared* p);
   spec_shared* GetShMem();
 //  static void PrintOffsets();

@@ -14,47 +14,6 @@ class Configuration(QGridLayout):
     def __init__(self, *args, **kwargs):
             super(Configuration, self).__init__(*args, **kwargs)
 
-
-# -------- beginning of what was previously in MenuGUI -----------
-            try:
-                    host = os.environ["RESThost"]
-                    port = os.environ["RESTport"]
-                    mirrorport = os.environ["MIRRORport"]
-            except:
-                    os.environ['RESThost'] = "localhost"
-                    os.environ["RESTport"] = "<port>"
-                    os.environ["MIRRORport"] = "<mirror>"
-                    host = os.environ["RESThost"]
-                    port = os.environ["RESTport"]
-                    mirrorport = os.environ["MIRRORport"]                        
- 
-            self.serverLabel = QLabel()
-            self.serverLabel.setText('   Server')
-            self.serverLabel.setFixedWidth(50) 
-            self.server = QLineEdit()
-            self.server.setFixedWidth(180) 
-            self.server.setText(host)
-
-            self.restLabel = QLabel()
-            self.restLabel.setText('   REST port')
-            self.restLabel.setFixedWidth(70) 
-            self.rest = QLineEdit()
-            self.rest.setText(port)
-            self.rest.setFixedWidth(80) 
-            
-            self.userLabel = QLabel("   User")
-            self.userLabel.setFixedWidth(40) 
-            self.user = QLineEdit()                
-            self.user.setText(getpass.getuser())
-            self.user.setFixedWidth(180) 
-
-            self.mirrorLabel = QLabel("   Mirror port")
-            self.mirrorLabel.setFixedWidth(75) 
-
-            self.mirror = QLineEdit()
-            self.mirror.setText(mirrorport)
-            self.mirror.setFixedWidth(80) 
-
             self.exitButton = QPushButton("Exit")
             self.exitButton.setStyleSheet("background-color:rgb(252, 48, 3);")
             self.exitButton.setFixedWidth(85) 
@@ -70,8 +29,6 @@ class Configuration(QGridLayout):
             self.loadButton = QPushButton("Load Geometry")
             self.loadButton.setStyleSheet("background-color:#ffd700;")
             self.loadButton.setFixedWidth(100) 
-# -------- end of what was previously in MenuGUI -----------
-
 
             self.isDrag = False
             self.isEdit = False            
@@ -104,23 +61,6 @@ class Configuration(QGridLayout):
             self.button2D_option.addItem("Light")
             self.button2D_option.addItem("Dark")
 
-            #Gate menu
-            # self.gate_list_label = QLabel("   Gate")            
-            # self.gate_list_label.setFixedWidth(40)            
-            # self.listGate = QComboBox()
-            # self.listGate.setFixedWidth(125) 
-            # self.listGate_type_label = QLabel("  ")
-            # self.listGate_type_label.setFixedWidth(20)
-            # self.listGate_type = ["s", "c", "b", "gs", "gc", "gb"]
-
-            # self.listGate_type.addItem("s")
-            # self.listGate_type.addItem("c")
-            # self.listGate_type.addItem("b")
-            # self.listGate_type.addItem("gs")
-            # self.listGate_type.addItem("gc")
-            # self.listGate_type.addItem("gb")
-            # self.listGate_type.setCurrentIndex(-1)
-
             self.createGate = QPushButton("Gate")
             self.createGate.setFixedWidth(85)
             self.createGate.setStyleSheet("background-color:#ffc7fd;")       
@@ -128,15 +68,6 @@ class Configuration(QGridLayout):
             self.createSumRegionButton = QPushButton("Sum. Region")
             self.createSumRegionButton.setFixedWidth(85)
             self.createSumRegionButton.setStyleSheet("background-color:#ffc7fd;") 
-
-            # self.editGate = QPushButton("Modify")
-            # self.editGate.setFixedWidth(85)
-            # self.menu = QMenu()
-            # #For 1d: Edit, for 2d: Drag and edit 
-            # self.menu.addAction('Drag', self.drag)
-            # self.menu.addAction('Edit', self.edit)
-            # self.editGate.setMenu(self.menu)
-            # self.editGate.setStyleSheet("background-color:#ffc7fd;")  
 
             self.integrateGateAndRegion = QPushButton("Integrate")
             self.integrateGateAndRegion.setFixedWidth(85)

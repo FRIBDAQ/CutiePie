@@ -27,9 +27,10 @@
 #include <stdexcept>
 #include <sstream>
 #include <iostream>
-#include <process.h>
+#include <unistd.h>
+// #include <process.h>
 
-/// #define DEBUGGING 1
+#define DEBUGGING 1
 #ifdef DEBUGGING
 #define DEBUG(msg) std::cout << msg << std::endl; std::cout.flush()
 #else
@@ -85,7 +86,7 @@ void MirrorClient::initialize() {
         DEBUG("Connecting to " << m_hostname << ":" << portname);
         m_pSocket->Connect(m_hostname, portname);
         DEBUG("Connected - sending key");
-        auto pid = _getpid();              // unique per process key
+        auto pid = getpid();              // unique per process key
         std::stringstream s;
         s << pid;
         // Use the last four digits textified as the key.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3os
 # import modules and packages
 
-import sys, os, ast
+import sys, os, ast, subprocess
 import logging, copy, cv2
 import threading, time, math, re
 from ctypes import *
@@ -42,6 +42,7 @@ sys.path.append(instPath + "/lib")
 # removes the webproxy from spdaq machines
 os.environ['NO_PROXY'] = ""
 os.environ['XDG_RUNTIME_DIR'] = os.getcwd()
+
 
 from PyQt5 import QtCore, QtNetwork
 from PyQt5.QtWidgets import *
@@ -177,6 +178,8 @@ class MainWindow(QMainWindow):
         self.stopRestThread = threading.Event() 
         self.threadRest = False
 
+        # self.pidPairedSpecTcl  = False
+
 
         #######################
         # 1) Main layout GUI
@@ -232,7 +235,7 @@ class MainWindow(QMainWindow):
         self.integratePopup = OutputIntegratePopup()
 
         # connection configuration windows
-        self.connectConfig = ConnectConfiguration()
+        self.connectConfig = ConnectConfiguration(self.logger)
 
         # gate window
         self.gatePopup = MenuGate()
@@ -490,7 +493,7 @@ class MainWindow(QMainWindow):
         self.wTab.wPlot[self.wTab.currentIndex()].canvas.mpl_disconnect(self.pressID)
 
 
-    #Event filter for search in histo_list widget, and restrict position of moved tab
+    #Event filter for search in histo_list widget
     def eventFilter(self, obj, event):
         if (obj == self.wConf.histo_list or self.gatePopup.gateNameList) and event.type() == QtCore.QEvent.HoverEnter:
             self.onHovered(obj)
@@ -1271,25 +1274,84 @@ class MainWindow(QMainWindow):
     ##
     #############################################
 
+    # Change mirror and rest ports based on the selected SpecTcl PID 
+    def specTclPIDListChanged(self):
+        self.logger.info('specTclPIDListChanged')
+        pid = self.connectConfig.spectclPID.currentText()
+        self.connectConfig.rest.setText(str(self.connectConfig.getServiceInfo(self.connectConfig.user.text(), 'rest', 'port', 'first', pid)))
+        self.connectConfig.mirror.setText(str(self.connectConfig.getServiceInfo(self.connectConfig.user.text(), 'mirror', 'port', 'first', pid)))
 
-    #callback for the configuration popup of REST/MIRROR ports
+
+    # When server or user changed, change port manager or edit user of interest, and thus update following fields.
+    def connectServerOrUserEdited(self, isEdited):
+        self.logger.info('connectServerOrUserEdited')
+        server = self.connectConfig.server.text()
+        user = self.connectConfig.user.text()
+        success = True
+        self.connectConfig.spectclPID.clear()
+        self.connectConfig.rest.clear()
+        self.connectConfig.mirror.clear()
+        if self.connectConfig.portManagerAvailable():
+            success = self.connectConfig.setPortManager(server)
+        # prompt a message to ask if really want to attempt connecting to another SpecTcl while it was openned paired with SpecTcl
+        # return QMessageBox.about(self,"Warning!", "Please add/select a spectrum")
+        self.connectConfig.updateFields(server, user, not success)
+
+
+
+
+    # Callback for the configuration popup of REST/MIRROR ports
     def connectPopup(self):
         self.logger.info('callback connectPopup')
+        self.disconnectConnectSignalsPopup()
+        # Update spectclPID list if new SpecTcl locally or in port manager
+        self.connectConfig.updateSpecTclPID()
+        self.sidSpecTclPIDListChanged = self.connectConfig.spectclPID.currentIndexChanged.connect(self.specTclPIDListChanged)
+        self.sidConnectServerChanged = self.connectConfig.server.editingFinished.connect(lambda: self.connectServerOrUserEdited("server"))
+        self.sidConnectUserChanged = self.connectConfig.user.editingFinished.connect(lambda: self.connectServerOrUserEdited("user"))
+        
+        # host = "localhost"
+        # self.connectConfig.setPortManager(host)
+
         self.connectConfig.show()
 
 
-    #callback to close configuration popup
+    # Make sure signals defined when popup is openned are disconnected.
+    def disconnectConnectSignalsPopup(self):
+        self.logger.info('disconnectConnectSignalsPopup')
+        try:
+            if hasattr(self, 'sidSpecTclPIDListChanged') :
+                self.connectConfig.spectclPID.currentIndexChanged.disconnect(self.sidSpecTclPIDListChanged)
+                self.logger.debug('disconnectConnectSignalsPopup - disconnected sidSpecTclPIDListChanged')
+            if hasattr(self, 'sidConnectServerChanged') :
+                self.connectConfig.server.editingFinished.disconnect(self.sidConnectServerChanged)
+                self.logger.debug('disconnectConnectSignalsPopup - disconnected sidConnectServerChanged')
+            if hasattr(self, 'sidConnectUserChanged') :
+                self.connectConfig.user.editingFinished.disconnect(self.sidConnectUserChanged)
+                self.logger.debug('disconnectConnectSignalsPopup - disconnected sidConnectUserChanged')
+        except TypeError:
+            pass
+
+
+    # Callback to close configuration popup
     def closeConnect(self):
         self.logger.info('closeConnect callback')
+        self.disconnectConnectSignalsPopup()
         self.connectConfig.close()
 
 
-    #callback to attempt a connection to REST/MIRROR
+    # Callback to attempt a connection to REST/MIRROR
     def okConnect(self):
         self.logger.info('okConnect')
+        pid = self.connectConfig.spectclPID.currentText()
+        mirrorPort = self.connectConfig.mirror.text()
+        restPort = self.connectConfig.rest.text()
+        self.logger.info(f'okConnect - attempt connection to SpecTcl PID: {pid} with mirror port {mirrorPort} and rest port {restPort}')
         self.connectShMem()
         self.closeConnect()
+        #check the ports matchs and not a uncknown combination has been choosen.
     
+
     #called in okGate, if was adding a new gate the pushed gate is gatePopup.listRegionLine
     #if was editing a gate, the pushed gate is based on the gatePopup.regionPoint text
     def pushGateToREST(self, gateName, gateType):
@@ -1456,10 +1518,16 @@ class MainWindow(QMainWindow):
             # waits time < retention to avoid loosing information
             if self.stopRestThread.wait(retention/2):
                 break
-            tracesDetails = self.rest.pollTraces(self.token)
-            if tracesDetails is None :
+            try :
+                tracesDetails = self.rest.pollTraces(self.token)
+                if tracesDetails is None :
+                    self.logger.debug('updateFromTraces - traceDetails is None')
+                self.updateFromTraces(tracesDetails)
+            except :
+                self.logger.warning(f'updateFromTraces - could not poll from REST of SpecTcl (PID: {self.connectConfig.spectclPID.currentText()}) for '
+                f'Server {self.connectConfig.server.text()} and User {self.connectConfig.user.text()}')
                 break
-            self.updateFromTraces(tracesDetails)
+
         self.wConf.connectButton.setStyleSheet("background-color:rgb(252, 48, 3);")
         self.wConf.connectButton.setText("Disconnected")
 
@@ -1501,7 +1569,7 @@ class MainWindow(QMainWindow):
                     port = self.connectConfig.rest.text()
                     user = self.connectConfig.user.text()
                     mirror = self.connectConfig.mirror.text()
-                    s = cpy.CPyConverter().Update(bytes(hostname, encoding='utf-8'), bytes(port, encoding='utf-8'), bytes(mirror, encoding='utf-8'), bytes(user, encoding='utf-8'))
+                    s = cpy.CPyConverter().getShMem(bytes(hostname, encoding='utf-8'), bytes(port, encoding='utf-8'), bytes(mirror, encoding='utf-8'), bytes(user, encoding='utf-8'))
                     data = []
                     binx = info[0]["axes"][0]["bins"]
                     minx = info[0]["axes"][0]["low"]
@@ -1516,7 +1584,6 @@ class MainWindow(QMainWindow):
                         except:
                             debugstring = "updateFromTraces - nameIndex not in shmem np array for :" + name
                             self.logger.debug(debugstring, exc_info=True)
-                            # print("updateFromTraces - nameIndex not in shmem np array for : ", name)
                         self.setSpectrumInfoREST(name, dim=dim, binx=binx, minx=minx, maxx=maxx, biny=biny, miny=miny, maxy=maxy, parameters=info[0]["parameters"], type=info[0]["type"], data=data)
                     elif "s" in info[0]["type"] :
                         dim = 2
@@ -1951,16 +2018,23 @@ class MainWindow(QMainWindow):
 
             # way to stop connectShMem, url checks are done on trace thread but if find issue it wont be communicated here
             if self.rest.checkSpecTclREST() == False:
-                self.logger.debug('connectShMem - invalid URL for SpecTclREST')
+                self.logger.warning('connectShMem - invalid URL for SpecTclREST')
                 return
             else:
                 self.logger.debug("connectShMem - could make REST request of server")
+                
             timer1 = QElapsedTimer()
             timer1.start()
 
             self.logger.debug("connectShMem - attempting update from CPYConverter.")
-            s = cpy.CPyConverter().Update(bytes(hostname, encoding='utf-8'), bytes(port, encoding='utf-8'), bytes(mirror, encoding='utf-8'), bytes(user, encoding='utf-8'))
+            s = cpy.CPyConverter().getShMem(bytes(hostname, encoding='utf-8'), bytes(port, encoding='utf-8'), bytes(mirror, encoding='utf-8'), bytes(user, encoding='utf-8'), True)
             self.logger.debug("connectShMem CPyConverter updated without failure")
+            # Connected to REST and MIRROR, clear previous definitions.
+            spectrumDict = list(self.getSpectrumInfoRESTDict().items())
+            for spectrumName, infoDict in spectrumDict:
+                    self.removeSpectrum(name=spectrumName, mode="definitive")
+                    self.updateSpectrumList()
+                    self.refreshSpectrumSumRegionDict()    
        
 
             # creates a dataframe for spectrum info
@@ -2026,7 +2100,12 @@ class MainWindow(QMainWindow):
                 self.wConf.submenuD.addAction(gate, lambda:self.wConf.drag(gate))
                 self.wConf.submenuE.addAction(gate, lambda:self.wConf.edit(gate))
             '''
-            self.logger.debug("connectShMem existing")
+            # If connection established, save recovery information into a file
+            recoInfo = self.connectConfig.server.text() + '::' + self.connectConfig.user.text() + '::' \
+                    + self.connectConfig.rest.text() + '::' + self.connectConfig.mirror.text() + '::' \
+                    + self.connectConfig.spectclPID.currentText()
+            self.setRecoVariable('CUTIEPIE_CONNECT', recoInfo)
+            self.logger.debug("connectShMem exiting")
         except Exception as e:
             self.logger.exception('connectShMem - Exception')
             raise
@@ -5585,6 +5664,8 @@ class MainWindow(QMainWindow):
         self.endThread(self.threadAutoUpdate)
         self.stopRestThread.set()
         self.endThread(self.threadRest)
+        # CutiePie closed properly, no need to save recovery info for connection
+        self.setRecoVariable('CUTIEPIE_CONNECT', '')
         event.accept()
 
     
@@ -5592,8 +5673,11 @@ class MainWindow(QMainWindow):
     def endThread(self, thread):
         self.logger.info('endThread')
         if thread:
-            if thread.is_alive():
-                thread.join()
+            try:
+                if thread.is_alive():
+                    thread.join()
+            except:
+                self.logger.debug('endThread - ', exc_info=True)
 
 
     # Gate and summing region popup close is connected to that, resume auto update
@@ -5754,6 +5838,21 @@ class MainWindow(QMainWindow):
         except ValueError:
             self.logger.debug('getLastDigitParam - ValueError exception', exc_info=True)
             return None
+        
+
+    # In home directory, write a file to save some info e.g. useful for a recovery
+    def setRecoVariable(self, varName, value):
+        self.logger.info('setRecoVariable - varName %s, value %s', varName, value)
+        failsafeFile = os.path.expanduser('~/.failsafe_cutiepie')
+        try:
+            with open(failsafeFile, "w") as failfile:
+                failfile.write(f"{varName}={value}\n")
+        except FileNotFoundError:
+            os.makedirs(os.path.dirname(failsafeFile), exist_ok=True)
+            with open(failsafeFile, "w") as failfile:
+                failfile.write(f"{varName}={value}\n")
+
+
 
 
 # redirect logging

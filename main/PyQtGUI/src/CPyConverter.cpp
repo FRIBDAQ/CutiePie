@@ -102,10 +102,10 @@ CPyConverter::extractInfo(char* speclist)
 /////////////////////////////////////////////////////////////////////////////////////////////
 
 PyObject*
-CPyConverter::Update(char* hostname, char* port, char* mirror, char* user)
+CPyConverter::getShMem(char* hostname, char* port, char* mirror, char* user, bool reset=false)
 {
   if (debug){
-    std::cout << "Inside CPyConverter::Update()" << std::endl;
+    std::cout << "Inside CPyConverter::getShMem()" << std::endl;
     std::cout << "hostname: " << hostname << " port: " << port << " mirror: " << mirror << " user: " << user << std::endl;
   }
   
@@ -119,10 +119,14 @@ CPyConverter::Update(char* hostname, char* port, char* mirror, char* user)
     std::cout << "Mirror --> " << _mirror << " User --> " << _user << std::endl;    
   }
 
+  if (dataRetriever::getInstance() != nullptr && reset) {
+    dataRetriever::getInstance()->deleteInstance();
+  }
   dataRetriever* d = dataRetriever::getInstance();  
   if (debug) {
       std::cout << "About to get shared memory...\n";
   }
+ 
   // The pointer won't move around so we only need to do this if the memory point 
   // has not been set...and doing this twice on windows is fatal.
 

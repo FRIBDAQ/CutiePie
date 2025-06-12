@@ -20,8 +20,9 @@
  */
 #include "MirrorClientInternals.h"
 #include <stdexcept>
+#include <iostream>
 
-//  #define DEBUGGING 1
+// #define DEBUGGING 1
 #ifdef DEBUGGING
 #define DEBUG(msg) std::cout << msg << std::endl; std::cout.flush()
 #else
@@ -94,7 +95,6 @@ GetMirrorList(const char* host, int port)
         const Json::Value d = mirrorList[i];
         std::string host = d["host"].asString();
         std::string mem  = d["shmkey"].asString();
-        
         MirrorInfo item = {host, mem};
         result.push_back(item);
     }

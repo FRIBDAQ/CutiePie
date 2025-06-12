@@ -43,8 +43,9 @@ bool dbg = false;
 dataRetriever*
 dataRetriever::getInstance()
 {
-  if (!m_pInstance)   
+  if (!m_pInstance)  { 
     m_pInstance = new dataRetriever;
+  }
 
   return m_pInstance;
 }
@@ -59,6 +60,15 @@ spec_shared*
 dataRetriever::GetShMem()
 {
   return shmem;
+}
+
+void
+dataRetriever::deleteInstance()
+{
+    if (m_pInstance){   
+      delete m_pInstance;
+      m_pInstance = NULL;
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
