@@ -166,7 +166,7 @@ class MainWindow(QMainWindow):
         self.factory = factory
         self.fit_factory = fit_factory
 
-        self.setWindowTitle("CutiePie(QtPy) - It's not a bug, it's a feature (cit.) Qt5 and PyQty5 used under open source terms.")
+        self.setWindowTitle("CutiePie (QtPy) - It's not a bug, it's a feature (cit.) Qt5 and PyQty5 used under open source terms.")
         self.setMouseTracking(True)
 
 
