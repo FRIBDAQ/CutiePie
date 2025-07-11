@@ -166,7 +166,7 @@ class MainWindow(QMainWindow):
         self.factory = factory
         self.fit_factory = fit_factory
 
-        self.setWindowTitle("CutiePie - this is test (QtPy) - It's not a bug, it's a feature (cit.) Qt5 and PyQty5 used under open source terms.")
+        self.setWindowTitle("CutiePie - Bashir (QtPy) - It's not a bug, it's a feature (cit.) Qt5 and PyQty5 used under open source terms.")
         self.setMouseTracking(True)
 
 
@@ -304,7 +304,7 @@ class MainWindow(QMainWindow):
 
         # config menu signals
         self.wConf.histo_geo_add.clicked.connect(self.addPlot)
-        self.wConf.histo_geo_update.clicked.connect(self.updatePlot)
+        self.wConf.histo_geo_update.clicked.connect(lambda: self.updatePlot())
         self.wConf.extraButton.clicked.connect(self.spfunPopup)
 
         self.wConf.histo_geo_row.activated.connect( self.setCanvasLayout )
@@ -345,6 +345,7 @@ class MainWindow(QMainWindow):
 
         # zoom callback
         self.wTab.wPlot[self.wTab.currentIndex()].canvas.toolbar.actions()[1].triggered.connect(self.zoomCallback)
+        
         # copy properties
         self.wTab.wPlot[self.wTab.currentIndex()].copyButton.clicked.connect(self.copyPopup)
         # autoscale
@@ -357,6 +358,11 @@ class MainWindow(QMainWindow):
         self.wTab.wPlot[self.wTab.currentIndex()].plusButton.clicked.connect(lambda: self.zoomInOut("in"))
         # minus button
         self.wTab.wPlot[self.wTab.currentIndex()].minusButton.clicked.connect(lambda: self.zoomInOut("out"))
+        #### Bashir added for zooming hotkeys ####
+        QShortcut(QKeySequence("+"), self.wTab.wPlot[self.wTab.currentIndex()]).activated.connect(lambda: self.zoomInOut("in"))
+        QShortcut(QKeySequence("-"), self.wTab.wPlot[self.wTab.currentIndex()]).activated.connect(lambda: self.zoomInOut("out"))
+        ###############################################
+
         # cutoff button
         self.wTab.wPlot[self.wTab.currentIndex()].cutoffButton.clicked.connect(self.cutoffButtonCallback)
         self.wTab.wPlot[self.wTab.currentIndex()].cutoffButton.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
@@ -498,6 +504,12 @@ class MainWindow(QMainWindow):
     #Display information when hover spectrum
     def histoHover(self, event):
         try:
+            #### Bashir added for mouse hovering ####
+            if event.xdata is not None:
+                self.mouse_x = event.xdata
+                # self.mouse_y = event.ydata
+            #########################################
+
             index = 0
             if not event.inaxes: return
 
@@ -1027,7 +1039,9 @@ class MainWindow(QMainWindow):
             self.currentPlot.InitializeCanvas(1,1,False)
 
             self.add(idx)
-            self.updatePlot()
+            autosclae_status = self.currentPlot.histo_autoscale.isChecked()
+            self.updatePlot(autosclae_status)
+            # self.updatePlot()
         else:
             self.logger.debug('on_dblclick - isEnlarged FALSE')
             # enabling adding histograms
@@ -1954,7 +1968,6 @@ class MainWindow(QMainWindow):
             self.logger.debug("connectShMem - attempting update from CPYConverter.")
             s = cpy.CPyConverter().Update(bytes(hostname, encoding='utf-8'), bytes(port, encoding='utf-8'), bytes(mirror, encoding='utf-8'), bytes(user, encoding='utf-8'))
             self.logger.debug("connectShMem CPyConverter updated without failure")
-       
 
             # creates a dataframe for spectrum info
             # use the spectrum name to merge both sources (REST and shared memory) of spectrum info
@@ -2215,9 +2228,9 @@ class MainWindow(QMainWindow):
             #x limits need to be known for y autoscale in x range
             xmin = self.getSpectrumInfo("minx", index=index)
             xmax = self.getSpectrumInfo("maxx", index=index)
-            if "x" in scale and xmin and xmax:
+            if "x" in scale and xmin is not None and xmax is not None:
                 ax.set_xlim(xmin,xmax) 
-            if "y" or "log" in scale:
+            if "y" in scale or "log" in scale:
                 ymin = self.getSpectrumInfo("miny", index=index)
                 ymax = self.getSpectrumInfo("maxy", index=index)
                 if (not ymin or ymin is None or ymin == 0) and (not ymax or ymax is None or ymax == 0):
@@ -2248,11 +2261,11 @@ class MainWindow(QMainWindow):
             ymin = self.getSpectrumInfo("miny", index=index)
             ymax = self.getSpectrumInfo("maxy", index=index)
 
-            if "x" in scale and xmin and xmax:
-                ax.set_xlim(xmin,xmax) 
-            if "y" in scale and ymin and ymax:
+            if "x" in scale and xmin is not None and xmax is not None:
+                ax.set_xlim(xmin,xmax)
+            if "y" in scale and ymin is not None and ymax is not None:
                 ax.set_ylim(ymin,ymax)
-            if "z" or "log" in scale:
+            if "z" in scale or "log" in scale:
                 zmin = self.getSpectrumInfo("minz", index=index)
                 zmax = self.getSpectrumInfo("maxz", index=index)
                 spectrum = self.getSpectrumInfo("spectrum", index=index)
@@ -2324,6 +2337,10 @@ class MainWindow(QMainWindow):
 
     #Callback for plusButton/minusButton
     def zoomInOut(self, arg):
+        #### Bashir added to disable auto scaling when zooming in/out
+        self.currentPlot.histo_autoscale.setChecked(False)
+        #############################################################
+
         self.logger.info('zoomInOut - arg: %s', arg)
         # Simon - added following lines to avoid None plot index
         index = self.autoIndex()
@@ -2333,6 +2350,21 @@ class MainWindow(QMainWindow):
         ax = spectrum.axes
         dim = self.getSpectrumInfoREST("dim", index=index)
         if dim == 1 :
+            #### Bashir added to zoom in x around mouse location ###
+            xmin, xmax = ax.get_xlim()
+            center_x = getattr(self, 'mouse_x', (xmin + xmax) / 2)
+            xscale = 0.5
+            scale = xscale if arg == "in" else 1 / xscale
+            half_range_x = (xmax - xmin) * scale / 2
+
+            # xmin_new = max(0, center_x - half_range_x)
+            xmin_new = 0.0
+            xmax_new = center_x + half_range_x
+
+            ax.set_xlim(xmin_new, xmax_new)
+            self.setSpectrumInfo(minx=xmin_new, index=index)
+            self.setSpectrumInfo(maxx=xmax_new, index=index)
+            #########################################################
             #step if 0.5
             ymin, ymax = ax.get_ylim()
             if arg == "in" :
@@ -2533,6 +2565,11 @@ class MainWindow(QMainWindow):
     #Used by customZoom button, trigger toolbar zoom action
     def customZoomButtonCallback(self):
         self.logger.info('customZoomButtonCallback')
+        
+        #### Bashir added to disable autoscale while zooming ####
+        self.currentPlot.histo_autoscale.setChecked(False)
+        #########################################################
+
         # Abord zoom action if one is ongoing
         if self.currentPlot.zoomPress:
             self.currentPlot.canvas.toolbar.actions()[1].triggered.emit()
@@ -2547,6 +2584,10 @@ class MainWindow(QMainWindow):
 
     #Used by customHome button, reset the axis limits to ReST definitions, for the specified plot at index or for all plots if index not provided
     def customHomeButtonCallback(self, index=None):
+        #### Bashir added to enable autoscale while zooming ####
+        self.currentPlot.histo_autoscale.setChecked(True)
+        #########################################################
+
         self.logger.info('customHomeButtonCallback - index: %s', index)
 
         index_list = [idx for idx, name in self.getGeo().items() if index is None]
@@ -2745,7 +2786,7 @@ class MainWindow(QMainWindow):
             #Set new axis limits and save new range in spectrum dict
             spectrum = self.getSpectrumInfo("spectrum", index=index)
             ax.set_xlim(float(rangeXmin), float(rangeXmax))
-            ax.set_ylim(rangeYmin, rangeYmax)
+            ax.set_ylim(float(rangeYmin), float(rangeYmax))
             self.setSpectrumInfo(minx=rangeXmin, index=index)
             self.setSpectrumInfo(maxx=rangeXmax, index=index)
             self.setSpectrumInfo(miny=rangeYmin, index=index)
@@ -2781,6 +2822,11 @@ class MainWindow(QMainWindow):
     #called by cutoffButton, sets the information in the cutoff window
     def cutoffButtonCallback(self, *arg):
         self.logger.info('cutoffButtonCallback')
+
+        #### Bashir added to disable autoscale while zooming ###
+        self.currentPlot.histo_autoscale.setChecked(False)
+        ########################################################
+
         index = self.currentPlot.selected_plot_index
         if index is None :
             return QMessageBox.about(self,"Warning!", "Please Add/Select a Spectrum")
@@ -2904,7 +2950,11 @@ class MainWindow(QMainWindow):
             dim = self.getSpectrumInfoREST("dim", index=index)
             minx = self.getSpectrumInfo("minx", index=index)
             maxx = self.getSpectrumInfo("maxx", index=index)
-            binx = self.getSpectrumInfo("binx", index=index)            
+            binx = self.getSpectrumInfo("binx", index=index)
+
+            miny = self.getSpectrumInfo("miny", index=index)
+            maxy = self.getSpectrumInfo("maxy", index=index)
+            biny = self.getSpectrumInfo("biny", index=index)            
             
             w = self.getSpectrumInfoREST("data", index=index)
 
@@ -2929,9 +2979,11 @@ class MainWindow(QMainWindow):
             # update axis
             if dim == 1:
                 axis.set_xlim(minx,maxx)
-                axis.set_ylim(self.minY,self.maxY)
+                # axis.set_ylim(self.minY,self.maxY)
                 # create histogram
                 line, = axis.plot([], [], drawstyle='steps')
+                name = self.getSpectrumInfo("name", index=index)
+                axis.set_title("{}".format(name))
 
                 self.setSpectrumInfo(spectrum=line, index=index)
                 if len(w) > 0:
@@ -2940,9 +2992,13 @@ class MainWindow(QMainWindow):
                     self.setSpectrumInfo(spectrum=line, index=index)
                 
             else:
-                miny = self.getSpectrumInfo("miny", index=index)
-                maxy = self.getSpectrumInfo("maxy", index=index)
-                biny = self.getSpectrumInfo("biny", index=index)
+                #### Bashir added to get the original min/max values from ReST ####
+                minxREST = self.getSpectrumInfoREST("minx", index=index)
+                maxxREST = self.getSpectrumInfoREST("maxx", index=index)
+
+                minyREST = self.getSpectrumInfoREST("miny", index=index)
+                maxyREST = self.getSpectrumInfoREST("maxy", index=index)
+                ####################################################################
 
                 # empty data for initialization
                 if w is None:
@@ -2953,16 +3009,23 @@ class MainWindow(QMainWindow):
                 self.palette.set_bad(color='white')
 
                 #check if enlarged mode, dont want to modify spectrum dict in enlarged mode
-                self.setSpectrumInfo(spectrum=axis.imshow(w,
-                                                            interpolation='none',
-                                                            extent=[float(minx),float(maxx),float(miny),float(maxy)],
-                                                            aspect='auto',
-                                                            origin='lower',
-                                                            vmin=float(self.minZ), vmax=float(self.maxZ),
-                                                            cmap=self.palette), index=index)
+                spectrum = axis.imshow(w,
+                                        interpolation='none',
+                                        extent=[float(minxREST), float(maxxREST), float(minyREST), float(maxyREST)],
+                                        # extent=[float(minx), float(maxx), float(miny), float(maxy)],
+                                        aspect='auto',
+                                        origin='lower',
+                                        vmin=float(self.minZ), vmax=float(self.maxZ),
+                                        cmap=self.palette)
+                self.setSpectrumInfo(spectrum=spectrum, index=index)
+                
+                name = self.getSpectrumInfo("name", index=index)
+                # axis.set_title("{}, [binx, biny] = [{}, {}] points".format(name, self.len2binratiox, self.len2binratioy))
+                axis.set_title("{}".format(name))
 
+                
                 if w is not None :
-                    spectrum = self.getSpectrumInfo("spectrum", index=index)
+                    # spectrum = self.getSpectrumInfo("spectrum", index=index)
                     spectrum.set_data(w)
                     self.setSpectrumInfo(spectrum=spectrum, index=index)
 
@@ -3151,7 +3214,10 @@ class MainWindow(QMainWindow):
     #Callback for histo_geo_update button
     #also used in various functions
     #redraw plot spectrum, update axis scales, redraw gates
-    def updatePlot(self):
+    def updatePlot(self, autoscale=True):
+        #### Bashir added to automatically enable autoscale when updating the plot
+        self.currentPlot.histo_autoscale.setChecked(autoscale)
+        ########################################
         self.logger.info('updatePlot')
 
 
