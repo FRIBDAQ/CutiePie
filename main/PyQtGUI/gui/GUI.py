@@ -708,7 +708,8 @@ class MainWindow(QMainWindow):
         # similar to log button, cutoff button change status according to spectrum info
         cutoffVal = self.getSpectrumInfo("cutoff", index=index)
         if cutoffVal is not None and len(cutoffVal)>1 and (cutoffVal[0] is not None or cutoffVal[1] is not None):
-            wPlot.cutoffButton.setDown(True)
+            # wPlot.cutoffButton.setDown(True)
+            pass
         else :
             wPlot.cutoffButton.setDown(False)
             self.resetCutoff(False)
@@ -2293,6 +2294,7 @@ class MainWindow(QMainWindow):
                 self.setSpectrumInfo(spectrum=spectrum, index=index)
 
 
+
     # Where is defined the color bar
     def setCmapNorm(self, scale, index):
         self.logger.info('setCmapNorm')
@@ -2376,6 +2378,21 @@ class MainWindow(QMainWindow):
             self.setSpectrumInfo(maxy=ymax, index=index)
             self.setSpectrumInfo(spectrum=spectrum, index=index)
         elif dim == 2 :
+            #### Bashir added to zoom in x around mouse location ###
+            xmin, xmax = ax.get_xlim()
+            center_x = getattr(self, 'mouse_x', (xmin + xmax) / 2)
+            xscale = 0.3
+            scale = xscale if arg == "in" else 1 / xscale
+            half_range_x = (xmax - xmin) * scale / 2
+
+            # xmin_new = max(0, center_x - half_range_x)
+            xmin_new = 0.0
+            xmax_new = center_x + half_range_x
+
+            ax.set_xlim(xmin_new, xmax_new)
+            self.setSpectrumInfo(minx=xmin_new, index=index)
+            self.setSpectrumInfo(maxx=xmax_new, index=index)
+            #########################################################
             zmin, zmax = spectrum.get_clim()
             if arg == "in" :
                 zmax = zmax*0.5
@@ -2771,17 +2788,17 @@ class MainWindow(QMainWindow):
             rangeYmax = buff
             self.logger.warning('okCutoff Range - new range Y values swapped because min > max')
         #check expected format and save cutoff in spectrum dict 
-        if self.cutoffp.lineeditZMin.text() != "" and self.cutoffp.lineeditZMin.text().isdigit():
-            cutoffVal[0] = float(cutoffMin)
-            self.setSpectrumInfo(cutoff=cutoffVal, index=index)
-        if self.cutoffp.lineeditZMax.text() != "" and self.cutoffp.lineeditZMax.text().isdigit():
-            cutoffVal[1] = float(cutoffMax)
-            self.setSpectrumInfo(cutoff=cutoffVal, index=index)               
-        #Order may be inverted
-        if cutoffVal[0] is not None and cutoffVal[1] is not None and cutoffVal[1] < cutoffVal[0]:
-            cutoffVal = [cutoffVal[1], cutoffVal[0]]
-            self.setSpectrumInfo(cutoff=cutoffVal, index=index)   
-
+        if dim == 2:
+            if self.cutoffp.lineeditZMin.text() != "" and self.cutoffp.lineeditZMin.text().isdigit():
+                cutoffVal[0] = float(cutoffMin)
+                self.setSpectrumInfo(cutoff=cutoffVal, index=index)
+            if self.cutoffp.lineeditZMax.text() != "" and self.cutoffp.lineeditZMax.text().isdigit():
+                cutoffVal[1] = float(cutoffMax)
+                self.setSpectrumInfo(cutoff=cutoffVal, index=index)              
+            #Order may be inverted
+            if cutoffVal[0] is not None and cutoffVal[1] is not None and cutoffVal[1] < cutoffVal[0]:
+                cutoffVal = [cutoffVal[1], cutoffVal[0]]
+                self.setSpectrumInfo(cutoff=cutoffVal, index=index)
         try:
             #Set new axis limits and save new range in spectrum dict
             spectrum = self.getSpectrumInfo("spectrum", index=index)
@@ -2952,8 +2969,6 @@ class MainWindow(QMainWindow):
             maxx = self.getSpectrumInfo("maxx", index=index)
             binx = self.getSpectrumInfo("binx", index=index)
 
-            miny = self.getSpectrumInfo("miny", index=index)
-            maxy = self.getSpectrumInfo("maxy", index=index)
             biny = self.getSpectrumInfo("biny", index=index)            
             
             w = self.getSpectrumInfoREST("data", index=index)
@@ -2963,14 +2978,17 @@ class MainWindow(QMainWindow):
                     #if min/maxCutoff mask data bellow/above the cutoff values
                     minCutoff = self.getSpectrumInfo("cutoff", index=index)[0]
                     maxCutoff = self.getSpectrumInfo("cutoff", index=index)[1]
+                    # print("BS-setupPlot, maxCutoff, index: ", maxCutoff, index)
                     if minCutoff is not None:
                         if dim == 1:
                             w = np.ma.masked_where(w < minCutoff, w)
+                            # print("BS-setupPlot, minCutoff, index: ", minCutoff, index)
                         if dim == 2:
                             w = np.ma.masked_where(w < minCutoff, w)
                     if maxCutoff is not None:
                         if dim == 1:
                             w = np.ma.masked_where(w < maxCutoff, w)
+                            
                         if dim == 2:
                             w = np.ma.masked_where(w < maxCutoff, w)
             #used in getMinMaxInRange to take into account also the cutoff if there is one
