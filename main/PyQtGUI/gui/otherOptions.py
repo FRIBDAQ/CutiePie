@@ -16,7 +16,7 @@ class options(QDialog):
         super().__init__(parent)
 
     def create_options(self):
-        pCheck = QGroupBox("other options")
+        pCheck = QGroupBox("Other options")
 
         self.gateAnnotation = QCheckBox("Gate annotation",self)
         self.gateEditDisable = QCheckBox("Disable gate edition",self)
