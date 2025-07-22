@@ -307,8 +307,13 @@ class MainWindow(QMainWindow):
         self.wConf.histo_geo_update.clicked.connect(lambda: self.updatePlot())
         self.wConf.extraButton.clicked.connect(self.spfunPopup)
 
-        self.wConf.histo_geo_row.activated.connect( self.setCanvasLayout )
-        self.wConf.histo_geo_col.activated.connect( self.setCanvasLayout )
+
+        ##### Bashir commented out to examine apply button
+        # self.wConf.histo_geo_row.activated.connect( self.setCanvasLayout )
+        # self.wConf.histo_geo_col.activated.connect( self.setCanvasLayout )
+        self.wConf.histo_geo_apply_btn.clicked.connect(self.setCanvasLayout)
+        ####################################################################
+
 
         self.wConf.createGate.clicked.connect(self.createGate)
         self.wConf.createGate.setEnabled(False)
@@ -1234,9 +1239,12 @@ class MainWindow(QMainWindow):
         self.logger.debug('tabGeoWidgetAndFlags - canvas layout: %s, %s',nRow, nCol)
 
         #nRow-1 because nRow (nCol) is the number of row (col) and the following sets an index starting at 0
-        self.wConf.histo_geo_row.setCurrentIndex(nRow-1)
-        self.wConf.histo_geo_col.setCurrentIndex(nCol-1)
-
+        #### Bashir changed to examine apply function to set the row and col
+        # self.wConf.histo_geo_row.setCurrentIndex(nRow-1)
+        # self.wConf.histo_geo_col.setCurrentIndex(nCol-1)
+        self.wConf.histo_geo_row.setValue(nRow)
+        self.wConf.histo_geo_col.setValue(nCol)
+        ######################################################################
         #enable/disable some widgets depending if enlarge mode of not, flags set also in on_dblclick 
         self.wConf.histo_geo_add.setEnabled(not self.currentPlot.isEnlarged)
         self.wConf.histo_geo_row.setEnabled(not self.currentPlot.isEnlarged)
@@ -1264,8 +1272,12 @@ class MainWindow(QMainWindow):
     def setCanvasLayout(self):
         self.logger.info('setCanvasLayout')
         indexTab = self.wTab.currentIndex()
-        nRow = int(self.wConf.histo_geo_row.currentText())
-        nCol = int(self.wConf.histo_geo_col.currentText())
+        ##### Bashir changed to examine apply function to set the row and col
+        # nRow = int(self.wConf.histo_geo_row.currentText())
+        # nCol = int(self.wConf.histo_geo_col.currentText())
+        nRow = self.wConf.histo_geo_row.value()
+        nCol = self.wConf.histo_geo_col.value()
+        ######################################################################
         self.wTab.layout[indexTab] = [nRow, nCol]
         self.wTab.wPlot[indexTab].InitializeCanvas(nRow, nCol)
         self.wTab.selected_plot_index_bak[indexTab] = None
@@ -2136,7 +2148,15 @@ class MainWindow(QMainWindow):
                 except:
                     properties[index] = {"name": '', "x": None, "y": None, "scale": None}
                     pass
-            tmp = {"row": int(self.wConf.histo_geo_row.currentText()), "col": int(self.wConf.histo_geo_col.currentText()), "geo": properties}
+            ##### Bashir changed to examine the apply button
+            # tmp = {"row": int(self.wConf.histo_geo_row.currentText()), "col": int(self.wConf.histo_geo_col.currentText()), "geo": properties}
+            tmp = {
+                "row": self.wConf.histo_geo_row.value(),
+                "col": self.wConf.histo_geo_col.value(),
+                "geo": properties
+            }
+            #######################################################################
+
             QMessageBox.about(self, "Saving...", "Window configuration saved!")
             f.write(str(tmp))
             f.close()
@@ -2155,12 +2175,25 @@ class MainWindow(QMainWindow):
             row = infoGeo["row"]
             col = infoGeo["col"]
             # change index in combobox to the actual loaded values
-            index_row = self.wConf.histo_geo_row.findText(str(row), QtCore.Qt.MatchFixedString)
-            index_col = self.wConf.histo_geo_col.findText(str(col), QtCore.Qt.MatchFixedString)
+            #### Bashir changed to examine the apply button
+            # index_row = self.wConf.histo_geo_row.findText(str(row), QtCore.Qt.MatchFixedString)
+            # index_col = self.wConf.histo_geo_col.findText(str(col), QtCore.Qt.MatchFixedString)
+            self.wConf.histo_geo_row.setValue(row)
+            self.wConf.histo_geo_col.setValue(col)
+            index_row = row
+            index_col = col
+            #####################################################
+
+# Later usage of index_row / index_col continues to work
+
             notFound = []
             if index_row >= 0 and index_col >= 0:
-                self.wConf.histo_geo_row.setCurrentIndex(index_row)
-                self.wConf.histo_geo_col.setCurrentIndex(index_col)
+                #### Bashir changed to examine the apply button
+                # self.wConf.histo_geo_row.setCurrentIndex(index_row)
+                # self.wConf.histo_geo_col.setCurrentIndex(index_col)
+                self.wConf.histo_geo_row.setValue(index_row)
+                self.wConf.histo_geo_col.setValue(index_col)
+                #####################################################
                 self.setCanvasLayout()
                 for index, val_dict in infoGeo["geo"].items():
                     if self.getSpectrumInfoREST("dim", name=val_dict["name"]) is None:
@@ -3382,8 +3415,13 @@ class MainWindow(QMainWindow):
     #called in nextIndex and forNextIndex
     def setIndex(self, indexToChange):
         self.logger.info('setIndex')
-        row = int(self.wConf.histo_geo_row.currentText())
-        col = int(self.wConf.histo_geo_col.currentText())
+        #### Bashir changed to examine the apply button##
+        # row = int(self.wConf.histo_geo_row.currentText())
+        # col = int(self.wConf.histo_geo_col.currentText())
+        row = self.wConf.histo_geo_row.value()
+        col = self.wConf.histo_geo_col.value()
+        #################################################
+
         try:
             #Once in the nextIndex first case change to next_plot_index to 0 (then +1)
             if indexToChange == -1:
@@ -5419,8 +5457,13 @@ class MainWindow(QMainWindow):
 
     def indexToStartPosition(self, index):
         self.logger.info('indexToStartPosition')
-        row = int(self.wConf.histo_geo_row.currentText())
-        col = int(self.wConf.histo_geo_col.currentText())
+        #### Bashir changed to examine the apply button
+        # row = int(self.wConf.histo_geo_row.currentText())
+        # col = int(self.wConf.histo_geo_col.currentText())
+        row = self.wConf.histo_geo_row.value()
+        col = self.wConf.histo_geo_col.value()
+        ######################################################
+
         # if (DEBUG):
         #     print("row, col",row, col)
         xoffs = float(1/(2*col))
