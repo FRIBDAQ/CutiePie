@@ -78,7 +78,9 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 import matplotlib.text as mtext
-
+#### Bashir imports ############
+from PyQt5.QtCore import QTimer
+################################
 
 
 # List of implementation topics
@@ -312,6 +314,8 @@ class MainWindow(QMainWindow):
         # self.wConf.histo_geo_row.activated.connect( self.setCanvasLayout )
         # self.wConf.histo_geo_col.activated.connect( self.setCanvasLayout )
         self.wConf.histo_geo_apply_btn.clicked.connect(self.setCanvasLayout)
+        QTimer.singleShot(0, self.wConf.histo_geo_apply_btn.click)
+
         ####################################################################
 
 

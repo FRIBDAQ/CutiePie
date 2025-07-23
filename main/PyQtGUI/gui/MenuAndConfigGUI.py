@@ -96,12 +96,12 @@ class Configuration(QGridLayout):
             self.histo_geo_row = QSpinBox()
             self.histo_geo_row.setRange(1, 9)
             self.histo_geo_row.setValue(1)
-            self.histo_geo_row.setFixedWidth(35)
+            self.histo_geo_row.setFixedWidth(45)
 
             self.histo_geo_col = QSpinBox()
             self.histo_geo_col.setRange(1, 9)
             self.histo_geo_col.setValue(2)
-            self.histo_geo_col.setFixedWidth(35)
+            self.histo_geo_col.setFixedWidth(45)
 
             # Apply Button
             self.histo_geo_apply_btn = QPushButton("Apply Geometry")

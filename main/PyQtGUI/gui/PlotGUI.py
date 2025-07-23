@@ -5,6 +5,9 @@ matplotlib.use("Qt5Agg")
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import matplotlib.gridspec as gridspec
+#### Bashir imports
+import time
+#####################
 
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
@@ -289,17 +292,33 @@ class Plot(QWidget):
 
     def InitializeCanvas(self, row, col, flag = True):
         self.logger.debug('InitializeCanvas -- with dimensions (row, col): %d %d', row, col)
+
+        t0 = time.time()
+        # self.axis_grid = [[None for _ in range(col)] for _ in range(row)]
+
         if flag:
             self.h_dict.clear()
             self.h_dict_geo.clear()
 
             self.index = 0
             self.idx = 0
+        # t1 = time.time()
+        # self.figure.clear()
+        while self.figure.axes:
+            self.figure.delaxes(self.figure.axes[0])
 
-        self.figure.clear()
+        # t2 = time.time()
         self.InitializeFigure(self.CreateFigure(row, col), row, col, flag)
-        self.figure.tight_layout()
+        # t3 = time.time()
+
+        if row * col <= 16:
+            self.figure.tight_layout()
+
+        # t4 = time.time()
         self.canvas.draw()
+        # t5 = time.time()
+
+        # print("InitializeCanvas: flag: %2f, clear: %.2f, InitializeFigure: %.2f, tight_layout: %.2f, draw: %.2f" % (t1-t0, t2-t1, t3-t2, t4-t3, t5-t4))
 
 
     def CreateFigure(self, row, col):
@@ -327,6 +346,9 @@ class Plot(QWidget):
 
         for i in range(row):
             for j in range(col):
+                # if self.axis_grid[i][j] is None:
+                    # self.axis_grid[i][j] = self.figure.add_subplot(self.grid[i, j])
+
                 a = self.figure.add_subplot(grid[i,j])
 
         if flag:
