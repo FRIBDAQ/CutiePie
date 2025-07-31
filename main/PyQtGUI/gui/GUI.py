@@ -1366,7 +1366,15 @@ class MainWindow(QMainWindow):
         if index == self.wTab.count()-1:
             self.wTab.addTab(index)
             self.currentPlot = self.wTab.wPlot[index]
-            self.tabGeoWidgetAndFlags(index)            
+            self.tabGeoWidgetAndFlags(index)
+
+            # 🚩 reset geometry state for new tab
+            self.geometry_applied = False
+
+        # 🔧 ensure new tabs respect dark mode
+        if self.wConf.darkModeButton.isChecked():
+            self.toggleDarkMode()      
+                  
         else:
             try:
                 self.tabGeoWidgetAndFlags(index)
@@ -1438,7 +1446,11 @@ class MainWindow(QMainWindow):
         self.currentPlot.selected_plot_index = None
         self.currentPlot.next_plot_index = -1
 
+        if self.wConf.darkModeButton.isChecked():
+            self.toggleDarkMode()
 
+        # ✅ mark geometry applied
+        self.geometry_applied = True
 
     ###############################################
     # 5) Connection to REST for gates
@@ -3270,6 +3282,9 @@ class MainWindow(QMainWindow):
     # plot axis as defined in the ReST interface.
     def addPlot(self):
         self.logger.info('addPlot')
+        if not self.geometry_applied:
+            print("addPlot: Apply Geometry first!")
+            return
 
         if self.wConf.histo_list.count() == 0 : 
             QMessageBox.about(self, "Warning", 'Please click on "Connection" and fill in the information')
@@ -3351,6 +3366,7 @@ class MainWindow(QMainWindow):
                 #draw dashed red rectangle to indicate where the next plot would be added, based on next_plot_index, selected_plot_index is unchanged.
                 #recDashed added only here
                 self.removeRectangle()
+                print("addPlot: next_plot_index: ", self.currentPlot.next_plot_index)
                 self.currentPlot.recDashed = self.createDashedRectangle(self.currentPlot.figure.axes[self.currentPlot.next_plot_index])
 
                 
@@ -3368,7 +3384,7 @@ class MainWindow(QMainWindow):
                 #     for line in sumRegionLines:
                 #         line.draw_artist()
                 # self.axesChilds()
-
+        
                 self.currentPlot.canvas.draw_idle()
                 self.currentPlot.isSelected = False
         except NameError:
@@ -3633,32 +3649,33 @@ class MainWindow(QMainWindow):
         if self.wConf.darkModeButton.isChecked():
             # Dark mode
             self.wConf.darkModeButton.setText("Light Mode")
-            dark_bg = "#2b2b2b"   # dark gray, easier on the eyes
-            grid_color = "#555555"  # softer gray for grid lines
+            dark_bg = "#1e1e1e"    # pleasant dark, not pure black like VS Code
 
-            self.currentPlot.figure.set_facecolor(dark_bg)
-            for ax in self.currentPlot.figure.axes:
-                ax.set_facecolor(dark_bg)
-                ax.tick_params(colors="white")
-                ax.xaxis.label.set_color("white")
-                ax.yaxis.label.set_color("white")
-                ax.title.set_color("white")
+            for plot in self.wTab.wPlot.values():
+                plot.figure.set_facecolor(dark_bg)
+                for ax in plot.figure.axes:
+                    ax.set_facecolor(dark_bg)
+                    ax.tick_params(colors="white")
+                    ax.xaxis.label.set_color("white")
+                    ax.yaxis.label.set_color("white")
+                    ax.title.set_color("white")
+                plot.canvas.draw_idle()
 
         else:
             # Light mode
             self.wConf.darkModeButton.setText("Dark Mode")
             light_bg = "white"
-            grid_color = "#cccccc"
 
-            self.currentPlot.figure.set_facecolor(light_bg)
-            for ax in self.currentPlot.figure.axes:
-                ax.set_facecolor(light_bg)
-                ax.tick_params(colors="black")
-                ax.xaxis.label.set_color("black")
-                ax.yaxis.label.set_color("black")
-                ax.title.set_color("black")
+            for plot in self.wTab.wPlot.values():
+                plot.figure.set_facecolor(light_bg)
+                for ax in plot.figure.axes:
+                    ax.set_facecolor(light_bg)
+                    ax.tick_params(colors="black")
+                    ax.xaxis.label.set_color("black")
+                    ax.yaxis.label.set_color("black")
+                    ax.title.set_color("black")
+                plot.canvas.draw_idle()
 
-        self.currentPlot.canvas.draw_idle()
 
     ############################################################################
     # looking for first available index to add an histogram
