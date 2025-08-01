@@ -78,7 +78,9 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 import matplotlib.text as mtext
-
+import time
+#### Bashir's import
+from PyQt5.QtGui import QKeySequence
 
 
 # List of implementation topics
@@ -307,8 +309,15 @@ class MainWindow(QMainWindow):
         self.wConf.histo_geo_update.clicked.connect(lambda: self.updatePlot())
         self.wConf.extraButton.clicked.connect(self.spfunPopup)
 
-        self.wConf.histo_geo_row.activated.connect( self.setCanvasLayout )
-        self.wConf.histo_geo_col.activated.connect( self.setCanvasLayout )
+
+        ##### Bashir commented out to examine apply button
+        # self.wConf.histo_geo_row.activated.connect( self.setCanvasLayout )
+        # self.wConf.histo_geo_col.activated.connect( self.setCanvasLayout )
+        self.wConf.histo_geo_apply_btn.clicked.connect(self.setCanvasLayout)
+        QShortcut(QKeySequence("Return"), self, activated=self.wConf.histo_geo_apply_btn.click)
+        QShortcut(QKeySequence("Enter"), self, activated=self.wConf.histo_geo_apply_btn.click)
+        ####################################################################
+
 
         self.wConf.createGate.clicked.connect(self.createGate)
         self.wConf.createGate.setEnabled(False)
@@ -1003,7 +1012,7 @@ class MainWindow(QMainWindow):
 
         self.currentPlot.canvas.draw()
 
-
+    """
     #called by on_press when not in ceate/edit gate mode
     def on_dblclick(self, idx):
         self.logger.info('on_dblclick - idx, self.wTab.currentIndex(): %s, %s' ,idx, self.wTab.currentIndex())
@@ -1063,6 +1072,7 @@ class MainWindow(QMainWindow):
             canvasLayout = self.wTab.layout[self.wTab.currentIndex()]
             self.logger.debug('on_dblclick - canvasLayout: %s',canvasLayout)
 
+            t1 = time.time()
             #draw back the original canvas
             self.currentPlot.InitializeCanvas(canvasLayout[0], canvasLayout[1], False)
             # self.currentPlot.selected_plot_index = None # this will allow to call drawGate and loop over all the gates
@@ -1086,7 +1096,127 @@ class MainWindow(QMainWindow):
             self.currentPlot.figure.tight_layout()
             # self.drawAllGates()
             self.currentPlot.canvas.draw()
+            t2 = time.time()
+            print("on_dblclick: time={:.2f}".format(t2-t1))
+    """
+    
+            
+    #### Bashir's changes to avoid re-initialization of Canvas
+    #called by on_press when not in ceate/edit gate mode
+    def on_dblclick(self, idx):
+        self.logger.info('on_dblclick - idx, self.wTab.currentIndex(): %s, %s' ,idx, self.wTab.currentIndex())
+        name = self.nameFromIndex(idx)
+        index = self.wConf.histo_list.findText(name)
+        self.wConf.histo_list.setCurrentIndex(index)
 
+        if self.currentPlot.isEnlarged == False: # entering enlarged mode
+            self.logger.debug('on_dblclick - isEnlarged TRUE')
+            if name == "empty" or index == -1:
+                self.logger.warning('on_dblclick - empty axes cannot enlarge')
+                return
+            self.removeRectangle()
+
+            print("Entering expanded spectrum view...")
+            
+            #important that zoomPlotInfo is set only while in zoom mode (not None only here)
+            self.setEnlargedSpectrum(idx, name)
+            self.currentPlot.next_plot_index = self.currentPlot.selected_plot_index
+            print("self.currentPlot.next_plot_index",self.currentPlot.next_plot_index)
+            self.currentPlot.isEnlarged = True
+            # disabling adding histograms
+            self.wConf.histo_geo_add.setEnabled(False)
+            # disabling changing canvas layout
+            self.wConf.histo_geo_row.setEnabled(False)
+            self.wConf.histo_geo_col.setEnabled(False)
+            # enabling gate creation
+            self.wConf.createGate.setEnabled(True)
+            # plot corresponding histogram
+            self.wTab.selected_plot_index_bak[self.wTab.currentIndex()]= deepcopy(idx)
+            print("self.wTab.selected_plot_index_bak[self.wTab.currentIndex()]", self.wTab.selected_plot_index_bak[self.wTab.currentIndex()])
+            
+            # t1 = time.time()
+            ############### Bashir ##################################################
+            # Save the current axes objects
+            self.currentPlot._saved_axes = self.currentPlot.figure.axes.copy()
+
+            # Hide all current axes
+            for ax in self.currentPlot._saved_axes:
+                ax.set_visible(False)
+            ###########################################################################
+
+            #setup single pad canvas
+            self.currentPlot.InitializeCanvas(1,1,False)
+
+            self.add(idx)
+            autosclae_status = self.currentPlot.histo_autoscale.isChecked()
+            self.updatePlot(autosclae_status)
+            # self.updatePlot()
+            # t2 = time.time()
+            # print("on_dblclick: time={:.2f}".format(t2-t1))
+        else:
+            self.logger.debug('on_dblclick - isEnlarged FALSE')
+            # enabling adding histograms
+            self.wConf.histo_geo_add.setEnabled(True)
+            # enabling changing canvas layout
+            self.wConf.histo_geo_row.setEnabled(True)
+            self.wConf.histo_geo_col.setEnabled(True)
+
+            # disabling gate creation
+            self.wConf.createGate.setEnabled(False)
+
+            #important that zoomPlotInfo is set only while in zoom mode (None only here)
+            #tempIdxEnlargedSpectrum is used to draw back the dashed red rectangle, which pad was enlarged
+            tempIdxEnlargedSpectrum = self.getEnlargedSpectrum()[0]
+            self.setEnlargedSpectrum(None, None)
+            self.currentPlot.isEnlarged = False
+
+            canvasLayout = self.wTab.layout[self.wTab.currentIndex()]
+            self.logger.debug('on_dblclick - canvasLayout: %s',canvasLayout)
+
+            ####################### Bashir ###################################################################
+            # t1 = time.time()
+            #draw back the original canvas
+            # self.currentPlot.InitializeCanvas(canvasLayout[0], canvasLayout[1], False)
+
+            # Clear the temporary enlarged plot
+            for ax in self.currentPlot.figure.axes:
+                self.currentPlot.figure.delaxes(ax)
+
+            # Restore the saved axes and make them visible again
+            for ax in self.currentPlot._saved_axes:
+                self.currentPlot.figure.add_axes(ax)  # This may be redundant but ensures they're in the figure
+                ax.set_visible(True)
+
+            self.currentPlot._saved_axes = None  # Optional: clean up
+            # self.currentPlot.canvas.draw()
+            ##################################################################################################
+
+            
+            for index, name in self.getGeo().items():
+                # if name is not None and name != "" and name != "empty":
+                if name is not None and name != "" and name != "empty" and index == idx:
+                    self.add(index)
+                    ax = self.getSpectrumInfo("axis", index=index)
+                    self.plotPlot(index)
+                    #reset the axis limits as it was before enlarge
+                    #dont need to specify if log scale, it is checked inside setAxisScale, if 2D histo in log its z axis is set too.
+                    dim = self.getSpectrumInfoREST("dim", index=index)
+                    if dim == 1:
+                        self.setAxisScale(ax, index, "x", "y")
+                    elif dim == 2:
+                        self.setAxisScale(ax, index, "x", "y", "z")
+                    self.drawGate(index)
+            #drawing back the dashed red rectangle on the unenlarged spectrum
+            self.removeRectangle()
+            self.currentPlot.recDashed = self.createDashedRectangle(self.currentPlot.figure.axes[tempIdxEnlargedSpectrum])
+            #self.updatePlot() #replaced by the content of updatePlot in the above for loop (avoid looping twice)
+            # self.currentPlot.figure.tight_layout()
+            # self.drawAllGates()
+            self.currentPlot.canvas.draw_idle()
+            
+
+            # t2 = time.time()
+            # print("on_dblclick back: time={:.2f}".format(t2-t1))
 
     #obselete
     # def get_key(self, val):
@@ -1234,9 +1364,12 @@ class MainWindow(QMainWindow):
         self.logger.debug('tabGeoWidgetAndFlags - canvas layout: %s, %s',nRow, nCol)
 
         #nRow-1 because nRow (nCol) is the number of row (col) and the following sets an index starting at 0
-        self.wConf.histo_geo_row.setCurrentIndex(nRow-1)
-        self.wConf.histo_geo_col.setCurrentIndex(nCol-1)
-
+        #### Bashir changed to examine apply function to set the row and col
+        # self.wConf.histo_geo_row.setCurrentIndex(nRow-1)
+        # self.wConf.histo_geo_col.setCurrentIndex(nCol-1)
+        self.wConf.histo_geo_row.setValue(nRow)
+        self.wConf.histo_geo_col.setValue(nCol)
+        ######################################################################
         #enable/disable some widgets depending if enlarge mode of not, flags set also in on_dblclick 
         self.wConf.histo_geo_add.setEnabled(not self.currentPlot.isEnlarged)
         self.wConf.histo_geo_row.setEnabled(not self.currentPlot.isEnlarged)
@@ -1264,8 +1397,12 @@ class MainWindow(QMainWindow):
     def setCanvasLayout(self):
         self.logger.info('setCanvasLayout')
         indexTab = self.wTab.currentIndex()
-        nRow = int(self.wConf.histo_geo_row.currentText())
-        nCol = int(self.wConf.histo_geo_col.currentText())
+        ##### Bashir changed to examine apply function to set the row and col
+        # nRow = int(self.wConf.histo_geo_row.currentText())
+        # nCol = int(self.wConf.histo_geo_col.currentText())
+        nRow = self.wConf.histo_geo_row.value()
+        nCol = self.wConf.histo_geo_col.value()
+        ######################################################################
         self.wTab.layout[indexTab] = [nRow, nCol]
         self.wTab.wPlot[indexTab].InitializeCanvas(nRow, nCol)
         self.wTab.selected_plot_index_bak[indexTab] = None
@@ -2136,7 +2273,15 @@ class MainWindow(QMainWindow):
                 except:
                     properties[index] = {"name": '', "x": None, "y": None, "scale": None}
                     pass
-            tmp = {"row": int(self.wConf.histo_geo_row.currentText()), "col": int(self.wConf.histo_geo_col.currentText()), "geo": properties}
+            ##### Bashir changed to examine the apply button
+            # tmp = {"row": int(self.wConf.histo_geo_row.currentText()), "col": int(self.wConf.histo_geo_col.currentText()), "geo": properties}
+            tmp = {
+                "row": self.wConf.histo_geo_row.value(),
+                "col": self.wConf.histo_geo_col.value(),
+                "geo": properties
+            }
+            #######################################################################
+
             QMessageBox.about(self, "Saving...", "Window configuration saved!")
             f.write(str(tmp))
             f.close()
@@ -2155,12 +2300,25 @@ class MainWindow(QMainWindow):
             row = infoGeo["row"]
             col = infoGeo["col"]
             # change index in combobox to the actual loaded values
-            index_row = self.wConf.histo_geo_row.findText(str(row), QtCore.Qt.MatchFixedString)
-            index_col = self.wConf.histo_geo_col.findText(str(col), QtCore.Qt.MatchFixedString)
+            #### Bashir changed to examine the apply button
+            # index_row = self.wConf.histo_geo_row.findText(str(row), QtCore.Qt.MatchFixedString)
+            # index_col = self.wConf.histo_geo_col.findText(str(col), QtCore.Qt.MatchFixedString)
+            self.wConf.histo_geo_row.setValue(row)
+            self.wConf.histo_geo_col.setValue(col)
+            index_row = row
+            index_col = col
+            #####################################################
+
+# Later usage of index_row / index_col continues to work
+
             notFound = []
             if index_row >= 0 and index_col >= 0:
-                self.wConf.histo_geo_row.setCurrentIndex(index_row)
-                self.wConf.histo_geo_col.setCurrentIndex(index_col)
+                #### Bashir changed to examine the apply button
+                # self.wConf.histo_geo_row.setCurrentIndex(index_row)
+                # self.wConf.histo_geo_col.setCurrentIndex(index_col)
+                self.wConf.histo_geo_row.setValue(index_row)
+                self.wConf.histo_geo_col.setValue(index_col)
+                #####################################################
                 self.setCanvasLayout()
                 for index, val_dict in infoGeo["geo"].items():
                     if self.getSpectrumInfoREST("dim", name=val_dict["name"]) is None:
@@ -3106,6 +3264,7 @@ class MainWindow(QMainWindow):
                         continue
                     self.add(key)
                     self.autoScaleAxisBox(key)
+                    # print("addPlot: key={}, value={}".format(key, value))
             # self adding
             else:
                 index = self.nextIndex()
@@ -3121,12 +3280,37 @@ class MainWindow(QMainWindow):
                 self.setSpectrumInfo(cutoff=None, index=index)
 
                 self.setGeo(index, name)
+                # t1 = time.time()
                 self.add(index)
 
                 #it turns out the autoscale is wanted in addPlot
                 self.currentPlot.histo_autoscale.setChecked(True)
-                self.autoScaleAxisBox(index)
+                # self.autoScaleAxisBox(index)
 
+                ##### AutoScale Bashir ###################################
+                #search in the current view
+                dim = self.getSpectrumInfoREST("dim", index=index)
+                ax = self.getSpectrumInfo("axis", index=index)
+                xmin, xmax = ax.get_xlim()
+                #getMinMaxInRange returns only max for 1d
+                
+                if dim == 1:
+                    ymin = self.getSpectrumInfo("miny", index=index)
+                    ymax = self.getMinMaxInRange(index, xmin=xmin, xmax=xmax)
+                    ax.set_ylim(ymin,ymax)
+                else:
+                    pass
+                    ymin, ymax = ax.get_xlim()
+                    zmin, zmax = self.getMinMaxInRange(index, xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
+                    print("addPlot: zmax={}".format(zmax))
+                    self.setSpectrumInfo(maxz=zmax, index=index)
+                    self.setSpectrumInfo(minz=zmin, index=index)
+                    spectrum = self.getSpectrumInfo("spectrum", index=index)
+                    spectrum.set_clim(vmin=zmin, vmax=zmax)
+                    self.setSpectrumInfo(spectrum=spectrum, index=index)
+                ##############################################################
+                # t2 = time.time()
+                # print("addPlot: time={:.2f}".format(t2-t1))
                 #When add with button "add" the default state is unlog
                 self.currentPlot.logButton.setDown(False)
                 #Reset log
@@ -3140,6 +3324,7 @@ class MainWindow(QMainWindow):
                 self.removeRectangle()
                 self.currentPlot.recDashed = self.createDashedRectangle(self.currentPlot.figure.axes[self.currentPlot.next_plot_index])
 
+                
                 try:
                     self.currentPlot.figure.tight_layout()
                 except ValueError:
@@ -3155,7 +3340,7 @@ class MainWindow(QMainWindow):
                 #         line.draw_artist()
                 # self.axesChilds()
 
-                self.currentPlot.canvas.draw()
+                self.currentPlot.canvas.draw_idle()
                 self.currentPlot.isSelected = False
         except NameError:
             raise
@@ -3382,8 +3567,13 @@ class MainWindow(QMainWindow):
     #called in nextIndex and forNextIndex
     def setIndex(self, indexToChange):
         self.logger.info('setIndex')
-        row = int(self.wConf.histo_geo_row.currentText())
-        col = int(self.wConf.histo_geo_col.currentText())
+        #### Bashir changed to examine the apply button##
+        # row = int(self.wConf.histo_geo_row.currentText())
+        # col = int(self.wConf.histo_geo_col.currentText())
+        row = self.wConf.histo_geo_row.value()
+        col = self.wConf.histo_geo_col.value()
+        #################################################
+
         try:
             #Once in the nextIndex first case change to next_plot_index to 0 (then +1)
             if indexToChange == -1:
@@ -5419,8 +5609,13 @@ class MainWindow(QMainWindow):
 
     def indexToStartPosition(self, index):
         self.logger.info('indexToStartPosition')
-        row = int(self.wConf.histo_geo_row.currentText())
-        col = int(self.wConf.histo_geo_col.currentText())
+        #### Bashir changed to examine the apply button
+        # row = int(self.wConf.histo_geo_row.currentText())
+        # col = int(self.wConf.histo_geo_col.currentText())
+        row = self.wConf.histo_geo_row.value()
+        col = self.wConf.histo_geo_col.value()
+        ######################################################
+
         # if (DEBUG):
         #     print("row, col",row, col)
         xoffs = float(1/(2*col))

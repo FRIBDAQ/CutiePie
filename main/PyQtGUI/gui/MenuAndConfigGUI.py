@@ -81,12 +81,33 @@ class Configuration(QGridLayout):
             self.histo_list = QComboBox()
             self.histo_list.setFixedWidth(200)
 
-            self.histo_geo_label = QLabel("Geometry")
-            self.histo_geo_label.setFixedWidth(63)
-            self.histo_geo_row = QComboBox()
-            self.histo_geo_row.setFixedWidth(50)
-            self.histo_geo_col = QComboBox()
-            self.histo_geo_col.setFixedWidth(50)
+
+            #### Bashir commenting out the row and column selection for now
+            # self.histo_geo_label = QLabel("Geometry")
+            # self.histo_geo_label.setFixedWidth(63)
+            
+            # self.histo_geo_row = QComboBox()
+            # self.histo_geo_row.setFixedWidth(50)
+            # self.histo_geo_col = QComboBox()
+            # self.histo_geo_col.setFixedWidth(50)
+            ##############################################################
+            # SpinBoxes
+            ####### Bashir added
+            self.histo_geo_row = QSpinBox()
+            self.histo_geo_row.setRange(1, 9)
+            self.histo_geo_row.setValue(1)
+            self.histo_geo_row.setFixedWidth(45)
+
+            self.histo_geo_col = QSpinBox()
+            self.histo_geo_col.setRange(1, 9)
+            self.histo_geo_col.setValue(2)
+            self.histo_geo_col.setFixedWidth(45)
+
+            # Apply Button
+            self.histo_geo_apply_btn = QPushButton("Apply Geometry")
+            self.histo_geo_apply_btn.setFixedWidth(100)
+            self.histo_geo_apply_btn.setStyleSheet("background-color:#bcee68;")
+            ###############################################################
 
             self.histo_geo_add = QPushButton("Add")
             self.histo_geo_add.setFixedWidth(85)
@@ -146,11 +167,11 @@ class Configuration(QGridLayout):
             self.extraButton.setFixedWidth(85)
             self.extraButton.setStyleSheet("background-color:#ffd700;")
 
-            
-            for i in range(1,10):
-                self.histo_geo_row.addItem(str(i))
-                self.histo_geo_col.addItem(str(i))
-
+            #### Bashir commented out to examine apply button
+            # for i in range(1,10):
+                # self.histo_geo_row.addItem(str(i))
+                # self.histo_geo_col.addItem(str(i))
+            ######################################################
 
             #line organized in several blocks 
             connectLayout = QHBoxLayout()
@@ -161,9 +182,12 @@ class Configuration(QGridLayout):
 
             connectLayout.addWidget(self.connectButton)
 
-            geoLayout.addWidget(self.histo_geo_label)
             geoLayout.addWidget(self.histo_geo_row)
             geoLayout.addWidget(self.histo_geo_col)
+            #### Bashir added the apply button
+            # geoLayout.addWidget(self.histo_geo_label)
+            geoLayout.addWidget(self.histo_geo_apply_btn)
+            #############################################
             geoLayout.addWidget(self.loadButton)
             geoLayout.addWidget(self.saveButton)
 

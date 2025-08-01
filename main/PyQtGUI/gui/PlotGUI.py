@@ -5,6 +5,10 @@ matplotlib.use("Qt5Agg")
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import matplotlib.gridspec as gridspec
+#### Bashir imports
+# import time
+# from matplotlib.figure import Figure
+#####################
 
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
@@ -40,7 +44,7 @@ class Tabs(QTabWidget):
         self.selected_plot_index_bak.append(None)
         #layout is a list that keeps for each tab [numberOfRow, numberOfColumn]
         self.layout = []
-        self.layout.append([1,1])
+        self.layout.append([1,2])
 
 
     def addTab(self, index):
@@ -51,7 +55,7 @@ class Tabs(QTabWidget):
         self.resetTabText()
         self.setCurrentIndex(index)
         self.selected_plot_index_bak.append(None)
-        self.layout.append([1,1])
+        self.layout.append([1,2])
         self.spectrum_dict[index] = {}
         self.zoomPlotInfo[index] = []
         self.countClickTab[index] = False
@@ -85,9 +89,12 @@ class Tabs(QTabWidget):
             if "Tab" != self.tabText(i)[:3]:
                 continue
             elif i == 0:
-                self.setTabText(i, "Tab")
+                if self.count() > 1:
+                    self.setTabText(i, "Tab %d" %(i+1))
+                else:
+                   self.setTabText(i, "Tab") 
             else:
-                self.setTabText(i, "Tab %d" %(i))
+                self.setTabText(i, "Tab %d" %(i+1))
 
 
     # Deletes the specified key from a dictionary and reassigns remaining keys.
@@ -289,18 +296,25 @@ class Plot(QWidget):
 
     def InitializeCanvas(self, row, col, flag = True):
         self.logger.debug('InitializeCanvas -- with dimensions (row, col): %d %d', row, col)
+
+        # self.axis_grid = [[None for _ in range(col)] for _ in range(row)]
+
         if flag:
             self.h_dict.clear()
             self.h_dict_geo.clear()
 
             self.index = 0
             self.idx = 0
+        # self.figure.clear()
+        while self.figure.axes:
+            self.figure.delaxes(self.figure.axes[0])
 
-        self.figure.clear()
         self.InitializeFigure(self.CreateFigure(row, col), row, col, flag)
-        self.figure.tight_layout()
-        self.canvas.draw()
 
+        self.figure.tight_layout()
+
+        # self.canvas.draw()
+        self.canvas.draw_idle()
 
     def CreateFigure(self, row, col):
         self.grid = gridspec.GridSpec(ncols=col, nrows=row, figure=self.figure)
@@ -324,9 +338,14 @@ class Plot(QWidget):
 
     def InitializeFigure(self, grid, row, col, flag = True):
         self.logger.debug('InitializeFigure')
+        # self.axis_grid = [[None for _ in range(col)] for _ in range(row)]
+
 
         for i in range(row):
             for j in range(col):
+                # if self.axis_grid[i][j] is None:
+                #     self.axis_grid[i][j] = self.figure.add_subplot(self.grid[i, j])
+
                 a = self.figure.add_subplot(grid[i,j])
 
         if flag:
