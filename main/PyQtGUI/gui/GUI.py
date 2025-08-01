@@ -81,7 +81,7 @@ import matplotlib.text as mtext
 import time
 #### Bashir's import
 from PyQt5.QtGui import QKeySequence
-
+import matplotlib.colors as mcolors
 
 # List of implementation topics
 # 0) Class definition
@@ -309,13 +309,17 @@ class MainWindow(QMainWindow):
         self.wConf.histo_geo_update.clicked.connect(lambda: self.updatePlot())
         self.wConf.extraButton.clicked.connect(self.spfunPopup)
 
+        #### Bashir added
+        self.wConf.cmapSelector.currentTextChanged.connect(self.onColormapChange)
+        self.wConf.darkModeButton.clicked.connect(self.toggleDarkMode)
+
 
         ##### Bashir commented out to examine apply button
         # self.wConf.histo_geo_row.activated.connect( self.setCanvasLayout )
         # self.wConf.histo_geo_col.activated.connect( self.setCanvasLayout )
         self.wConf.histo_geo_apply_btn.clicked.connect(self.setCanvasLayout)
-        QShortcut(QKeySequence("Return"), self, activated=self.wConf.histo_geo_apply_btn.click)
-        QShortcut(QKeySequence("Enter"), self, activated=self.wConf.histo_geo_apply_btn.click)
+        # QShortcut(QKeySequence("Return"), self, activated=self.wConf.histo_geo_apply_btn.click)
+        # QShortcut(QKeySequence("Enter"), self, activated=self.wConf.histo_geo_apply_btn.click)
         ####################################################################
 
 
@@ -1142,6 +1146,11 @@ class MainWindow(QMainWindow):
             # Hide all current axes
             for ax in self.currentPlot._saved_axes:
                 ax.set_visible(False)
+            
+            dim = self.getSpectrumInfoREST("dim", index=idx)
+            if dim == 2:
+                spectrum_old = self.getSpectrumInfo("spectrum", index=idx)
+                self.old_cmap = spectrum_old.get_cmap()
             ###########################################################################
 
             #setup single pad canvas
@@ -1153,6 +1162,23 @@ class MainWindow(QMainWindow):
             # self.updatePlot()
             # t2 = time.time()
             # print("on_dblclick: time={:.2f}".format(t2-t1))
+
+            ########### Bashir: reuse color map
+            if dim == 2:
+                spectrum = self.getSpectrumInfo("spectrum", index=idx)
+
+                if spectrum is not None:
+                    spectrum.set_cmap(self.old_cmap)
+                    ax = self.getSpectrumInfo("axis", index=idx)
+                    if ax:
+                        divider = make_axes_locatable(ax)
+                        cax = divider.append_axes("right", size="5%", pad=0.05)
+                        self.currentPlot.figure.colorbar(spectrum, cax=cax, orientation="vertical")
+
+                        self.currentPlot.figure.tight_layout(rect=[0, 0, 0.95, 1])
+                        self.currentPlot.canvas.draw_idle()
+            #############################################################################################
+
         else:
             self.logger.debug('on_dblclick - isEnlarged FALSE')
             # enabling adding histograms
@@ -1197,13 +1223,16 @@ class MainWindow(QMainWindow):
                 if name is not None and name != "" and name != "empty" and index == idx:
                     self.add(index)
                     ax = self.getSpectrumInfo("axis", index=index)
-                    self.plotPlot(index)
+                    
                     #reset the axis limits as it was before enlarge
                     #dont need to specify if log scale, it is checked inside setAxisScale, if 2D histo in log its z axis is set too.
                     dim = self.getSpectrumInfoREST("dim", index=index)
                     if dim == 1:
+                        self.plotPlot(index)
                         self.setAxisScale(ax, index, "x", "y")
                     elif dim == 2:
+                        self.plotPlot(index, self.old_cmap)
+                        self.setSpectrumInfo(cmap=self.old_cmap, index=idx)
                         self.setAxisScale(ax, index, "x", "y", "z")
                     self.drawGate(index)
             #drawing back the dashed red rectangle on the unenlarged spectrum
@@ -1337,7 +1366,15 @@ class MainWindow(QMainWindow):
         if index == self.wTab.count()-1:
             self.wTab.addTab(index)
             self.currentPlot = self.wTab.wPlot[index]
-            self.tabGeoWidgetAndFlags(index)            
+            self.tabGeoWidgetAndFlags(index)
+
+            # 🚩 reset geometry state for new tab
+            self.geometry_applied = False
+
+        # 🔧 ensure new tabs respect dark mode
+        if self.wConf.darkModeButton.isChecked():
+            self.toggleDarkMode()      
+                  
         else:
             try:
                 self.tabGeoWidgetAndFlags(index)
@@ -1409,7 +1446,11 @@ class MainWindow(QMainWindow):
         self.currentPlot.selected_plot_index = None
         self.currentPlot.next_plot_index = -1
 
+        if self.wConf.darkModeButton.isChecked():
+            self.toggleDarkMode()
 
+        # ✅ mark geometry applied
+        self.geometry_applied = True
 
     ###############################################
     # 5) Connection to REST for gates
@@ -3241,6 +3282,9 @@ class MainWindow(QMainWindow):
     # plot axis as defined in the ReST interface.
     def addPlot(self):
         self.logger.info('addPlot')
+        if not self.geometry_applied:
+            print("addPlot: Apply Geometry first!")
+            return
 
         if self.wConf.histo_list.count() == 0 : 
             QMessageBox.about(self, "Warning", 'Please click on "Connection" and fill in the information')
@@ -3302,7 +3346,7 @@ class MainWindow(QMainWindow):
                     pass
                     ymin, ymax = ax.get_xlim()
                     zmin, zmax = self.getMinMaxInRange(index, xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
-                    print("addPlot: zmax={}".format(zmax))
+                    # print("addPlot: zmax={}".format(zmax))
                     self.setSpectrumInfo(maxz=zmax, index=index)
                     self.setSpectrumInfo(minz=zmin, index=index)
                     spectrum = self.getSpectrumInfo("spectrum", index=index)
@@ -3322,6 +3366,7 @@ class MainWindow(QMainWindow):
                 #draw dashed red rectangle to indicate where the next plot would be added, based on next_plot_index, selected_plot_index is unchanged.
                 #recDashed added only here
                 self.removeRectangle()
+                print("addPlot: next_plot_index: ", self.currentPlot.next_plot_index)
                 self.currentPlot.recDashed = self.createDashedRectangle(self.currentPlot.figure.axes[self.currentPlot.next_plot_index])
 
                 
@@ -3339,7 +3384,7 @@ class MainWindow(QMainWindow):
                 #     for line in sumRegionLines:
                 #         line.draw_artist()
                 # self.axesChilds()
-
+        
                 self.currentPlot.canvas.draw_idle()
                 self.currentPlot.isSelected = False
         except NameError:
@@ -3368,7 +3413,7 @@ class MainWindow(QMainWindow):
     # fill spectrum with new data
     # called in addPlot and updatePlot
     # dont actually draw the plot in this function
-    def plotPlot(self, index):
+    def plotPlot(self, index, cmap=None):
         self.logger.info('plotPlot - index: %s', index)
         currentPlot = self.currentPlot
 
@@ -3409,6 +3454,7 @@ class MainWindow(QMainWindow):
             # if (self.wConf.button2D_option.currentText() == 'Light'):
             w = np.ma.masked_where(w == 0, w)
             spectrum.set_data(w)
+            spectrum.set_cmap(cmap)
 
         self.setSpectrumInfo(spectrum=spectrum, index=index)
         self.currentPlot = currentPlot
@@ -3494,6 +3540,144 @@ class MainWindow(QMainWindow):
             #raise
 
 
+    ####### Bashir added for color map #######################
+    def onColormapChange(self, cmap_name: str):
+        """Callback when the colormap selector changes."""
+        self.logger.info("onColormapChange - cmap: %s", cmap_name)
+
+        if not self.getGeo():
+            self.logger.debug("onColormapChange - no active plots")
+            return
+
+        try:
+            if cmap_name.lower() == "custom":
+                # Ask user for colormap definition file
+                filename, _ = QFileDialog.getOpenFileName(
+                    self, "Open Custom Colormap", "", "Text Files (*.txt)"
+                )
+                if not filename:
+                    self.logger.debug("No file selected for custom cmap")
+                    return
+
+                bounds = []
+                colors = []
+
+                with open(filename) as f:
+                    for line in f:
+                        parts = line.split()
+                        if not parts or len(parts) < 5:
+                            continue
+                        lo, hi = float(parts[0]), float(parts[1])
+                        r, g, b = map(float, parts[2:])
+                        # take lower bound and its color
+                        bounds.append(lo)
+                        colors.append((r, g, b))
+                    # also add the very last high bound with last color
+                    bounds.append(hi)
+                    colors.append((r, g, b))
+
+                # Build custom colormap
+                self.palette = mcolors.LinearSegmentedColormap.from_list(
+                    "custom_cmap", list(zip(bounds, colors)), N=256
+                )
+                self.palette.set_bad(color="white")
+            else:
+                # Normal built-in colormap
+                self.palette = copy(plt.get_cmap(cmap_name))
+                self.palette.set_bad(color="white")
+
+            # Apply to all 2D plots
+            for index, _ in self.getGeo().items():
+                if self.getSpectrumInfoREST("dim", index=index) != 2:
+                    continue
+
+                spectrum = self.getSpectrumInfo("spectrum", index=index)
+                if spectrum is None:
+                    continue
+
+                spectrum.set_cmap(self.palette)
+                self.setSpectrumInfo(spectrum=spectrum, index=index)
+
+                # persist cmap if we’re in enlarged mode
+                if self.currentPlot.isEnlarged:
+                    self.old_cmap = spectrum.get_cmap()
+
+                ax = self.getSpectrumInfo("axis", index=index)
+                if ax is not None:
+                    try:
+                        self.removeCb(ax)
+                    except Exception:
+                        pass
+                    divider = make_axes_locatable(ax)
+                    cax = divider.append_axes("right", size="5%", pad=0.05)
+                    self.currentPlot.figure.colorbar(spectrum, cax=cax, orientation="vertical")
+
+            self.currentPlot.canvas.draw_idle()
+
+        except Exception as e:
+            self.logger.error("onColormapChange - exception: %s", str(e), exc_info=True)
+
+
+    ####### Bashir added for dark mode ##########################
+    """
+    def toggleDarkMode(self):
+        if self.wConf.darkModeButton.isChecked():
+            # Dark mode
+            self.wConf.darkModeButton.setText("Light Mode")
+            self.currentPlot.figure.set_facecolor("black")
+            for ax in self.currentPlot.figure.axes:
+                ax.set_facecolor("black")
+                ax.tick_params(colors="white")   # white ticks
+                ax.xaxis.label.set_color("white")
+                ax.yaxis.label.set_color("white")
+                ax.title.set_color("white")
+        else:
+            # Light mode
+            self.wConf.darkModeButton.setText("Dark Mode")
+            self.currentPlot.figure.set_facecolor("white")
+            for ax in self.currentPlot.figure.axes:
+                ax.set_facecolor("white")
+                ax.tick_params(colors="black")
+                ax.xaxis.label.set_color("black")
+                ax.yaxis.label.set_color("black")
+                ax.title.set_color("black")
+
+        self.currentPlot.canvas.draw_idle()
+    """
+    
+    def toggleDarkMode(self):
+        if self.wConf.darkModeButton.isChecked():
+            # Dark mode
+            self.wConf.darkModeButton.setText("Light Mode")
+            dark_bg = "#1e1e1e"    # pleasant dark, not pure black like VS Code
+
+            for plot in self.wTab.wPlot.values():
+                plot.figure.set_facecolor(dark_bg)
+                for ax in plot.figure.axes:
+                    ax.set_facecolor(dark_bg)
+                    ax.tick_params(colors="white")
+                    ax.xaxis.label.set_color("white")
+                    ax.yaxis.label.set_color("white")
+                    ax.title.set_color("white")
+                plot.canvas.draw_idle()
+
+        else:
+            # Light mode
+            self.wConf.darkModeButton.setText("Dark Mode")
+            light_bg = "white"
+
+            for plot in self.wTab.wPlot.values():
+                plot.figure.set_facecolor(light_bg)
+                for ax in plot.figure.axes:
+                    ax.set_facecolor(light_bg)
+                    ax.tick_params(colors="black")
+                    ax.xaxis.label.set_color("black")
+                    ax.yaxis.label.set_color("black")
+                    ax.title.set_color("black")
+                plot.canvas.draw_idle()
+
+
+    ############################################################################
     # looking for first available index to add an histogram
     def check_index(self):
         self.logger.info('check_index')
@@ -3861,7 +4045,10 @@ class MainWindow(QMainWindow):
                         xPoints.append(gate["points"][0]["x"])
                         yPoints.append(gate["points"][0]["y"])
 
-                    line = mlines.Line2D(xPoints,yPoints, picker=5, color='red', label=lineLabel)
+                    ##### Bashir changed to address deprecattion##
+                    # line = mlines.Line2D(xPoints,yPoints, picker=5, color='red', label=lineLabel)
+                    line = mlines.Line2D(xPoints, yPoints, color='red', label=lineLabel)
+                    line.set_pickradius(5) 
                     ax.add_artist(line)
 
             if self.extraPopup.options.gateAnnotation.isChecked() and not self.extraPopup.options.gateHide.isChecked():

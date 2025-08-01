@@ -57,11 +57,31 @@ class Configuration(QGridLayout):
 
             self.exitButton = QPushButton("Exit")
             self.exitButton.setStyleSheet("background-color:rgb(252, 48, 3);")
-            self.exitButton.setFixedWidth(85) 
+            self.exitButton.setFixedWidth(85)
 
             self.connectButton = QPushButton("Connect")
             self.connectButton.setStyleSheet("background-color:#7ec0ee;")
             self.connectButton.setFixedWidth(85) 
+
+            self.darkModeButton = QPushButton("Dark Mode")
+            self.darkModeButton.setStyleSheet("""
+                QPushButton {
+                    background-color: #000000;
+                    color: white;
+                    border: 1px solid #444;
+                    padding: 5px 10px;
+                    border-radius: 6px;
+                }
+                QPushButton:hover {
+                    background-color: #222222;
+                }
+                QPushButton:checked {
+                    background-color: #444444;
+                    color: #FFD700;  /* golden text in dark mode */
+                }
+            """)
+            self.darkModeButton.setCheckable(True)
+            self.darkModeButton.setChecked(False)  # start in light mode
 
             self.saveButton = QPushButton("Save Geometry")
             self.saveButton.setStyleSheet("background-color:#ffd700;")
@@ -107,7 +127,40 @@ class Configuration(QGridLayout):
             self.histo_geo_apply_btn = QPushButton("Apply Geometry")
             self.histo_geo_apply_btn.setFixedWidth(100)
             self.histo_geo_apply_btn.setStyleSheet("background-color:#bcee68;")
-            ###############################################################
+            ########################## Color map #####################################
+
+            # Label
+            self.cmapLabel = QLabel("Colormap")
+            self.cmapLabel.setStyleSheet("font-weight: bold;")
+
+
+            self.cmapSelector = QComboBox()
+            self.cmapSelector.setFixedWidth(80)
+            # self.cmapSelector.setStyleSheet("background-color:#bcee68;")
+            # self.cmapSelector.setStyleSheet("background-color:#ffd700;")
+            common_cmaps = [
+                # perceptually uniform
+                "plasma", "viridis", "inferno", "magma", "cividis", "turbo",
+
+                # diverging
+                "seismic", "coolwarm", "bwr", "RdBu", "Spectral", "PiYG", "PRGn",
+
+                # cyclic
+                "twilight", "twilight_shifted", "hsv",
+
+                # legacy / popular
+                "jet", "nipy_spectral", "terrain", "ocean", "gist_earth",
+
+                # seasonal
+                "spring", "summer", "autumn", "winter",
+
+                # custom file loader
+                "custom"
+            ]
+
+            self.cmapSelector.addItems(common_cmaps)
+
+            #######################################################################
 
             self.histo_geo_add = QPushButton("Add")
             self.histo_geo_add.setFixedWidth(85)
@@ -117,6 +170,7 @@ class Configuration(QGridLayout):
             self.histo_geo_update.setFixedWidth(85)
             self.histo_geo_update.setStyleSheet("background-color:#bcee68;")
              
+            """ 
             self.button1D = QRadioButton("1D")
             # self.button1D.setFixedWidth(40)
             self.button2D = QRadioButton("2D")
@@ -124,6 +178,7 @@ class Configuration(QGridLayout):
             self.button2D_option = QComboBox()
             self.button2D_option.addItem("Light")
             self.button2D_option.addItem("Dark")
+            """
 
             #Gate menu
             # self.gate_list_label = QLabel("   Gate")            
@@ -195,6 +250,10 @@ class Configuration(QGridLayout):
             spectrumLayout.addWidget(self.histo_list)
             spectrumLayout.addWidget(self.histo_geo_add)
             spectrumLayout.addWidget(self.histo_geo_update)
+            spectrumLayout.addWidget(self.cmapLabel)
+            spectrumLayout.addWidget(self.cmapSelector)
+            spectrumLayout.addWidget(self.darkModeButton)
+
 
             gateLayout.addWidget(self.createGate)
             gateLayout.addWidget(self.createSumRegionButton)
