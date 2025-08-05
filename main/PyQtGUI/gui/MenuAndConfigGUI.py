@@ -120,7 +120,7 @@ class Configuration(QGridLayout):
 
             self.histo_geo_col = QSpinBox()
             self.histo_geo_col.setRange(1, 9)
-            self.histo_geo_col.setValue(2)
+            self.histo_geo_col.setValue(1)
             self.histo_geo_col.setFixedWidth(45)
 
             # Apply Button
