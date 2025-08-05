@@ -1271,7 +1271,7 @@ class MainWindow(QMainWindow):
         tab = self.wTab.tabBar()
         tabRect = tab.rect()
 
-        sizeSubTab = QtCore.QPoint(tabRect.width()/self.wTab.count(), tabRect.height()/2)
+        sizeSubTab = QtCore.QPoint(int(tabRect.width()/self.wTab.count()), int(tabRect.height()/2))
         pos = QtCore.QPoint(sizeSubTab.x()*self.wTab.currentIndex(), sizeSubTab.y())
 
         menuPos = tab.mapToGlobal(pos)
