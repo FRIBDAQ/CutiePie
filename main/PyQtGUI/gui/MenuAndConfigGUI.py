@@ -63,25 +63,11 @@ class Configuration(QGridLayout):
             self.connectButton.setStyleSheet("background-color:#7ec0ee;")
             self.connectButton.setFixedWidth(85) 
 
-            self.darkModeButton = QPushButton("Dark Mode")
-            self.darkModeButton.setStyleSheet("""
-                QPushButton {
-                    background-color: #000000;
-                    color: white;
-                    border: 1px solid #444;
-                    padding: 5px 10px;
-                    border-radius: 6px;
-                }
-                QPushButton:hover {
-                    background-color: #222222;
-                }
-                QPushButton:checked {
-                    background-color: #444444;
-                    color: #FFD700;  /* golden text in dark mode */
-                }
-            """)
-            self.darkModeButton.setCheckable(True)
-            self.darkModeButton.setChecked(False)  # start in light mode
+            
+            # self.darkModeButton = QPushButton("Dark Mode")
+
+            # self.darkModeButton.setCheckable(True)
+            # self.darkModeButton.setChecked(False)  # start in light mode
 
             self.saveButton = QPushButton("Save Geometry")
             self.saveButton.setStyleSheet("background-color:#ffd700;")
@@ -252,7 +238,7 @@ class Configuration(QGridLayout):
             spectrumLayout.addWidget(self.histo_geo_update)
             spectrumLayout.addWidget(self.cmapLabel)
             spectrumLayout.addWidget(self.cmapSelector)
-            spectrumLayout.addWidget(self.darkModeButton)
+            # spectrumLayout.addWidget(self.darkModeButton)
 
 
             gateLayout.addWidget(self.createGate)

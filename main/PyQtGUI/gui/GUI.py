@@ -168,7 +168,7 @@ class MainWindow(QMainWindow):
         self.factory = factory
         self.fit_factory = fit_factory
 
-        self.setWindowTitle("CutiePie - Bashir (QtPy) - It's not a bug, it's a feature (cit.) Qt5 and PyQty5 used under open source terms.")
+        self.setWindowTitle("CutiePie - (QtPy) - It's not a bug, it's a feature (cit.) Qt5 and PyQty5 used under open source terms.")
         self.setMouseTracking(True)
 
 
@@ -311,7 +311,9 @@ class MainWindow(QMainWindow):
 
         #### Bashir added
         self.wConf.cmapSelector.currentTextChanged.connect(self.onColormapChange)
-        self.wConf.darkModeButton.clicked.connect(self.toggleDarkMode)
+        self.old_cmap = None  # to store the previous colormap
+        self.geometry_applied = False
+        # self.wConf.darkModeButton.clicked.connect(self.toggleDarkMode)
 
 
         ##### Bashir commented out to examine apply button
@@ -794,9 +796,9 @@ class MainWindow(QMainWindow):
                 lineText = ""
                 for nbLine in range(len(self.gatePopup.listRegionLine)):
                     if nbLine == 0:
-                        lineText = lineText + (f"{nbLine}: X= {self.gatePopup.listRegionLine[nbLine].get_xdata()[0]:.5f}") 
+                        lineText = lineText + (f"{nbLine}: X= {self.gatePopup.listRegionLine[nbLine].get_xdata()[0]:.3f}") 
                     else :
-                        lineText = lineText + (f"\n{nbLine}: X= {self.gatePopup.listRegionLine[nbLine].get_xdata()[0]:.5f}") 
+                        lineText = lineText + (f"\n{nbLine}: X= {self.gatePopup.listRegionLine[nbLine].get_xdata()[0]:.3f}") 
                 self.gatePopup.regionPoint.clear()
                 self.gatePopup.regionPoint.insertPlainText(lineText)
 
@@ -820,13 +822,13 @@ class MainWindow(QMainWindow):
                 lineText = ""
                 for nbLine in range(lineNb):
                     if nbLine == 0:
-                            lineText = lineText + (f"{nbLine}: X= {self.gatePopup.listRegionLine[nbLine].get_xdata()[0]:.5f}   Y= {self.gatePopup.listRegionLine[nbLine].get_ydata()[0]:.5f}") 
+                            lineText = lineText + (f"{nbLine}: X= {self.gatePopup.listRegionLine[nbLine].get_xdata()[0]:.3f}   Y= {self.gatePopup.listRegionLine[nbLine].get_ydata()[0]:.3f}") 
                     else :
-                        lineText = lineText + (f"\n{nbLine}: X= {self.gatePopup.listRegionLine[nbLine].get_xdata()[0]:.5f}   Y= {self.gatePopup.listRegionLine[nbLine].get_ydata()[0]:.5f}") 
+                        lineText = lineText + (f"\n{nbLine}: X= {self.gatePopup.listRegionLine[nbLine].get_xdata()[0]:.3f}   Y= {self.gatePopup.listRegionLine[nbLine].get_ydata()[0]:.3f}") 
                 if lineNb == 0 :
-                    lineText = lineText + (f"{lineNb}: X= {float(event.xdata):.5f}   Y= {float(event.ydata):.5f}") 
+                    lineText = lineText + (f"{lineNb}: X= {float(event.xdata):.3f}   Y= {float(event.ydata):.3f}") 
                 else :
-                    lineText = lineText + (f"\n{lineNb}: X= {float(event.xdata):.5f}   Y= {float(event.ydata):.5f}") 
+                    lineText = lineText + (f"\n{lineNb}: X= {float(event.xdata):.3f}   Y= {float(event.ydata):.3f}") 
                 self.gatePopup.regionPoint.clear()
                 self.gatePopup.regionPoint.insertPlainText(lineText)
 
@@ -893,11 +895,11 @@ class MainWindow(QMainWindow):
                 lineText = ""
                 for nbLine in range(lineNb):
                     if nbLine == 0:
-                            lineText = lineText + (f"{nbLine}: X= {self.gatePopup.listRegionLine[nbLine].get_xdata()[0]:.5f}   Y= {self.gatePopup.listRegionLine[nbLine].get_ydata()[0]:.5f}") 
+                            lineText = lineText + (f"{nbLine}: X= {self.gatePopup.listRegionLine[nbLine].get_xdata()[0]:.3f}   Y= {self.gatePopup.listRegionLine[nbLine].get_ydata()[0]:.3f}") 
                     else :
-                        lineText = lineText + (f"\n{nbLine}: X= {self.gatePopup.listRegionLine[nbLine].get_xdata()[0]:.5f}   Y= {self.gatePopup.listRegionLine[nbLine].get_ydata()[0]:.5f}") 
+                        lineText = lineText + (f"\n{nbLine}: X= {self.gatePopup.listRegionLine[nbLine].get_xdata()[0]:.3f}   Y= {self.gatePopup.listRegionLine[nbLine].get_ydata()[0]:.3f}") 
                 if lineNb == 1 :
-                    lineText = lineText + (f"\n{lineNb}: X= {self.gatePopup.listRegionLine[0].get_xdata()[1]:.5f}   Y= {self.gatePopup.listRegionLine[0].get_ydata()[1]:.5f}") 
+                    lineText = lineText + (f"\n{lineNb}: X= {self.gatePopup.listRegionLine[0].get_xdata()[1]:.3f}   Y= {self.gatePopup.listRegionLine[0].get_ydata()[1]:.3f}") 
                 self.gatePopup.regionPoint.clear()
                 self.gatePopup.regionPoint.insertPlainText(lineText)
 
@@ -1366,14 +1368,7 @@ class MainWindow(QMainWindow):
         if index == self.wTab.count()-1:
             self.wTab.addTab(index)
             self.currentPlot = self.wTab.wPlot[index]
-            self.tabGeoWidgetAndFlags(index)
-
-            # 🚩 reset geometry state for new tab
-            self.geometry_applied = False
-
-        # 🔧 ensure new tabs respect dark mode
-        if self.wConf.darkModeButton.isChecked():
-            self.toggleDarkMode()      
+            self.tabGeoWidgetAndFlags(index)   
                   
         else:
             try:
@@ -1446,9 +1441,10 @@ class MainWindow(QMainWindow):
         self.currentPlot.selected_plot_index = None
         self.currentPlot.next_plot_index = -1
 
+        """
         if self.wConf.darkModeButton.isChecked():
             self.toggleDarkMode()
-
+        """
         # ✅ mark geometry applied
         self.geometry_applied = True
 
@@ -1523,6 +1519,7 @@ class MainWindow(QMainWindow):
         if self.currentPlot.toEditGate:
             #points for 1d: [x0, x1] and for 2d:  [[x0, y0], [x1, y1], ...]
             points = self.formatGatePopupPointText(dim)
+            # print("pushGateToREST - points from point text:", points)
             if points is None :
                 return
             if dim == 1:
@@ -1530,6 +1527,7 @@ class MainWindow(QMainWindow):
             elif dim == 2:
                 for point in points:
                     boundaries.append({"x": point[0], "y": point[1]})
+                    
         else:
             if len(self.gatePopup.listRegionLine) == 0:
                 return
@@ -1612,6 +1610,7 @@ class MainWindow(QMainWindow):
             elif dim == 2 and posY:
                 posY = float(posY.group(2))
                 pointDict[pointId] = [posX, posY]
+
 
         #Order dict with pointId, so that pointId doesn't have to follow line index
         pointDict = {key:pointDict[key] for key in sorted(pointDict)}
@@ -3283,7 +3282,7 @@ class MainWindow(QMainWindow):
     def addPlot(self):
         self.logger.info('addPlot')
         if not self.geometry_applied:
-            print("addPlot: Apply Geometry first!")
+            print("addPlot: Apply Geometry first!, return")
             return
 
         if self.wConf.histo_list.count() == 0 : 
@@ -3366,7 +3365,6 @@ class MainWindow(QMainWindow):
                 #draw dashed red rectangle to indicate where the next plot would be added, based on next_plot_index, selected_plot_index is unchanged.
                 #recDashed added only here
                 self.removeRectangle()
-                print("addPlot: next_plot_index: ", self.currentPlot.next_plot_index)
                 self.currentPlot.recDashed = self.createDashedRectangle(self.currentPlot.figure.axes[self.currentPlot.next_plot_index])
 
                 
@@ -3454,7 +3452,15 @@ class MainWindow(QMainWindow):
             # if (self.wConf.button2D_option.currentText() == 'Light'):
             w = np.ma.masked_where(w == 0, w)
             spectrum.set_data(w)
-            spectrum.set_cmap(cmap)
+            if cmap is not None:
+                spectrum.set_cmap(cmap)
+            elif self.old_cmap is not None:
+                spectrum.set_cmap(self.old_cmap)
+            elif hasattr(self, "palette") and self.palette is not None:
+                spectrum.set_cmap(self.palette)
+            else:
+                spectrum.set_cmap(plt.get_cmap("viridis"))  # final fallback
+
 
         self.setSpectrumInfo(spectrum=spectrum, index=index)
         self.currentPlot = currentPlot
@@ -3504,6 +3510,20 @@ class MainWindow(QMainWindow):
                     self.setAxisScale(ax, 0, "x", "y")
                 elif dim == 2:
                     self.setAxisScale(ax, 0, "x", "y", "z")
+                #######################################################
+                    spectrum = self.getSpectrumInfo("spectrum", index=index)
+
+                    if spectrum is not None:
+                        # spectrum.set_cmap(self.old_cmap)
+                        if ax:
+                            divider = make_axes_locatable(ax)
+                            cax = divider.append_axes("right", size="5%", pad=0.05)
+                            self.currentPlot.figure.colorbar(spectrum, cax=cax, orientation="vertical")
+
+                            self.currentPlot.figure.tight_layout(rect=[0, 0, 0.95, 1])
+                            self.currentPlot.canvas.draw_idle()
+                ########################################################
+                    
                 try:
                     self.removeCb(ax)
                 except:
@@ -3519,7 +3539,9 @@ class MainWindow(QMainWindow):
                         if len(self.getSpectrumInfoDict()) == 0:
                             return QMessageBox.about(self,"Warning!", "Configuration file has probably changed, please reset the window geometry (add plots or load geo file)")
                         continue
+                    # print("updatePlot: old_cmap1: ", self.old_cmap)
                     self.plotPlot(index)
+                    # print("updatePlot: old_cmap2: ", self.old_cmap)
                     #reset the axis limits as it was before enlarge
                     #dont need to specify if log scale, it is checked inside setAxisScale, if 2D histo in log its z axis is set too.
                     dim = self.getSpectrumInfoREST("dim", index=index)
@@ -3552,6 +3574,16 @@ class MainWindow(QMainWindow):
         try:
             if cmap_name.lower() == "custom":
                 # Ask user for colormap definition file
+                QMessageBox.information(
+                    self,
+                    "Custom Colormap Format from a .txt File",
+                    "Each line should be:\n<low> <high> <red> <green> <blue>\n"
+                    "Example:\n0.0 0.5 0 1 0\n0.5 0.7 1 0 0\n0.7 1.0 0 0 1\n\n"
+                    "<low> and <high> represent count percentiles.\n"
+                    "The <low> value of the first line must be 0.0, and the <low> of each line must match the <high> of the previous line.\n\n"
+                    "<red>, <green>, and <blue> are RGB values between 0 and 1."
+                )
+
                 filename, _ = QFileDialog.getOpenFileName(
                     self, "Open Custom Colormap", "", "Text Files (*.txt)"
                 )
@@ -3619,32 +3651,8 @@ class MainWindow(QMainWindow):
 
 
     ####### Bashir added for dark mode ##########################
-    """
-    def toggleDarkMode(self):
-        if self.wConf.darkModeButton.isChecked():
-            # Dark mode
-            self.wConf.darkModeButton.setText("Light Mode")
-            self.currentPlot.figure.set_facecolor("black")
-            for ax in self.currentPlot.figure.axes:
-                ax.set_facecolor("black")
-                ax.tick_params(colors="white")   # white ticks
-                ax.xaxis.label.set_color("white")
-                ax.yaxis.label.set_color("white")
-                ax.title.set_color("white")
-        else:
-            # Light mode
-            self.wConf.darkModeButton.setText("Dark Mode")
-            self.currentPlot.figure.set_facecolor("white")
-            for ax in self.currentPlot.figure.axes:
-                ax.set_facecolor("white")
-                ax.tick_params(colors="black")
-                ax.xaxis.label.set_color("black")
-                ax.yaxis.label.set_color("black")
-                ax.title.set_color("black")
 
-        self.currentPlot.canvas.draw_idle()
     """
-    
     def toggleDarkMode(self):
         if self.wConf.darkModeButton.isChecked():
             # Dark mode
@@ -3675,8 +3683,7 @@ class MainWindow(QMainWindow):
                     ax.yaxis.label.set_color("black")
                     ax.title.set_color("black")
                 plot.canvas.draw_idle()
-
-
+    """
     ############################################################################
     # looking for first available index to add an histogram
     def check_index(self):
@@ -4002,7 +4009,8 @@ class MainWindow(QMainWindow):
         #For 1D -> [{'name': 'gateName', 'type': 's', 'parameters': ['parameterName'], 'low': 0.0, 'high': 1.0}, {'name': 'gateName2'...}]
         #For 2D -> [{'name': 'gateName', 'type': 'c', 'parameters': ['parameterNameA', 'parameterNameB'], 'points': [{'x': 1, 'y': 2}, {'x': 3, 'y': 4}, {'x': 5, 'y': 6}] }, {'name': 'gateName2'...}]
         gateList = [dict for dict in self.rest.listGate() if "type" in dict and "parameters" in dict and dict["type"] in drawableTypes[spectrumType] and dict["parameters"] == parameters]
-
+        # print("drawGate: gateList:", gateList)
+        # print("Gate dict:", self.rest.listGate())
 
         # self.axesChilds()
         for gate in gateList:
@@ -4022,7 +4030,8 @@ class MainWindow(QMainWindow):
                         continue
 
                     line = mlines.Line2D([xlim[iLine],xlim[iLine]],[ylim[0],ylim[1]], picker=5, color='red', label=lineLabel)
-                    ax.add_artist(line)
+                    # ax.add_artist(line)
+                    ax.add_line(line)
 
             elif dim ==2:
                 #define a label to find the line among axes childs and update its properties (limits, visiblility, annotate...)
@@ -4037,6 +4046,7 @@ class MainWindow(QMainWindow):
                     continue
 
                 if spectrumType not in ["s"]:
+                
                     xPoints = [pointDict["x"] for pointDict in gate["points"]]
                     yPoints = [pointDict["y"] for pointDict in gate["points"]]
                     # lineLabelList = [ lineLabel + "_-_" + str(iline)  for iline in range(len(xPoints)) ]
@@ -4045,11 +4055,17 @@ class MainWindow(QMainWindow):
                         xPoints.append(gate["points"][0]["x"])
                         yPoints.append(gate["points"][0]["y"])
 
-                    ##### Bashir changed to address deprecattion##
-                    # line = mlines.Line2D(xPoints,yPoints, picker=5, color='red', label=lineLabel)
-                    line = mlines.Line2D(xPoints, yPoints, color='red', label=lineLabel)
-                    line.set_pickradius(5) 
-                    ax.add_artist(line)
+
+
+                    line = mlines.Line2D(xPoints,yPoints, picker=5, color='red', label=lineLabel)
+                    # ax.add_artist(line)
+                    # Bashir changed to add label to the line
+                    ax.add_line(line)
+
+                    # print(f"Vertices of gate '{gate['name']}' at index {index}:")
+                    # for i, (x, y) in enumerate(zip(xPoints, yPoints)):
+                    #     print(f"  Point {i}: ({x:.3f}, {y:.3f})")
+
 
             if self.extraPopup.options.gateAnnotation.isChecked() and not self.extraPopup.options.gateHide.isChecked():
                 self.setGateAnnotation(index,True)
@@ -4080,6 +4096,7 @@ class MainWindow(QMainWindow):
                 line = mlines.Line2D(xlim, ylim, picker=5, color='blue', label=lineLabel)
                 ax.add_artist(line)
 
+        
 
     #callback for gate annotation, calls setGateAnnotation
     def gateAnnotationCallBack(self):
@@ -4142,7 +4159,9 @@ class MainWindow(QMainWindow):
                             xy = self.getXYAnnotation(self.getSpectrumInfo("name", index=index), gateName, (positionX + offsetX, positionY))
                             # fist xy coordinate in data scale and second coordinate in axes fraction
                             #Need to improve the allocation of annotation position to avoid overlay of annotations
-                            annotation = ax.annotate(labelBuff, xy=xy, xycoords=("data", "axes fraction"), color=color, fontsize=8, clip_on=True)
+                            # annotation = ax.annotate(labelBuff, xy=xy, xycoords=("data", "axes fraction"), color=color, fontsize=8, clip_on=True)
+                            annotation = ax.annotate(int(positionX), xy=xy, xycoords=("data", "axes fraction"), color=color, fontsize=8, clip_on=True)
+                            # print("setGateAnnotation - positionX, xy, offsetX: ", positionX, xy, offsetX)
                             # renderer = self.currentPlot.canvas.get_renderer()
                             # bbox = ax.get_tightbbox(renderer)
                             # print("Simon ANNOTATION ", annotation, xy)
@@ -4150,6 +4169,7 @@ class MainWindow(QMainWindow):
                             # annotationBbox = annotation.get_tightbbox(renderer)
                             # # ax.annotate(labelBuff, xy=(positionX + 0.05, 0.95), xycoords=("data", "axes fraction"), color=color, fontsize=8)
                             child.set_color(color)
+                            # child.set_gid(gateName)
                             # # check if overlay with other annotations, if does then shift bellow the lowest overlaying annotation (intersec in matplotlib > 3.6 would be better than contains)
                             # overlayAnnotationBboxes = [an.get_tightbbox(renderer) for an in ax.get_children() if type(an) == matplotlib.text.Annotation and annotationBbox.contains(an.get_tightbbox(renderer).get_center())]
                             # if len(overlayAnnotationBboxes) > 0:
@@ -4161,6 +4181,7 @@ class MainWindow(QMainWindow):
                             #     annotation = ax.annotate(labelBuff, xy=(positionX + offsetX, yLowestBbox - annotationBbox.get_height()), xycoords=("data", "data"), color=color, fontsize=8)
                         else :
                             child.set_color('red')
+                            # child.set_gid(gateName)
                         # spectrum.axes = ax
                         # self.setSpectrumInfo(spectrum=spectrum, index=index)
                     elif dim == 2:
@@ -4177,7 +4198,8 @@ class MainWindow(QMainWindow):
                             offsetY = (ax.get_ylim()[1] - ax.get_ylim()[0])*0.003
                             # fist xy coordinate in data scale and second coordinate in axes fraction
                             #Need to improve the allocation of annotation position to avoid overlay of annotations
-                            annotation = ax.annotate(gateName, xy=(positionX+offsetX, positionY+offsetY), xycoords="data", color=color, fontsize=8, clip_on=True)
+                            # annotation = ax.annotate(gateName, xy=(positionX+offsetX, positionY+offsetY), xycoords="data", color=color, fontsize=8, clip_on=True)
+                            # print("setGateAnnotation - annotation: ", gateName, positionX, positionY)
                             # renderer = self.currentPlot.canvas.get_renderer()
                             # bbox = ax.get_tightbbox(renderer)
                             # print("Simon 2D ANNOTATION ", annotation, positionX,positionY)
@@ -4185,6 +4207,7 @@ class MainWindow(QMainWindow):
                             # annotationBbox = annotation.get_tightbbox(renderer)
                             # # ax.annotate(labelBuff, xy=(positionX + 0.05, 0.95), xycoords=("data", "axes fraction"), color=color, fontsize=8)
                             child.set_color(color)
+                            child.set_gid(gateName)
                             # # check if overlay with other annotations, if does then shift bellow the lowest overlaying annotation (intersec in matplotlib > 3.6 would be better than contains)
                             # overlayAnnotationBboxes = [an.get_tightbbox(renderer) for an in ax.get_children() if type(an) == matplotlib.text.Annotation and annotationBbox.contains(an.get_tightbbox(renderer).get_center())]
                             # if len(overlayAnnotationBboxes) > 0:
@@ -4196,8 +4219,24 @@ class MainWindow(QMainWindow):
                             #     annotation = ax.annotate(labelBuff, xy=(positionX + offsetX, yLowestBbox - annotationBbox.get_height()), xycoords=("data", "data"), color=color, fontsize=8)
                         else :
                             child.set_color('red')
+                            child.set_gid(gateName)
                         # spectrum.axes = ax
                         # self.setSpectrumInfo(spectrum=spectrum, index=index)
+
+        # --- after the for child loop ---
+        if doAnnotate:
+            handles, labels = [], []
+            for line in ax.get_lines():
+                lbl = line.get_gid()
+                if lbl and not lbl.startswith("_"):   # skip hidden
+                    handles.append(line)
+                    labels.append(lbl)
+
+            if handles:   # only build legend if gates exist
+                ax.legend(handles, labels, loc="upper right", fontsize=16, frameon=False)
+            else:
+                if ax.get_legend():
+                    ax.get_legend().remove()
 
 
     #goes with the annotation feature, associate a color to a gateName  
@@ -4226,8 +4265,6 @@ class MainWindow(QMainWindow):
                     return xy 
                 else :
                     return (xy[0], xy[1]-0.05)
-
-
 
 
     # add copy of listRegionLine to axis before deleting the later one (considered a temporary line)
@@ -4531,12 +4568,28 @@ class MainWindow(QMainWindow):
         except TypeError:
             pass
             
-
-
     #Open dialog window to specify name/type and draw gate while this window is openned
     #The flag self.currentPlot.toCreateGate determines if by clicking one sets the gate points (in on_singleclick)
     def createGate(self):
         self.logger.info('createGate')
+        ####### Bashir added a guidline for gate creation #######
+        QMessageBox.information(
+            self,
+            "Gate Drawing and Editing Guide",
+            "🟩 Drawing a Gate:\n"
+            "- Select 'Create' to begin drawing.\n"
+            "- For 1D gates: Click two positions on the x-axis to define gate boundaries.\n"
+            "- For 2D gates: Click multiple points to define a polygon.\n"
+            "- Finish by closing the gate or clicking 'OK'.\n\n"
+            "✏️ Editing a Gate:\n"
+            "- Select 'Edit'.\n"
+            "- Choose a gate name from the dropdown list.\n"
+            "- Gate coordinates will appear in the editor.\n"
+            "- Single-click a gate point to move it.\n"
+            "- Double-click a gate line to move the entire gate.\n\n"
+        )
+
+        #########################################################
         # Pause auto update when edit gate
         self.skipAutoUpdateThread.set()
         #Default gate actions is gate creation
@@ -4946,7 +4999,6 @@ class MainWindow(QMainWindow):
             self.currentPlot.canvas.draw_idle()
 
 
-
     #change "in live" the point/line/gate position according to the mouse position
     def followmouse(self, event):
         if self.gatePopup.gateEditOption == "1d_move_line" :
@@ -5064,9 +5116,9 @@ class MainWindow(QMainWindow):
             lineText = ""
             for nbLine in range(len(lines)):
                 if nbLine == 0:
-                    lineText = lineText + (f"{nbLine}: X= {gateList[nbLine].get_xdata()[0]:.5f}") 
+                    lineText = lineText + (f"{nbLine}: X= {gateList[nbLine].get_xdata()[0]:.3f}") 
                 else :
-                    lineText = lineText + (f"\n{nbLine}: X= {gateList[nbLine].get_xdata()[0]:.5f}") 
+                    lineText = lineText + (f"\n{nbLine}: X= {gateList[nbLine].get_xdata()[0]:.3f}") 
         elif dim ==2 :
             lines = gateList[0].get_xydata()
             lineText = ""
@@ -5077,9 +5129,9 @@ class MainWindow(QMainWindow):
                 nbPoints = len(lines)-1
             for nbLine in range(nbPoints):
                 if nbLine == 0:
-                    lineText = lineText + (f"{nbLine}: X= {lines[nbLine][0]:.5f}   Y= {lines[nbLine][1]:.5f}") 
+                    lineText = lineText + (f"{nbLine}: X= {lines[nbLine][0]:.3f}   Y= {lines[nbLine][1]:.3f}") 
                 else :
-                    lineText = lineText + (f"\n{nbLine}: X= {lines[nbLine][0]:.5f}   Y= {lines[nbLine][1]:.5f}") 
+                    lineText = lineText + (f"\n{nbLine}: X= {lines[nbLine][0]:.3f}   Y= {lines[nbLine][1]:.3f}") 
 
         self.gatePopup.regionPoint.clear()
         self.gatePopup.regionPoint.insertPlainText(lineText)
