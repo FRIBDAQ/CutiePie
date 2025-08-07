@@ -168,7 +168,7 @@ class MainWindow(QMainWindow):
         self.factory = factory
         self.fit_factory = fit_factory
 
-        self.setWindowTitle("CutiePie - Bashir (QtPy) - It's not a bug, it's a feature (cit.) Qt5 and PyQty5 used under open source terms.")
+        self.setWindowTitle("CutiePie - (QtPy) - It's not a bug, it's a feature (cit.) Qt5 and PyQty5 used under open source terms.")
         self.setMouseTracking(True)
 
 
@@ -1519,7 +1519,7 @@ class MainWindow(QMainWindow):
         if self.currentPlot.toEditGate:
             #points for 1d: [x0, x1] and for 2d:  [[x0, y0], [x1, y1], ...]
             points = self.formatGatePopupPointText(dim)
-            print("pushGateToREST - points from point text:", points)
+            # print("pushGateToREST - points from point text:", points)
             if points is None :
                 return
             if dim == 1:
@@ -3574,6 +3574,16 @@ class MainWindow(QMainWindow):
         try:
             if cmap_name.lower() == "custom":
                 # Ask user for colormap definition file
+                QMessageBox.information(
+                    self,
+                    "Custom Colormap Format from a .txt File",
+                    "Each line should be:\n<low> <high> <red> <green> <blue>\n"
+                    "Example:\n0.0 0.5 0 1 0\n0.5 0.7 1 0 0\n0.7 1.0 0 0 1\n\n"
+                    "<low> and <high> represent count percentiles.\n"
+                    "The <low> value of the first line must be 0.0, and the <low> of each line must match the <high> of the previous line.\n\n"
+                    "<red>, <green>, and <blue> are RGB values between 0 and 1."
+                )
+
                 filename, _ = QFileDialog.getOpenFileName(
                     self, "Open Custom Colormap", "", "Text Files (*.txt)"
                 )
@@ -4257,8 +4267,6 @@ class MainWindow(QMainWindow):
                     return (xy[0], xy[1]-0.05)
 
 
-
-
     # add copy of listRegionLine to axis before deleting the later one (considered a temporary line)
     # Identify this region line with label
     def saveSumRegion(self, index):
@@ -4560,12 +4568,28 @@ class MainWindow(QMainWindow):
         except TypeError:
             pass
             
-
-
     #Open dialog window to specify name/type and draw gate while this window is openned
     #The flag self.currentPlot.toCreateGate determines if by clicking one sets the gate points (in on_singleclick)
     def createGate(self):
         self.logger.info('createGate')
+        ####### Bashir added a guidline for gate creation #######
+        QMessageBox.information(
+            self,
+            "Gate Drawing and Editing Guide",
+            "🟩 Drawing a Gate:\n"
+            "- Select 'Create' to begin drawing.\n"
+            "- For 1D gates: Click two positions on the x-axis to define gate boundaries.\n"
+            "- For 2D gates: Click multiple points to define a polygon.\n"
+            "- Finish by closing the gate or clicking 'OK'.\n\n"
+            "✏️ Editing a Gate:\n"
+            "- Select 'Edit'.\n"
+            "- Choose a gate name from the dropdown list.\n"
+            "- Gate coordinates will appear in the editor.\n"
+            "- Single-click a gate point to move it.\n"
+            "- Double-click a gate line to move the entire gate.\n\n"
+        )
+
+        #########################################################
         # Pause auto update when edit gate
         self.skipAutoUpdateThread.set()
         #Default gate actions is gate creation
@@ -4973,7 +4997,6 @@ class MainWindow(QMainWindow):
             dumList = [self.editThisGateLine]
             self.updateTextGatePopup(dumList)
             self.currentPlot.canvas.draw_idle()
-
 
 
     #change "in live" the point/line/gate position according to the mouse position
