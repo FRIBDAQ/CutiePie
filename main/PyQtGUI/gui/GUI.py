@@ -2550,6 +2550,7 @@ class MainWindow(QMainWindow):
         ax = spectrum.axes
         dim = self.getSpectrumInfoREST("dim", index=index)
         if dim == 1 :
+            """
             #### Bashir added to zoom in x around mouse location ###
             xmin, xmax = ax.get_xlim()
             center_x = getattr(self, 'mouse_x', (xmin + xmax) / 2)
@@ -2565,6 +2566,7 @@ class MainWindow(QMainWindow):
             self.setSpectrumInfo(minx=xmin_new, index=index)
             self.setSpectrumInfo(maxx=xmax_new, index=index)
             #########################################################
+            """
             #step if 0.5
             ymin, ymax = ax.get_ylim()
             if arg == "in" :
@@ -2576,6 +2578,7 @@ class MainWindow(QMainWindow):
             self.setSpectrumInfo(maxy=ymax, index=index)
             self.setSpectrumInfo(spectrum=spectrum, index=index)
         elif dim == 2 :
+            """
             #### Bashir added to zoom in x around mouse location ###
             xmin, xmax = ax.get_xlim()
             center_x = getattr(self, 'mouse_x', (xmin + xmax) / 2)
@@ -2591,6 +2594,7 @@ class MainWindow(QMainWindow):
             self.setSpectrumInfo(minx=xmin_new, index=index)
             self.setSpectrumInfo(maxx=xmax_new, index=index)
             #########################################################
+            """
             zmin, zmax = spectrum.get_clim()
             if arg == "in" :
                 zmax = zmax*0.5
