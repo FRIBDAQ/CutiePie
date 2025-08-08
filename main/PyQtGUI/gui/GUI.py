@@ -320,6 +320,7 @@ class MainWindow(QMainWindow):
         # self.wConf.histo_geo_row.activated.connect( self.setCanvasLayout )
         # self.wConf.histo_geo_col.activated.connect( self.setCanvasLayout )
         self.wConf.histo_geo_apply_btn.clicked.connect(self.setCanvasLayout)
+        # self.setCanvasLayout()
         # QShortcut(QKeySequence("Return"), self, activated=self.wConf.histo_geo_apply_btn.click)
         # QShortcut(QKeySequence("Enter"), self, activated=self.wConf.histo_geo_apply_btn.click)
         ####################################################################
@@ -1430,10 +1431,10 @@ class MainWindow(QMainWindow):
         self.logger.info('setCanvasLayout')
         indexTab = self.wTab.currentIndex()
         ##### Bashir changed to examine apply function to set the row and col
-        # nRow = int(self.wConf.histo_geo_row.currentText())
-        # nCol = int(self.wConf.histo_geo_col.currentText())
-        nRow = self.wConf.histo_geo_row.value()
-        nCol = self.wConf.histo_geo_col.value()
+        nRow = int(self.wConf.histo_geo_row.currentText())
+        nCol = int(self.wConf.histo_geo_col.currentText())
+        # nRow = self.wConf.histo_geo_row.value()
+        # nCol = self.wConf.histo_geo_col.value()
         ######################################################################
         self.wTab.layout[indexTab] = [nRow, nCol]
         self.wTab.wPlot[indexTab].InitializeCanvas(nRow, nCol)
@@ -1458,6 +1459,7 @@ class MainWindow(QMainWindow):
     def connectPopup(self):
         self.logger.info('callback connectPopup')
         self.connectConfig.show()
+        self.setCanvasLayout()
 
 
     #callback to close configuration popup
@@ -2550,6 +2552,7 @@ class MainWindow(QMainWindow):
         ax = spectrum.axes
         dim = self.getSpectrumInfoREST("dim", index=index)
         if dim == 1 :
+            """
             #### Bashir added to zoom in x around mouse location ###
             xmin, xmax = ax.get_xlim()
             center_x = getattr(self, 'mouse_x', (xmin + xmax) / 2)
@@ -2565,6 +2568,7 @@ class MainWindow(QMainWindow):
             self.setSpectrumInfo(minx=xmin_new, index=index)
             self.setSpectrumInfo(maxx=xmax_new, index=index)
             #########################################################
+            """
             #step if 0.5
             ymin, ymax = ax.get_ylim()
             if arg == "in" :
@@ -2576,6 +2580,7 @@ class MainWindow(QMainWindow):
             self.setSpectrumInfo(maxy=ymax, index=index)
             self.setSpectrumInfo(spectrum=spectrum, index=index)
         elif dim == 2 :
+            """
             #### Bashir added to zoom in x around mouse location ###
             xmin, xmax = ax.get_xlim()
             center_x = getattr(self, 'mouse_x', (xmin + xmax) / 2)
@@ -2591,6 +2596,7 @@ class MainWindow(QMainWindow):
             self.setSpectrumInfo(minx=xmin_new, index=index)
             self.setSpectrumInfo(maxx=xmax_new, index=index)
             #########################################################
+            """
             zmin, zmax = spectrum.get_clim()
             if arg == "in" :
                 zmax = zmax*0.5
@@ -3759,10 +3765,10 @@ class MainWindow(QMainWindow):
     def setIndex(self, indexToChange):
         self.logger.info('setIndex')
         #### Bashir changed to examine the apply button##
-        # row = int(self.wConf.histo_geo_row.currentText())
-        # col = int(self.wConf.histo_geo_col.currentText())
-        row = self.wConf.histo_geo_row.value()
-        col = self.wConf.histo_geo_col.value()
+        row = int(self.wConf.histo_geo_row.currentText())
+        col = int(self.wConf.histo_geo_col.currentText())
+        # row = self.wConf.histo_geo_row.value()
+        # col = self.wConf.histo_geo_col.value()
         #################################################
 
         try:
