@@ -320,6 +320,7 @@ class MainWindow(QMainWindow):
         # self.wConf.histo_geo_row.activated.connect( self.setCanvasLayout )
         # self.wConf.histo_geo_col.activated.connect( self.setCanvasLayout )
         self.wConf.histo_geo_apply_btn.clicked.connect(self.setCanvasLayout)
+        # self.setCanvasLayout()
         # QShortcut(QKeySequence("Return"), self, activated=self.wConf.histo_geo_apply_btn.click)
         # QShortcut(QKeySequence("Enter"), self, activated=self.wConf.histo_geo_apply_btn.click)
         ####################################################################
@@ -1430,10 +1431,10 @@ class MainWindow(QMainWindow):
         self.logger.info('setCanvasLayout')
         indexTab = self.wTab.currentIndex()
         ##### Bashir changed to examine apply function to set the row and col
-        # nRow = int(self.wConf.histo_geo_row.currentText())
-        # nCol = int(self.wConf.histo_geo_col.currentText())
-        nRow = self.wConf.histo_geo_row.value()
-        nCol = self.wConf.histo_geo_col.value()
+        nRow = int(self.wConf.histo_geo_row.currentText())
+        nCol = int(self.wConf.histo_geo_col.currentText())
+        # nRow = self.wConf.histo_geo_row.value()
+        # nCol = self.wConf.histo_geo_col.value()
         ######################################################################
         self.wTab.layout[indexTab] = [nRow, nCol]
         self.wTab.wPlot[indexTab].InitializeCanvas(nRow, nCol)
@@ -1458,6 +1459,7 @@ class MainWindow(QMainWindow):
     def connectPopup(self):
         self.logger.info('callback connectPopup')
         self.connectConfig.show()
+        self.setCanvasLayout()
 
 
     #callback to close configuration popup
@@ -3763,10 +3765,10 @@ class MainWindow(QMainWindow):
     def setIndex(self, indexToChange):
         self.logger.info('setIndex')
         #### Bashir changed to examine the apply button##
-        # row = int(self.wConf.histo_geo_row.currentText())
-        # col = int(self.wConf.histo_geo_col.currentText())
-        row = self.wConf.histo_geo_row.value()
-        col = self.wConf.histo_geo_col.value()
+        row = int(self.wConf.histo_geo_row.currentText())
+        col = int(self.wConf.histo_geo_col.currentText())
+        # row = self.wConf.histo_geo_row.value()
+        # col = self.wConf.histo_geo_col.value()
         #################################################
 
         try:
