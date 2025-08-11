@@ -92,22 +92,22 @@ class Configuration(QGridLayout):
             # self.histo_geo_label = QLabel("Geometry")
             # self.histo_geo_label.setFixedWidth(63)
             
-            # self.histo_geo_row = QComboBox()
-            # self.histo_geo_row.setFixedWidth(50)
-            # self.histo_geo_col = QComboBox()
-            # self.histo_geo_col.setFixedWidth(50)
+            self.histo_geo_row = QComboBox()
+            self.histo_geo_row.setFixedWidth(50)
+            self.histo_geo_col = QComboBox()
+            self.histo_geo_col.setFixedWidth(50)
             ##############################################################
             # SpinBoxes
             ####### Bashir added
-            self.histo_geo_row = QSpinBox()
-            self.histo_geo_row.setRange(1, 9)
-            self.histo_geo_row.setValue(1)
-            self.histo_geo_row.setFixedWidth(45)
+            # self.histo_geo_row = QSpinBox()
+            # self.histo_geo_row.setRange(1, 9)
+            # self.histo_geo_row.setValue(1)
+            # self.histo_geo_row.setFixedWidth(45)
 
-            self.histo_geo_col = QSpinBox()
-            self.histo_geo_col.setRange(1, 9)
-            self.histo_geo_col.setValue(2)
-            self.histo_geo_col.setFixedWidth(45)
+            # self.histo_geo_col = QSpinBox()
+            # self.histo_geo_col.setRange(1, 9)
+            # self.histo_geo_col.setValue(1)
+            # self.histo_geo_col.setFixedWidth(45)
 
             # Apply Button
             self.histo_geo_apply_btn = QPushButton("Apply Geometry")
@@ -209,9 +209,9 @@ class Configuration(QGridLayout):
             self.extraButton.setStyleSheet("background-color:#ffd700;")
 
             #### Bashir commented out to examine apply button
-            # for i in range(1,10):
-                # self.histo_geo_row.addItem(str(i))
-                # self.histo_geo_col.addItem(str(i))
+            for i in range(1,10):
+                self.histo_geo_row.addItem(str(i))
+                self.histo_geo_col.addItem(str(i))
             ######################################################
 
             #line organized in several blocks 
