@@ -169,6 +169,10 @@ class MainWindow(QMainWindow):
         self.fit_factory = fit_factory
 
         self.setWindowTitle("CutiePie - (QtPy) - It's not a bug, it's a feature (cit.) Qt5 and PyQty5 used under open source terms.")
+        #### Bashir added for lightgrey visualization #######
+        # self.setStyleSheet("background-color: lightgrey;")
+        # self.setStyleSheet("QWidget { background-color: #dcdcdc; }")  # light grey everywhere
+
         self.setMouseTracking(True)
 
 
@@ -296,8 +300,18 @@ class MainWindow(QMainWindow):
         self.connectConfig.ok.clicked.connect(self.okConnect)
         self.connectConfig.cancel.clicked.connect(self.closeConnect)
 
-        self.wConf.saveButton.clicked.connect(self.saveGeo)
-        self.wConf.loadButton.clicked.connect(self.loadGeo)
+        #### Bashir chenged
+        menu = QMenu(self.wConf.geometryButton)     # parent the menu to the button
+        actSave = menu.addAction("Save Geometry")
+        actSave.triggered.connect(self.saveGeo)
+
+        actLoad = menu.addAction("Load Geometry")
+        actLoad.triggered.connect(self.loadGeo)
+
+        self.wConf.geometryButton.setMenu(menu)
+        # self.wConf.saveButton.clicked.connect(self.saveGeo)
+        # self.wConf.loadButton.clicked.connect(self.loadGeo)
+
         self.wConf.exitButton.clicked.connect(self.closeAll)
 
         # new tab creation
@@ -309,6 +323,47 @@ class MainWindow(QMainWindow):
         self.wConf.histo_geo_update.clicked.connect(lambda: self.updatePlot())
         self.wConf.extraButton.clicked.connect(self.spfunPopup)
 
+        ### Bashir added for auto update #########################
+        
+        self.autoUpdateIntervalsUser = ["1 sec", "5 secs", "10 secs", "30 secs", "1 min", "3 mins", "5 mins", "10 mins", "Inf."]
+        self.autoUpdateIntervals = [1, 5, 10, 30, 60, 180, 300, 600, 9e9]
+
+        """
+        val_auto = self.wConf.autoUpdate2.value()
+        self.autoUpdateInterval = self.autoUpdateIntervals[val_auto]
+        self.autoUpdateIntervalUser = self.autoUpdateIntervalsUser[val_auto]
+        self.wConf.autoUpdateLabel2.setText(f"Update every: {self.autoUpdateIntervalsUser[val_auto]}")
+
+        # update label as slider moves
+        self.wConf.autoUpdate2.valueChanged.connect(
+            lambda i: self.wConf.autoUpdateLabel2.setText(f"Update every: {self.autoUpdateIntervalsUser[i]}")
+        )
+
+        # (only if you want to start/restart the auto-update thread on change)
+        self.wConf.autoUpdate2.valueChanged.connect(lambda _: self.autoUpdateStart())
+        """
+        # populate combo and set default (index 0 → 1 sec)
+        self.wConf.autoUpdate2.clear()
+        self.wConf.autoUpdate2.addItems(self.autoUpdateIntervalsUser)
+        self.wConf.autoUpdate2.setCurrentIndex(0)
+
+        # make existing code that calls .value()/.setValue() still work
+        self.wConf.autoUpdate2.value = self.wConf.autoUpdate2.currentIndex
+        self.wConf.autoUpdate2.setValue = self.wConf.autoUpdate2.setCurrentIndex
+
+        # initial label
+        # i0 = self.wConf.autoUpdate2.currentIndex()
+        # self.wConf.autoUpdateLabel2.setText(f"Update every:")
+
+        # keep label updated and restart your existing thread logic
+        # self.wConf.autoUpdate2.currentIndexChanged.connect(
+        #     lambda: self.wConf.autoUpdateLabel2.setText(f"Update every:")
+        # )
+        self.wConf.autoUpdate2.currentIndexChanged.connect(lambda _: self.autoUpdateStart())
+
+        ##########################################################
+
+        
         #### Bashir added
         self.wConf.cmapSelector.currentTextChanged.connect(self.onColormapChange)
         self.old_cmap = None  # to store the previous colormap
@@ -413,7 +468,9 @@ class MainWindow(QMainWindow):
         self.extraPopup.options.gateAnnotation.clicked.connect(self.gateAnnotationCallBack)
         self.extraPopup.options.gateHide.clicked.connect(self.updatePlot)
         self.extraPopup.options.debugMode.clicked.connect(self.debugModeCallBack)
-        self.extraPopup.options.autoUpdate.valueChanged.connect(self.autoUpdateStart)
+        ##### Bashir commented out the auto update in the main gate
+        # self.extraPopup.options.autoUpdate.valueChanged.connect(self.autoUpdateStart)
+        ################################################
 
         self.extraPopup.imaging.loadButton.clicked.connect(self.loadFigure)
         self.extraPopup.imaging.addButton.clicked.connect(self.addFigure)
@@ -1343,6 +1400,8 @@ class MainWindow(QMainWindow):
     
     def clickedTab(self, index):
         self.logger.info('clickedTab - index: %s',index)
+        self.setCanvasLayout()
+        # print("clickedTab - index: %s",index)
         # End current auto update thread, to avoid thread issu, will start a new thread if/when tab is not empty 
         self.stopAutoUpdateThread.set()
         self.endThread(self.threadAutoUpdate)
@@ -1398,10 +1457,10 @@ class MainWindow(QMainWindow):
 
         #nRow-1 because nRow (nCol) is the number of row (col) and the following sets an index starting at 0
         #### Bashir changed to examine apply function to set the row and col
-        # self.wConf.histo_geo_row.setCurrentIndex(nRow-1)
-        # self.wConf.histo_geo_col.setCurrentIndex(nCol-1)
-        self.wConf.histo_geo_row.setValue(nRow)
-        self.wConf.histo_geo_col.setValue(nCol)
+        self.wConf.histo_geo_row.setCurrentIndex(nRow-1)
+        self.wConf.histo_geo_col.setCurrentIndex(nCol-1)
+        # self.wConf.histo_geo_row.setValue(nRow)
+        # self.wConf.histo_geo_col.setValue(nCol)
         ######################################################################
         #enable/disable some widgets depending if enlarge mode of not, flags set also in on_dblclick 
         self.wConf.histo_geo_add.setEnabled(not self.currentPlot.isEnlarged)
@@ -1433,6 +1492,7 @@ class MainWindow(QMainWindow):
         ##### Bashir changed to examine apply function to set the row and col
         nRow = int(self.wConf.histo_geo_row.currentText())
         nCol = int(self.wConf.histo_geo_col.currentText())
+        # print("setCanvasLayout - nRow: %s, nCol: %s", nRow, nCol)
         # nRow = self.wConf.histo_geo_row.value()
         # nCol = self.wConf.histo_geo_col.value()
         ######################################################################
@@ -2316,12 +2376,12 @@ class MainWindow(QMainWindow):
                     properties[index] = {"name": '', "x": None, "y": None, "scale": None}
                     pass
             ##### Bashir changed to examine the apply button
-            # tmp = {"row": int(self.wConf.histo_geo_row.currentText()), "col": int(self.wConf.histo_geo_col.currentText()), "geo": properties}
-            tmp = {
-                "row": self.wConf.histo_geo_row.value(),
-                "col": self.wConf.histo_geo_col.value(),
-                "geo": properties
-            }
+            tmp = {"row": int(self.wConf.histo_geo_row.currentText()), "col": int(self.wConf.histo_geo_col.currentText()), "geo": properties}
+            # tmp = {
+            #     "row": self.wConf.histo_geo_row.value(),
+            #     "col": self.wConf.histo_geo_col.value(),
+            #     "geo": properties
+            # }
             #######################################################################
 
             QMessageBox.about(self, "Saving...", "Window configuration saved!")
@@ -2343,10 +2403,10 @@ class MainWindow(QMainWindow):
             col = infoGeo["col"]
             # change index in combobox to the actual loaded values
             #### Bashir changed to examine the apply button
-            # index_row = self.wConf.histo_geo_row.findText(str(row), QtCore.Qt.MatchFixedString)
-            # index_col = self.wConf.histo_geo_col.findText(str(col), QtCore.Qt.MatchFixedString)
-            self.wConf.histo_geo_row.setValue(row)
-            self.wConf.histo_geo_col.setValue(col)
+            index_row = self.wConf.histo_geo_row.findText(str(row), QtCore.Qt.MatchFixedString)
+            index_col = self.wConf.histo_geo_col.findText(str(col), QtCore.Qt.MatchFixedString)
+            # self.wConf.histo_geo_row.setValue(row)
+            # self.wConf.histo_geo_col.setValue(col)
             index_row = row
             index_col = col
             #####################################################
@@ -2356,10 +2416,10 @@ class MainWindow(QMainWindow):
             notFound = []
             if index_row >= 0 and index_col >= 0:
                 #### Bashir changed to examine the apply button
-                # self.wConf.histo_geo_row.setCurrentIndex(index_row)
-                # self.wConf.histo_geo_col.setCurrentIndex(index_col)
-                self.wConf.histo_geo_row.setValue(index_row)
-                self.wConf.histo_geo_col.setValue(index_col)
+                self.wConf.histo_geo_row.setCurrentIndex(index_row)
+                self.wConf.histo_geo_col.setCurrentIndex(index_col)
+                # self.wConf.histo_geo_row.setValue(index_row)
+                # self.wConf.histo_geo_col.setValue(index_col)
                 #####################################################
                 self.setCanvasLayout()
                 for index, val_dict in infoGeo["geo"].items():
@@ -3395,8 +3455,8 @@ class MainWindow(QMainWindow):
             raise
 
         # (Re)start auto update once there is a spectrum
-        if self.stopAutoUpdateThread.is_set():
-            self.autoUpdateStart()
+        # if self.stopAutoUpdateThread.is_set(): # Bashir commented out
+        self.autoUpdateStart()
 
         # When create a new tab, signals are enabled once a spectrum is added 
         if not  self.wTab.countClickTab[self.wTab.currentIndex()]:
@@ -5855,10 +5915,10 @@ class MainWindow(QMainWindow):
     def indexToStartPosition(self, index):
         self.logger.info('indexToStartPosition')
         #### Bashir changed to examine the apply button
-        # row = int(self.wConf.histo_geo_row.currentText())
-        # col = int(self.wConf.histo_geo_col.currentText())
-        row = self.wConf.histo_geo_row.value()
-        col = self.wConf.histo_geo_col.value()
+        row = int(self.wConf.histo_geo_row.currentText())
+        col = int(self.wConf.histo_geo_col.currentText())
+        # row = self.wConf.histo_geo_row.value()
+        # col = self.wConf.histo_geo_col.value()
         ######################################################
 
         # if (DEBUG):
@@ -6072,9 +6132,17 @@ class MainWindow(QMainWindow):
     def autoUpdateStart(self):
         self.logger.info('autoUpdateStart')
         # Get interval from QSlider and update label
+        ###### Bashir changed to bring autoupdate to the front #####
+        """
         updateInterval = self.extraPopup.options.autoUpdateIntervals[self.extraPopup.options.autoUpdate.value()]
         updateIntervalUser = self.extraPopup.options.autoUpdateIntervalsUser[self.extraPopup.options.autoUpdate.value()]
         self.extraPopup.options.autoUpdateLabel.setText("Update every: {}".format(updateIntervalUser))
+        """
+        val_auto = self.wConf.autoUpdate2.value()
+        updateInterval = self.autoUpdateIntervals[val_auto]
+        updateIntervalUser = self.autoUpdateIntervalsUser[val_auto]
+        # self.wConf.autoUpdateLabel2.setText("Update every: {}".format(updateIntervalUser))
+        ######################################################################
         try:
             # If already a thread end it, and start a new 
             if self.threadAutoUpdate:
@@ -6094,7 +6162,7 @@ class MainWindow(QMainWindow):
         self.logger.info('autoUpdateThread')
         # Loop while stop event is false
         while not self.stopAutoUpdateThread.is_set():
-            # Keep loop running but skip update if skip event 
+            # Keep loop running but skip update if skip event  
             if self.skipAutoUpdateThread.is_set():
                 continue
             # Wait while stop event is false, if event true break loop

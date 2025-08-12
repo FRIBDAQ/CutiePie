@@ -55,7 +55,7 @@ class Tabs(QTabWidget):
         self.resetTabText()
         self.setCurrentIndex(index)
         self.selected_plot_index_bak.append(None)
-        self.layout.append([1,2])
+        self.layout.append([1,1])
         self.spectrum_dict[index] = {}
         self.zoomPlotInfo[index] = []
         self.countClickTab[index] = False
