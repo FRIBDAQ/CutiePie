@@ -24,7 +24,7 @@ class options(QDialog):
         self.debugMode = QCheckBox("Debug mode",self)
         self.debugMode.setToolTip("When checked, print debug info into ./debugCutiePie.log")  
 
-               
+        """ Bashir commented out the auto update in the main gate
         self.autoUpdate = QSlider(QtCore.Qt.Horizontal, self)        
         self.autoUpdate.setMinimum(0)
         self.autoUpdate.setMaximum(7)
@@ -37,14 +37,16 @@ class options(QDialog):
         self.autoUpdateInterval = self.autoUpdateIntervals[self.autoUpdate.value()]
         self.autoUpdateIntervalUser = self.autoUpdateIntervalsUser[self.autoUpdate.value()]
         self.autoUpdateLabel = QLabel("Update every: {}".format(self.autoUpdateIntervalUser))
+        """
 
         layout = QGridLayout()
         layout.addWidget(self.gateAnnotation, 1, 1, 1, 1)
         layout.addWidget(self.gateEditDisable, 2, 1, 1, 1)
         layout.addWidget(self.gateHide, 3, 1, 1, 1)
         layout.addWidget(self.debugMode, 4, 1, 1, 1)
-        layout.addWidget(self.autoUpdateLabel, 5, 1, 1, 1)
-        layout.addWidget(self.autoUpdate, 6, 1, 1, 1)
+        # Bashir commented out the auto update in the main gate
+        # layout.addWidget(self.autoUpdateLabel, 5, 1, 1, 1)
+        # layout.addWidget(self.autoUpdate, 6, 1, 1, 1)
         layout.setAlignment(Qt.AlignTop)
         pCheck.setLayout(layout)
 

@@ -131,9 +131,13 @@ t = None
 
 # 0) Class definition
 class MainWindow(QMainWindow):
+    ### Bashir added for auto-update signal
+    autoUpdateTriggered = pyqtSignal()
 
     def __init__(self, factory, fit_factory, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
+
+        self.autoUpdateTriggered.connect(self._updatePlotOnGui)
 
         # initialize debug logging 
         logging.basicConfig(datefmt='%d-%b-%y %H:%M:%S')        
@@ -179,6 +183,9 @@ class MainWindow(QMainWindow):
         self.stopAutoUpdateThread = threading.Event() 
         self.skipAutoUpdateThread = threading.Event() 
         self.threadAutoUpdate = False
+
+        # Bashir, make the first `addPlot()` call your starter
+        self.stopAutoUpdateThread.set()
 
         self.stopRestThread = threading.Event() 
         self.threadRest = False
@@ -291,6 +298,11 @@ class MainWindow(QMainWindow):
         # Bool set by extra options -> differentiate gates 
         # self.annotateGate = False
 
+        ### Bashir added for enlarged view
+        self._enlargeBusy = False
+        self._enlarged_cax = None   # (optional) track colorbar made in enlarged view
+
+
         #################
         # 2) Signals
         #################
@@ -300,8 +312,18 @@ class MainWindow(QMainWindow):
         self.connectConfig.ok.clicked.connect(self.okConnect)
         self.connectConfig.cancel.clicked.connect(self.closeConnect)
 
-        #### Bashir chenged
+        #### Bashir chenged ###################
         menu = QMenu(self.wConf.geometryButton)     # parent the menu to the button
+
+        # Geometry menu (same gold)
+        menu = QMenu(self.wConf.geometryButton)
+        menu.setStyleSheet("""
+            QMenu { background-color: #ffd700; color: black; }
+            QMenu::item { background-color: #ffd700; }
+            QMenu::item:selected { background-color: #e6c200; }
+        """)
+        menu.setFixedWidth(120)
+
         actSave = menu.addAction("Save Geometry")
         actSave.triggered.connect(self.saveGeo)
 
@@ -311,6 +333,7 @@ class MainWindow(QMainWindow):
         self.wConf.geometryButton.setMenu(menu)
         # self.wConf.saveButton.clicked.connect(self.saveGeo)
         # self.wConf.loadButton.clicked.connect(self.loadGeo)
+        ######################################################
 
         self.wConf.exitButton.clicked.connect(self.closeAll)
 
@@ -1169,140 +1192,157 @@ class MainWindow(QMainWindow):
     #called by on_press when not in ceate/edit gate mode
     def on_dblclick(self, idx):
         self.logger.info('on_dblclick - idx, self.wTab.currentIndex(): %s, %s' ,idx, self.wTab.currentIndex())
-        name = self.nameFromIndex(idx)
-        index = self.wConf.histo_list.findText(name)
-        self.wConf.histo_list.setCurrentIndex(index)
 
-        if self.currentPlot.isEnlarged == False: # entering enlarged mode
-            self.logger.debug('on_dblclick - isEnlarged TRUE')
-            if name == "empty" or index == -1:
-                self.logger.warning('on_dblclick - empty axes cannot enlarge')
-                return
-            self.removeRectangle()
+        #### Bashir added to gaurd against quick
+        if self._enlargeBusy:
+            return
+        self._enlargeBusy = True
+        self.skipAutoUpdateThread.set()
 
-            print("Entering expanded spectrum view...")
-            
-            #important that zoomPlotInfo is set only while in zoom mode (not None only here)
-            self.setEnlargedSpectrum(idx, name)
-            self.currentPlot.next_plot_index = self.currentPlot.selected_plot_index
-            print("self.currentPlot.next_plot_index",self.currentPlot.next_plot_index)
-            self.currentPlot.isEnlarged = True
-            # disabling adding histograms
-            self.wConf.histo_geo_add.setEnabled(False)
-            # disabling changing canvas layout
-            self.wConf.histo_geo_row.setEnabled(False)
-            self.wConf.histo_geo_col.setEnabled(False)
-            # enabling gate creation
-            self.wConf.createGate.setEnabled(True)
-            # plot corresponding histogram
-            self.wTab.selected_plot_index_bak[self.wTab.currentIndex()]= deepcopy(idx)
-            print("self.wTab.selected_plot_index_bak[self.wTab.currentIndex()]", self.wTab.selected_plot_index_bak[self.wTab.currentIndex()])
-            
-            # t1 = time.time()
-            ############### Bashir ##################################################
-            # Save the current axes objects
-            self.currentPlot._saved_axes = self.currentPlot.figure.axes.copy()
+        try:
+            name = self.nameFromIndex(idx)
+            index = self.wConf.histo_list.findText(name)
+            self.wConf.histo_list.setCurrentIndex(index)
 
-            # Hide all current axes
-            for ax in self.currentPlot._saved_axes:
-                ax.set_visible(False)
-            
-            dim = self.getSpectrumInfoREST("dim", index=idx)
-            if dim == 2:
-                spectrum_old = self.getSpectrumInfo("spectrum", index=idx)
-                self.old_cmap = spectrum_old.get_cmap()
-            ###########################################################################
+            if self.currentPlot.isEnlarged == False: # entering enlarged mode
+                self.logger.debug('on_dblclick - isEnlarged TRUE')
+                if name == "empty" or index == -1:
+                    self.logger.warning('on_dblclick - empty axes cannot enlarge')
+                    return
+                self.removeRectangle()
 
-            #setup single pad canvas
-            self.currentPlot.InitializeCanvas(1,1,False)
+                print("Entering expanded spectrum view...")
+                
+                #important that zoomPlotInfo is set only while in zoom mode (not None only here)
+                self.setEnlargedSpectrum(idx, name)
+                self.currentPlot.next_plot_index = self.currentPlot.selected_plot_index
+                print("self.currentPlot.next_plot_index",self.currentPlot.next_plot_index)
+                self.currentPlot.isEnlarged = True
+                # disabling adding histograms
+                self.wConf.histo_geo_add.setEnabled(False)
+                # disabling changing canvas layout
+                self.wConf.histo_geo_row.setEnabled(False)
+                self.wConf.histo_geo_col.setEnabled(False)
+                self.wConf.histo_geo_apply_btn.setEnabled(False)
+                self.wConf.geometryButton.setEnabled(False)
 
-            self.add(idx)
-            autosclae_status = self.currentPlot.histo_autoscale.isChecked()
-            self.updatePlot(autosclae_status)
-            # self.updatePlot()
-            # t2 = time.time()
-            # print("on_dblclick: time={:.2f}".format(t2-t1))
+                # enabling gate creation
+                self.wConf.createGate.setEnabled(True)
+                # plot corresponding histogram
+                self.wTab.selected_plot_index_bak[self.wTab.currentIndex()]= deepcopy(idx)
+                print("self.wTab.selected_plot_index_bak[self.wTab.currentIndex()]", self.wTab.selected_plot_index_bak[self.wTab.currentIndex()])
+                
+                # t1 = time.time()
+                ############### Bashir ##################################################
+                # Save the current axes objects
+                self.currentPlot._saved_axes = self.currentPlot.figure.axes.copy()
 
-            ########### Bashir: reuse color map
-            if dim == 2:
-                spectrum = self.getSpectrumInfo("spectrum", index=idx)
+                # Hide all current axes
+                for ax in self.currentPlot._saved_axes:
+                    ax.set_visible(False)
+                
+                dim = self.getSpectrumInfoREST("dim", index=idx)
+                if dim == 2:
+                    spectrum_old = self.getSpectrumInfo("spectrum", index=idx)
+                    self.old_cmap = spectrum_old.get_cmap()
+                ###########################################################################
 
-                if spectrum is not None:
-                    spectrum.set_cmap(self.old_cmap)
-                    ax = self.getSpectrumInfo("axis", index=idx)
-                    if ax:
-                        divider = make_axes_locatable(ax)
-                        cax = divider.append_axes("right", size="5%", pad=0.05)
-                        self.currentPlot.figure.colorbar(spectrum, cax=cax, orientation="vertical")
+                #setup single pad canvas
+                self.currentPlot.InitializeCanvas(1,1,False)
 
-                        self.currentPlot.figure.tight_layout(rect=[0, 0, 0.95, 1])
-                        self.currentPlot.canvas.draw_idle()
-            #############################################################################################
+                self.add(idx)
+                autosclae_status = self.currentPlot.histo_autoscale.isChecked()
+                self.updatePlot(autosclae_status)
+                # self.updatePlot()
+                # t2 = time.time()
+                # print("on_dblclick: time={:.2f}".format(t2-t1))
 
-        else:
-            self.logger.debug('on_dblclick - isEnlarged FALSE')
-            # enabling adding histograms
-            self.wConf.histo_geo_add.setEnabled(True)
-            # enabling changing canvas layout
-            self.wConf.histo_geo_row.setEnabled(True)
-            self.wConf.histo_geo_col.setEnabled(True)
+                ########### Bashir: reuse color map
+                if dim == 2:
+                    spectrum = self.getSpectrumInfo("spectrum", index=idx)
 
-            # disabling gate creation
-            self.wConf.createGate.setEnabled(False)
+                    if spectrum is not None:
+                        spectrum.set_cmap(self.old_cmap)
+                        ax = self.getSpectrumInfo("axis", index=idx)
+                        if ax:
+                            divider = make_axes_locatable(ax)
+                            cax = divider.append_axes("right", size="5%", pad=0.05)
+                            self.currentPlot.figure.colorbar(spectrum, cax=cax, orientation="vertical")
 
-            #important that zoomPlotInfo is set only while in zoom mode (None only here)
-            #tempIdxEnlargedSpectrum is used to draw back the dashed red rectangle, which pad was enlarged
-            tempIdxEnlargedSpectrum = self.getEnlargedSpectrum()[0]
-            self.setEnlargedSpectrum(None, None)
-            self.currentPlot.isEnlarged = False
+                            self.currentPlot.figure.tight_layout(rect=[0, 0, 0.95, 1])
+                            self.currentPlot.canvas.draw_idle()
+                #############################################################################################
 
-            canvasLayout = self.wTab.layout[self.wTab.currentIndex()]
-            self.logger.debug('on_dblclick - canvasLayout: %s',canvasLayout)
+            else:
+                self.logger.debug('on_dblclick - isEnlarged FALSE')
+                # enabling adding histograms
+                self.wConf.histo_geo_add.setEnabled(True)
+                # enabling changing canvas layout
+                self.wConf.histo_geo_row.setEnabled(True)
+                self.wConf.histo_geo_col.setEnabled(True)
+                self.wConf.histo_geo_apply_btn.setEnabled(True)
+                self.wConf.geometryButton.setEnabled(True)
 
-            ####################### Bashir ###################################################################
-            # t1 = time.time()
-            #draw back the original canvas
-            # self.currentPlot.InitializeCanvas(canvasLayout[0], canvasLayout[1], False)
 
-            # Clear the temporary enlarged plot
-            for ax in self.currentPlot.figure.axes:
-                self.currentPlot.figure.delaxes(ax)
+                # disabling gate creation
+                self.wConf.createGate.setEnabled(False)
 
-            # Restore the saved axes and make them visible again
-            for ax in self.currentPlot._saved_axes:
-                self.currentPlot.figure.add_axes(ax)  # This may be redundant but ensures they're in the figure
-                ax.set_visible(True)
+                #important that zoomPlotInfo is set only while in zoom mode (None only here)
+                #tempIdxEnlargedSpectrum is used to draw back the dashed red rectangle, which pad was enlarged
+                tempIdxEnlargedSpectrum = self.getEnlargedSpectrum()[0]
+                self.setEnlargedSpectrum(None, None)
+                self.currentPlot.isEnlarged = False
 
-            self.currentPlot._saved_axes = None  # Optional: clean up
-            # self.currentPlot.canvas.draw()
-            ##################################################################################################
+                canvasLayout = self.wTab.layout[self.wTab.currentIndex()]
+                self.logger.debug('on_dblclick - canvasLayout: %s',canvasLayout)
 
-            
-            for index, name in self.getGeo().items():
-                # if name is not None and name != "" and name != "empty":
-                if name is not None and name != "" and name != "empty" and index == idx:
-                    self.add(index)
-                    ax = self.getSpectrumInfo("axis", index=index)
-                    
-                    #reset the axis limits as it was before enlarge
-                    #dont need to specify if log scale, it is checked inside setAxisScale, if 2D histo in log its z axis is set too.
-                    dim = self.getSpectrumInfoREST("dim", index=index)
-                    if dim == 1:
-                        self.plotPlot(index)
-                        self.setAxisScale(ax, index, "x", "y")
-                    elif dim == 2:
-                        self.plotPlot(index, self.old_cmap)
-                        self.setSpectrumInfo(cmap=self.old_cmap, index=idx)
-                        self.setAxisScale(ax, index, "x", "y", "z")
-                    self.drawGate(index)
-            #drawing back the dashed red rectangle on the unenlarged spectrum
-            self.removeRectangle()
-            self.currentPlot.recDashed = self.createDashedRectangle(self.currentPlot.figure.axes[tempIdxEnlargedSpectrum])
-            #self.updatePlot() #replaced by the content of updatePlot in the above for loop (avoid looping twice)
-            # self.currentPlot.figure.tight_layout()
-            # self.drawAllGates()
-            self.currentPlot.canvas.draw_idle()
-            
+                ####################### Bashir ###################################################################
+                # t1 = time.time()
+                #draw back the original canvas
+                # self.currentPlot.InitializeCanvas(canvasLayout[0], canvasLayout[1], False)
+
+                # Clear the temporary enlarged plot
+                for ax in self.currentPlot.figure.axes:
+                    self.currentPlot.figure.delaxes(ax)
+
+                # Restore the saved axes and make them visible again
+                for ax in self.currentPlot._saved_axes:
+                    self.currentPlot.figure.add_axes(ax)  # This may be redundant but ensures they're in the figure
+                    ax.set_visible(True)
+
+                self.currentPlot._saved_axes = None  # Optional: clean up
+                # self.currentPlot.canvas.draw()
+                ##################################################################################################
+
+                
+                for index, name in self.getGeo().items():
+                    # if name is not None and name != "" and name != "empty":
+                    if name is not None and name != "" and name != "empty" and index == idx:
+                        self.add(index)
+                        ax = self.getSpectrumInfo("axis", index=index)
+                        
+                        #reset the axis limits as it was before enlarge
+                        #dont need to specify if log scale, it is checked inside setAxisScale, if 2D histo in log its z axis is set too.
+                        dim = self.getSpectrumInfoREST("dim", index=index)
+                        if dim == 1:
+                            self.plotPlot(index)
+                            self.setAxisScale(ax, index, "x", "y")
+                        elif dim == 2:
+                            self.plotPlot(index, self.old_cmap)
+                            self.setSpectrumInfo(cmap=self.old_cmap, index=idx)
+                            self.setAxisScale(ax, index, "x", "y", "z")
+                        self.drawGate(index)
+                #drawing back the dashed red rectangle on the unenlarged spectrum
+                self.removeRectangle()
+                self.currentPlot.recDashed = self.createDashedRectangle(self.currentPlot.figure.axes[tempIdxEnlargedSpectrum])
+                #self.updatePlot() #replaced by the content of updatePlot in the above for loop (avoid looping twice)
+                # self.currentPlot.figure.tight_layout()
+                # self.drawAllGates()
+                self.currentPlot.canvas.draw_idle()
+
+        finally:   
+            self.skipAutoUpdateThread.clear()
+            self._enlargeBusy = False 
 
             # t2 = time.time()
             # print("on_dblclick back: time={:.2f}".format(t2-t1))
@@ -1319,6 +1359,7 @@ class MainWindow(QMainWindow):
 
 
      #callback when right click on tab
+    """
     def tab_handle_right_click(self):
         self.logger.info('tab_handle_right_click')
         if self.currentPlot.zoomPress: return
@@ -1338,7 +1379,32 @@ class MainWindow(QMainWindow):
         menuPos = QtCore.QPoint(menuPos.x(), menuPos.y())
         # Shows menu at button position, need to calibrate with 0,0 position
         menu.exec_(menuPos)
+    """
 
+    #### Bashir added to delate/rename when clicking on the tab not the entire window
+    def tab_handle_right_click(self):
+        self.logger.info('tab_handle_right_click')
+        if getattr(self.currentPlot, "zoomPress", False):
+            return
+
+        tab_bar = self.wTab.tabBar()
+
+        # Figure out which tab is under the mouse
+        global_pos = QCursor.pos()
+        local_pos = tab_bar.mapFromGlobal(global_pos)
+        index = tab_bar.tabAt(local_pos)
+        if index < 0:
+            return  # not over any tab → do nothing
+
+        menu = QMenu(self)
+        actRename = menu.addAction("Rename")
+        actDelete = menu.addAction("Delete")
+
+        chosen = menu.exec_(global_pos)
+        if chosen == actRename:
+            self.renameTab(index)
+        elif chosen == actDelete:
+            self.closeTab(index)
 
     def closeTab(self, index):
         self.logger.info('closeTab')
@@ -1400,7 +1466,7 @@ class MainWindow(QMainWindow):
     
     def clickedTab(self, index):
         self.logger.info('clickedTab - index: %s',index)
-        self.setCanvasLayout()
+        # self.setCanvasLayout()
         # print("clickedTab - index: %s",index)
         # End current auto update thread, to avoid thread issu, will start a new thread if/when tab is not empty 
         self.stopAutoUpdateThread.set()
@@ -1446,6 +1512,55 @@ class MainWindow(QMainWindow):
             except:
                 self.logger.debug('clickedTab - exception occured', exc_info=True)
                 pass
+        
+    """
+    ##### Old click Tab ######
+    def clickedTab(self, index):
+        self.logger.info('clickedTab - index: %s',index)
+        # End current auto update thread, to avoid thread issu, will start a new thread if/when tab is not empty 
+        self.stopAutoUpdateThread.set()
+        self.endThread(self.threadAutoUpdate)
+
+        # For now, if change tab while working on gate, close any ongoing gate action
+        if self.currentPlot.toCreateGate or self.currentPlot.toEditGate or self.gatePopup.isVisible():
+            self.cancelGate()
+            return
+        if self.currentPlot.toCreateSumRegion or self.sumRegionPopup.isVisible():
+            self.cancelSumRegion()
+            return
+
+        # Abord zoom action if click a tab
+        if self.currentPlot.zoomPress:
+            self.currentPlot.canvas.toolbar.actions()[1].triggered.emit()
+            self.currentPlot.canvas.toolbar.actions()[1].setChecked(False)
+            self.currentPlot.customZoomButton.setDown(False)
+            self.currentPlot.zoomPress = False
+
+        self.wTab.setCurrentIndex(index)
+
+        # Check if create or switch/move existing tabs
+        # First if when new tab
+        if index == self.wTab.count()-1:
+            self.wTab.addTab(index)
+            self.currentPlot = self.wTab.wPlot[index]
+            self.tabGeoWidgetAndFlags(index)            
+        else:
+            try:
+                self.tabGeoWidgetAndFlags(index)
+                self.removeRectangle()
+                self.bindDynamicSignal()
+
+                # If tab not empty, (re)start auto update
+                for indexPlot, name in self.getGeo().items():
+                    if name:
+                        ax = self.getSpectrumInfo("axis", index=indexPlot)
+                        if ax is not None :
+                            self.autoUpdateStart()
+                            break
+            except:
+                self.logger.debug('clickedTab - exception occured', exc_info=True)
+                pass
+    """
 
 
     # Helper to set histo_geo widget and enable/disable buttons, when interact with tabs
@@ -1519,7 +1634,6 @@ class MainWindow(QMainWindow):
     def connectPopup(self):
         self.logger.info('callback connectPopup')
         self.connectConfig.show()
-        self.setCanvasLayout()
 
 
     #callback to close configuration popup
@@ -1697,6 +1811,8 @@ class MainWindow(QMainWindow):
         self.stopRestThread.clear()
         self.wConf.connectButton.setStyleSheet("background-color:#bcee68;")
         self.wConf.connectButton.setText("Connected")
+        ### Bashir added for canvas layout
+        self.setCanvasLayout()
 
         while not self.stopRestThread.is_set():
             # Wait while stop event is false, if event true break loop
@@ -3455,11 +3571,11 @@ class MainWindow(QMainWindow):
             raise
 
         # (Re)start auto update once there is a spectrum
-        # if self.stopAutoUpdateThread.is_set(): # Bashir commented out
-        self.autoUpdateStart()
+        if self.stopAutoUpdateThread.is_set():
+            self.autoUpdateStart()
 
-        # When create a new tab, signals are enabled once a spectrum is added 
-        if not  self.wTab.countClickTab[self.wTab.currentIndex()]:
+        # When create a new tab, signals are enabled once a spectrum is added
+        if not self.wTab.countClickTab[self.wTab.currentIndex()]:
             self.bindDynamicSignal()
 
 
@@ -3532,6 +3648,10 @@ class MainWindow(QMainWindow):
         self.currentPlot = currentPlot
 
 
+    ### Bashir added for auto-update signal
+    @pyqtSlot()
+    def _updatePlotOnGui(self):
+        self.updatePlot()
     #Callback for histo_geo_update button
     #also used in various functions
     #redraw plot spectrum, update axis scales, redraw gates
@@ -6164,12 +6284,15 @@ class MainWindow(QMainWindow):
         while not self.stopAutoUpdateThread.is_set():
             # Keep loop running but skip update if skip event  
             if self.skipAutoUpdateThread.is_set():
+                self.stopAutoUpdateThread.wait(0.05)  # Bashir, tiny sleep prevents CPU spin
                 continue
             # Wait while stop event is false, if event true break loop
             if self.stopAutoUpdateThread.wait(interval):
                 break
             try:
-                self.updatePlot()
+                ### Bashir changed to emit a signal to updae on GUI thread
+                self.autoUpdateTriggered.emit()
+                # self.updatePlot()
             except ValueError:
                 self.logger.debug('autoUpdateThread - ValueError exception', exc_info=True)
 
