@@ -1245,14 +1245,28 @@ class MainWindow(QMainWindow):
                 if dim == 2:
                     spectrum_old = self.getSpectrumInfo("spectrum", index=idx)
                     self.old_cmap = spectrum_old.get_cmap()
-                ###########################################################################
 
+                elif dim == 1:
+                    # Save current y-limits of the target axes to restore later (when autoscale is OFF)
+                    ax0 = self.getSpectrumInfo("axis", index=idx)
+                    if ax0 is not None:
+                        if not hasattr(self.currentPlot, "_saved_ylims"):
+                            self.currentPlot._saved_ylims = {}
+                        self.currentPlot._saved_ylims[idx] = ax0.get_ylim()
+                else:
+                    pass
+
+                ###########################################################################
                 #setup single pad canvas
                 self.currentPlot.InitializeCanvas(1,1,False)
+                autoscale_status = self.currentPlot.histo_autoscale.isChecked()
 
                 self.add(idx)
-                autosclae_status = self.currentPlot.histo_autoscale.isChecked()
-                self.updatePlot(autosclae_status)
+                self.updatePlot()
+                ax = self.getSpectrumInfo("axis", index=idx)
+                if dim == 1:
+                    if not autoscale_status and hasattr(self.currentPlot, "_saved_ylims") and idx in self.currentPlot._saved_ylims:
+                        ax.set_ylim(*self.currentPlot._saved_ylims[idx])   # <-- restore y only
                 # self.updatePlot()
                 # t2 = time.time()
                 # print("on_dblclick: time={:.2f}".format(t2-t1))
@@ -1264,7 +1278,6 @@ class MainWindow(QMainWindow):
                     if spectrum is not None:
                         # print("Reusing color map for enlarged spectrum...")
                         spectrum.set_cmap(self.old_cmap)
-                        ax = self.getSpectrumInfo("axis", index=idx)
                         if ax:
                             divider = make_axes_locatable(ax)
                             cax = divider.append_axes("right", size="5%", pad=0.05)
@@ -1328,8 +1341,12 @@ class MainWindow(QMainWindow):
                         dim = self.getSpectrumInfoREST("dim", index=index)
                         if dim == 1:
                             self.plotPlot(index)
-                            if autoscale_status:
-                                self.setAxisScale(ax, index, "x", "y")
+                            if not autoscale_status and hasattr(self.currentPlot, "_saved_ylims") and index in self.currentPlot._saved_ylims:
+                                ax.set_ylim(*self.currentPlot._saved_ylims[index])   # <-- restore y only
+                            else:
+                                if autoscale_status:
+                                    self.setAxisScale(ax, index, "x", "y")
+
                         elif dim == 2:
                             self.plotPlot(index, self.old_cmap)
                             self.setSpectrumInfo(cmap=self.old_cmap, index=idx)
@@ -3660,7 +3677,7 @@ class MainWindow(QMainWindow):
     #Callback for histo_geo_update button
     #also used in various functions
     #redraw plot spectrum, update axis scales, redraw gates
-    def updatePlot(self, autoscale=True):
+    def updatePlot(self):
         #### Bashir added to automatically enable autoscale when updating the plot
         auto_scale_status = self.currentPlot.histo_autoscale.isChecked()
         self.currentPlot.histo_autoscale.setChecked(auto_scale_status)
