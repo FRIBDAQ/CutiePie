@@ -1262,6 +1262,7 @@ class MainWindow(QMainWindow):
                     spectrum = self.getSpectrumInfo("spectrum", index=idx)
 
                     if spectrum is not None:
+                        # print("Reusing color map for enlarged spectrum...")
                         spectrum.set_cmap(self.old_cmap)
                         ax = self.getSpectrumInfo("axis", index=idx)
                         if ax:
@@ -1314,8 +1315,9 @@ class MainWindow(QMainWindow):
                 # self.currentPlot.canvas.draw()
                 ##################################################################################################
 
-                
+                autoscale_status = self.currentPlot.histo_autoscale.isChecked()
                 for index, name in self.getGeo().items():
+
                     # if name is not None and name != "" and name != "empty":
                     if name is not None and name != "" and name != "empty" and index == idx:
                         self.add(index)
@@ -1326,10 +1328,12 @@ class MainWindow(QMainWindow):
                         dim = self.getSpectrumInfoREST("dim", index=index)
                         if dim == 1:
                             self.plotPlot(index)
-                            self.setAxisScale(ax, index, "x", "y")
+                            if autoscale_status:
+                                self.setAxisScale(ax, index, "x", "y")
                         elif dim == 2:
                             self.plotPlot(index, self.old_cmap)
                             self.setSpectrumInfo(cmap=self.old_cmap, index=idx)
+                            # if autoscale_status:
                             self.setAxisScale(ax, index, "x", "y", "z")
                         self.drawGate(index)
                 #drawing back the dashed red rectangle on the unenlarged spectrum
@@ -2981,8 +2985,8 @@ class MainWindow(QMainWindow):
 
     #Used by customHome button, reset the axis limits to ReST definitions, for the specified plot at index or for all plots if index not provided
     def customHomeButtonCallback(self, index=None):
-        #### Bashir added to enable autoscale while zooming ####
-        self.currentPlot.histo_autoscale.setChecked(True)
+        #### Bashir added to enable autoscale at home ####
+        # self.currentPlot.histo_autoscale.setChecked(True)
         #########################################################
 
         self.logger.info('customHomeButtonCallback - index: %s', index)
@@ -3509,8 +3513,9 @@ class MainWindow(QMainWindow):
                 self.add(index)
 
                 #it turns out the autoscale is wanted in addPlot
+                ### Bashir removed hard autoscale while adding plot 
                 self.currentPlot.histo_autoscale.setChecked(True)
-                # self.autoScaleAxisBox(index)
+                self.autoScaleAxisBox(index)
 
                 ##### AutoScale Bashir ###################################
                 #search in the current view
@@ -3657,7 +3662,8 @@ class MainWindow(QMainWindow):
     #redraw plot spectrum, update axis scales, redraw gates
     def updatePlot(self, autoscale=True):
         #### Bashir added to automatically enable autoscale when updating the plot
-        self.currentPlot.histo_autoscale.setChecked(autoscale)
+        auto_scale_status = self.currentPlot.histo_autoscale.isChecked()
+        self.currentPlot.histo_autoscale.setChecked(auto_scale_status)
         ########################################
         self.logger.info('updatePlot')
 
@@ -3692,14 +3698,16 @@ class MainWindow(QMainWindow):
                 #reset the axis limits as it was before enlarge
                 #dont need to specify if log scale, it is checked inside setAxisScale, if 2D histo in log its z axis is set too.
                 dim = self.getSpectrumInfoREST("dim", index=0)
-                if dim == 1:
-                    self.setAxisScale(ax, 0, "x", "y")
-                elif dim == 2:
+                if auto_scale_status:
+                    if dim == 1:
+                        self.setAxisScale(ax, 0, "x", "y")
+                if dim == 2:
                     self.setAxisScale(ax, 0, "x", "y", "z")
+    
                 #######################################################
                     spectrum = self.getSpectrumInfo("spectrum", index=index)
 
-                    if spectrum is not None:
+                    if spectrum is not None and dim == 2:
                         # spectrum.set_cmap(self.old_cmap)
                         if ax:
                             divider = make_axes_locatable(ax)
@@ -3731,12 +3739,15 @@ class MainWindow(QMainWindow):
                     #reset the axis limits as it was before enlarge
                     #dont need to specify if log scale, it is checked inside setAxisScale, if 2D histo in log its z axis is set too.
                     dim = self.getSpectrumInfoREST("dim", index=index)
-                    if dim == 1:
-                        self.setAxisScale(ax, index, "x", "y")
-                    elif dim == 2:
-                        self.setAxisScale(ax, index, "x", "y", "z")
-                    else :
-                        continue
+                    #### Bashir commented out to avoid autoscale while updating
+                    if auto_scale_status:
+                        if dim == 1:
+                            self.setAxisScale(ax, index, "x", "y")
+                        elif dim == 2:
+                            self.setAxisScale(ax, index, "x", "y", "z")
+                        else:
+                            pass
+                    
                     #draw gate if there is one
                     self.drawGate(index)
 
