@@ -8,6 +8,7 @@ import matplotlib.cm as cm
 
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
+from PyQt5 import QtCore
 
 
 class Configuration(QGridLayout):
@@ -60,7 +61,10 @@ class Configuration(QGridLayout):
             self.exitButton.setFixedWidth(85)
 
             self.connectButton = QPushButton("Connect")
-            self.connectButton.setStyleSheet("background-color:#7ec0ee;")
+            # self.connectButton.setStyleSheet("background-color:#7ec0ee;")
+            #### Bashir changed the color to red
+            self.connectButton.setStyleSheet("background-color:rgb(252, 48, 3);")
+
             self.connectButton.setFixedWidth(85) 
 
             
@@ -68,14 +72,42 @@ class Configuration(QGridLayout):
 
             # self.darkModeButton.setCheckable(True)
             # self.darkModeButton.setChecked(False)  # start in light mode
+            ##############################################################
+            # SpinBoxes
+            ####### Bashir added
+            # self.histo_geo_row = QSpinBox()
+            # self.histo_geo_row.setRange(1, 9)
+            # self.histo_geo_row.setValue(1)
+            # self.histo_geo_row.setFixedWidth(45)
 
-            self.saveButton = QPushButton("Save Geometry")
-            self.saveButton.setStyleSheet("background-color:#ffd700;")
-            self.saveButton.setFixedWidth(100) 
+            # self.histo_geo_col = QSpinBox()
+            # self.histo_geo_col.setRange(1, 9)
+            # self.histo_geo_col.setValue(1)
+            # self.histo_geo_col.setFixedWidth(45)
 
-            self.loadButton = QPushButton("Load Geometry")
-            self.loadButton.setStyleSheet("background-color:#ffd700;")
-            self.loadButton.setFixedWidth(100) 
+            # Apply Button
+            self.histo_geo_apply_btn = QPushButton("Apply Geometry")
+            self.histo_geo_apply_btn.setFixedWidth(110)
+            # self.histo_geo_apply_btn.setStyleSheet("background-color:#bcee68;")
+            self.histo_geo_apply_btn.setStyleSheet("background-color:#ffd700;")
+
+            ##### Bashir changed ####################################################
+
+            self.geometryButton = QToolButton()
+            self.geometryButton.setText("More")
+            self.geometryButton.setStyleSheet("QToolButton { background-color:#ffd700; }")
+            self.geometryButton.setFixedWidth(50)
+            self.geometryButton.setPopupMode(QToolButton.InstantPopup)
+
+
+
+            # self.saveButton = QPushButton("Save Geometry")
+            # self.saveButton.setStyleSheet("background-color:#ffd700;")
+            # self.saveButton.setFixedWidth(100) 
+
+            # self.loadButton = QPushButton("Load Geometry")
+            # self.loadButton.setStyleSheet("background-color:#ffd700;")
+            # self.loadButton.setFixedWidth(100) 
 # -------- end of what was previously in MenuGUI -----------
 
 
@@ -93,30 +125,14 @@ class Configuration(QGridLayout):
             # self.histo_geo_label.setFixedWidth(63)
             
             self.histo_geo_row = QComboBox()
-            self.histo_geo_row.setFixedWidth(50)
+            self.histo_geo_row.setFixedWidth(40)
             self.histo_geo_col = QComboBox()
-            self.histo_geo_col.setFixedWidth(50)
-            ##############################################################
-            # SpinBoxes
-            ####### Bashir added
-            # self.histo_geo_row = QSpinBox()
-            # self.histo_geo_row.setRange(1, 9)
-            # self.histo_geo_row.setValue(1)
-            # self.histo_geo_row.setFixedWidth(45)
+            self.histo_geo_col.setFixedWidth(40)
 
-            # self.histo_geo_col = QSpinBox()
-            # self.histo_geo_col.setRange(1, 9)
-            # self.histo_geo_col.setValue(1)
-            # self.histo_geo_col.setFixedWidth(45)
-
-            # Apply Button
-            self.histo_geo_apply_btn = QPushButton("Apply Geometry")
-            self.histo_geo_apply_btn.setFixedWidth(100)
-            self.histo_geo_apply_btn.setStyleSheet("background-color:#bcee68;")
             ########################## Color map #####################################
 
             # Label
-            self.cmapLabel = QLabel("Colormap")
+            self.cmapLabel = QLabel("Colormap:")
             self.cmapLabel.setStyleSheet("font-weight: bold;")
 
 
@@ -155,7 +171,25 @@ class Configuration(QGridLayout):
             self.histo_geo_update = QPushButton("Update")
             self.histo_geo_update.setFixedWidth(85)
             self.histo_geo_update.setStyleSheet("background-color:#bcee68;")
-             
+
+            
+            #### Bashir added for auto update ####################
+            """
+            self.autoUpdate2 = QSlider(QtCore.Qt.Horizontal)        
+            self.autoUpdate2.setMinimum(0)
+            self.autoUpdate2.setMaximum(8)
+            self.autoUpdate2.setTickInterval(1)
+            self.autoUpdate2.setValue(0)
+            self.autoUpdateLabel2 = QLabel("Update every: {}")
+            """
+    
+            self.autoUpdate2 = QComboBox()
+            self.autoUpdate2.setFixedWidth(60)
+            # self.autoUpdateLabel2 = QLabel("Update every:")
+            # self.autoUpdateLabel2.setStyleSheet("font-weight: bold;")
+
+            ####################################################
+
             """ 
             self.button1D = QRadioButton("1D")
             # self.button1D.setFixedWidth(40)
@@ -229,13 +263,19 @@ class Configuration(QGridLayout):
             # geoLayout.addWidget(self.histo_geo_label)
             geoLayout.addWidget(self.histo_geo_apply_btn)
             #############################################
-            geoLayout.addWidget(self.loadButton)
-            geoLayout.addWidget(self.saveButton)
+            geoLayout.addWidget(self.geometryButton)
+
+            # geoLayout.addWidget(self.loadButton)
+            # geoLayout.addWidget(self.saveButton)
 
             spectrumLayout.addWidget(self.histo_list_label)
             spectrumLayout.addWidget(self.histo_list)
             spectrumLayout.addWidget(self.histo_geo_add)
             spectrumLayout.addWidget(self.histo_geo_update)
+            #### Bashir added for auto update ####################
+            # spectrumLayout.addWidget(self.autoUpdateLabel2)
+            spectrumLayout.addWidget(self.autoUpdate2)
+            #####################################################
             spectrumLayout.addWidget(self.cmapLabel)
             spectrumLayout.addWidget(self.cmapSelector)
             # spectrumLayout.addWidget(self.darkModeButton)
