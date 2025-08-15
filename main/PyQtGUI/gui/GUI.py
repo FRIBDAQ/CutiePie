@@ -4198,9 +4198,19 @@ class MainWindow(QMainWindow):
     def drawGate(self, index):
         self.logger.info('drawGate - index: %s',index)
         spectrumName = self.nameFromIndex(index)
+        ### Bashir added when metadata is not found (new geometry)
+        if not spectrumName:
+            self.logger.debug("drawGate: no name for index %s; skipping", index)
+            return
+        ####################################################################
         spectrumType = self.getSpectrumInfoREST("type", name=spectrumName)
         dim = self.getSpectrumInfoREST("dim", name=spectrumName)
         parameters = self.getSpectrumInfoREST("parameters", name=spectrumName)
+        #### Bashir added when metadata is not found (new geometry)
+        if not spectrumType or parameters is None:
+            self.logger.debug("drawGate: blank canvas/missing metadata for '%s'; skipping", spectrumName)
+            return
+        #################################################################################
         # parameters are used to identify the gates drawable for each spectrum, for gd the parameters list in gate and spectrum definitions are not directly comparable
         if spectrumType == "gd" :
             parametersFormat = []
@@ -4790,17 +4800,17 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self,
             "Gate Drawing and Editing Guide",
-            "🟩 Drawing a Gate:\n"
-            "- Select 'Create' to begin drawing.\n"
-            "- For 1D gates: Click two positions on the x-axis to define gate boundaries.\n"
-            "- For 2D gates: Click multiple points to define a polygon.\n"
-            "- Finish by closing the gate or clicking 'OK'.\n\n"
-            "✏️ Editing a Gate:\n"
-            "- Select 'Edit'.\n"
-            "- Choose a gate name from the dropdown list.\n"
-            "- Gate coordinates will appear in the editor.\n"
-            "- Single-click a gate point to move it.\n"
-            "- Double-click a gate line to move the entire gate.\n\n"
+            "<b>🟩 Drawing a Gate:</b><br>"
+            "- Select 'Create' to begin drawing.<br>"
+            "- For 1D gates: Click two positions on the x-axis to define gate boundaries.<br>"
+            "- For 2D gates: Click multiple points to define a polygon.<br>"
+            "- Finish by clicking 'OK'.<br><br>"
+            "<b>✏️ Editing a Gate:</b><br>"
+            "- Select 'Edit'.<br>"
+            "- Choose a gate name from the dropdown list.<br>"
+            "- Gate coordinates will appear in the editor.<br>"
+            "- Single-click a gate point to move it.<br>"
+            "- Double-click a gate line to move the entire gate."
         )
 
         #########################################################
