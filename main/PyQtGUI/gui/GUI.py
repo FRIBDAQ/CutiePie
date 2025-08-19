@@ -11,6 +11,9 @@ import numpy as np
 import logging, logging.handlers
 import CPyConverter as cpy
 
+## Bashir imports ###
+import signal, ctypes
+
 
 # import importlib
 # import io, pickle, traceback, sys, os, subprocess, ast, csv, gzip
@@ -1644,6 +1647,28 @@ class MainWindow(QMainWindow):
         """
         # ✅ mark geometry applied
         self.geometry_applied = True
+
+    
+    ####### Bashir added to exit gui once exited from SpecTcl
+    def tie_lifetime_to_parent():
+        try:
+            libc = ctypes.CDLL("libc.so.6")
+            PR_SET_PDEATHSIG = 1
+            libc.prctl(PR_SET_PDEATHSIG, signal.SIGHUP, 0, 0, 0)
+            signal.signal(signal.SIGHUP, lambda *_: os._exit(0))
+            if os.getppid() == 1:
+                sys.exit(0)
+        except Exception:
+            pass
+
+    # ---- ensure GUI dies when SpecTcl dies ----
+    tie_lifetime_to_parent()
+    ########################################################################
+    
+###############################################
+# 5) Connection to REST for gates
+###############################################
+
 
     ###############################################
     # 5) Connection to REST for gates
