@@ -1,4 +1,4 @@
-#!/usr/bin/env python3os
+#!/usr/bin/env python3
 # import modules and packages
 
 import sys, os, ast
@@ -11,9 +11,35 @@ import numpy as np
 import logging, logging.handlers
 import CPyConverter as cpy
 
-## Bashir imports ###
-import signal, ctypes
 
+## Bashir added to kill orphan process ###
+import signal, ctypes
+# LOG = os.path.join(os.path.dirname(__file__), "debugCutiePie1.log")
+# _fd = os.open(LOG, os.O_WRONLY|os.O_CREAT|os.O_APPEND, 0o644)
+
+# def _log(msg: str):
+#     os.write(_fd, (msg + "\n").encode())
+
+def tie_lifetime_to_parent():
+    try:
+        libc = ctypes.CDLL("libc.so.6")
+        libc.prctl(1, signal.SIGTERM, 0, 0, 0)   # PR_SET_PDEATHSIG=SIGTERM
+        # _log(f"armed PDEATHSIG; PID={os.getpid()} PPID={os.getppid()}")
+        # log + exit on delivery:
+        def _on_term(*_):
+            _log("parent died -> exiting")
+            os._exit(0)
+        signal.signal(signal.SIGTERM, _on_term)
+        # race: parent already gone?
+        if os.getppid() == 1:
+            # _log("already orphaned at arm -> exiting")
+            os._exit(0)
+    except Exception as e:
+        # _log(f"tie_lifetime_to_parent error: {e}")
+        pass
+
+tie_lifetime_to_parent()
+#######################################################################
 
 # import importlib
 # import io, pickle, traceback, sys, os, subprocess, ast, csv, gzip
