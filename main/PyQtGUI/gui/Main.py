@@ -190,7 +190,8 @@ fitfactory.register_builder('Pol1', fit_p1_creator.Pol1FitBuilder(), config_fit_
 fitfactory.register_builder('Pol2', fit_p2_creator.Pol2FitBuilder(), config_fit_p2)
 fitfactory.register_builder('G+Pol1', fit_gp1_creator.GPol1FitBuilder(), config_fit_gp1)
 fitfactory.register_builder('G+Pol2', fit_gp2_creator.GPol2FitBuilder(), config_fit_gp2)
-fitfactory.register_builder('Skeleton', fit_skel_creator.SkelFitBuilder(), config_fit_skel)
+fitfactory.register_builder('AlphaEMG2+bg', fit_skel_creator.SkelFitBuilder(), config_fit_skel)
+# fitfactory.register_builder('Skeleton', fit_skel_creator.SkelFitBuilder(), config_fit_skel)
 
 # ML Algorithm registration
 algofactory.register_builder('Skeleton', algo_skel_creator.SkelAlgoBuilder(), config_algo_skel)

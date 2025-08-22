@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3os
 # import modules and packages
 
 import sys, os, ast
@@ -11,35 +11,9 @@ import numpy as np
 import logging, logging.handlers
 import CPyConverter as cpy
 
-
-## Bashir added to kill orphan process ###
+## Bashir imports ###
 import signal, ctypes
-# LOG = os.path.join(os.path.dirname(__file__), "debugCutiePie1.log")
-# _fd = os.open(LOG, os.O_WRONLY|os.O_CREAT|os.O_APPEND, 0o644)
 
-# def _log(msg: str):
-#     os.write(_fd, (msg + "\n").encode())
-
-def tie_lifetime_to_parent():
-    try:
-        libc = ctypes.CDLL("libc.so.6")
-        libc.prctl(1, signal.SIGTERM, 0, 0, 0)   # PR_SET_PDEATHSIG=SIGTERM
-        # _log(f"armed PDEATHSIG; PID={os.getpid()} PPID={os.getppid()}")
-        # log + exit on delivery:
-        def _on_term(*_):
-            _log("parent died -> exiting")
-            os._exit(0)
-        signal.signal(signal.SIGTERM, _on_term)
-        # race: parent already gone?
-        if os.getppid() == 1:
-            # _log("already orphaned at arm -> exiting")
-            os._exit(0)
-    except Exception as e:
-        # _log(f"tie_lifetime_to_parent error: {e}")
-        pass
-
-tie_lifetime_to_parent()
-#######################################################################
 
 # import importlib
 # import io, pickle, traceback, sys, os, subprocess, ast, csv, gzip
@@ -1422,7 +1396,7 @@ class MainWindow(QMainWindow):
         tab = self.wTab.tabBar()
         tabRect = tab.rect()
 
-        sizeSubTab = QtCore.QPoint(int(tabRect.width()/self.wTab.count()), int(tabRect.height()/2))
+        sizeSubTab = QtCore.QPoint(tabRect.width()/self.wTab.count(), tabRect.height()/2)
         pos = QtCore.QPoint(sizeSubTab.x()*self.wTab.currentIndex(), sizeSubTab.y())
 
         menuPos = tab.mapToGlobal(pos)
@@ -5787,7 +5761,8 @@ class MainWindow(QMainWindow):
         minxREST = self.getSpectrumInfoREST("minx", index=index)
         maxxREST = self.getSpectrumInfoREST("maxx", index=index)
 
-        config = self.fit_factory._configs.get(fit_funct)
+        #### Bashir added {} ###
+        config = self.fit_factory._configs.get(fit_funct) or {}
         self.logger.debug('fit - config: %s',config)
 
         fit = self.fit_factory.create(fit_funct, **config)
@@ -5834,12 +5809,12 @@ class MainWindow(QMainWindow):
                     y = np.array(y)
 
                     fitResultsText = QTextEdit()
-                    if fit_funct == "Skeleton":
-                        fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
-                        self.setFitLineLabel(ax, fitln, fitResultsText, spectrumName)
-                    else:
-                        fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
-                        self.setFitLineLabel(ax, fitln, fitResultsText, spectrumName)
+                    # if fit_funct == "Skeleton":
+                        # fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
+                        # self.setFitLineLabel(ax, fitln, fitResultsText, spectrumName)
+                    # else:
+                    fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
+                    self.setFitLineLabel(ax, fitln, fitResultsText, spectrumName)
                 else:
                     QMessageBox.about(self, "Warning", "Sorry 2D fitting is not implemented yet")
             else:
