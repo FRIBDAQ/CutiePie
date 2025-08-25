@@ -5123,10 +5123,11 @@ class MainWindow(QMainWindow):
         for line in lines :
             line.set_marker(marker='o')
             line.set_color("green")
+        ''' # Bashir commented out
         for line in otherLines :
             line.set_marker(marker=None)
             line.set_color("red")
-
+        '''
         self.currentPlot.canvas.draw()
 
 
