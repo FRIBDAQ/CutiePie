@@ -11,6 +11,10 @@ import numpy as np
 import logging, logging.handlers
 import CPyConverter as cpy
 
+## Bashir imports ###
+import signal, ctypes
+import re
+
 
 ## Bashir added to kill orphan process ###
 import signal, ctypes
@@ -2587,8 +2591,10 @@ class MainWindow(QMainWindow):
             infoGeo = self.openGeo(fileName)
             if infoGeo is None:
                 return
-            row = infoGeo["row"]
-            col = infoGeo["col"]
+            
+            ### Bashir added -1
+            row = infoGeo["row"] - 1
+            col = infoGeo["col"] - 1
             # change index in combobox to the actual loaded values
             #### Bashir changed to examine the apply button
             index_row = self.wConf.histo_geo_row.findText(str(row), QtCore.Qt.MatchFixedString)
@@ -2630,8 +2636,8 @@ class MainWindow(QMainWindow):
                 self.currentPlot.selected_plot_index = None
                 self.currentPlot.next_plot_index = -1
 
-            self.addPlot()
-            self.updatePlot()
+            # self.addPlot()
+            # self.updatePlot()
             self.currentPlot.isLoaded = False
         except TypeError:
             self.logger.debug('loadGeo - TypeError exception', exc_info=True)
@@ -4847,6 +4853,7 @@ class MainWindow(QMainWindow):
     #The flag self.currentPlot.toCreateGate determines if by clicking one sets the gate points (in on_singleclick)
     def createGate(self):
         self.logger.info('createGate')
+        """
         ####### Bashir added a guidline for gate creation #######
         QMessageBox.information(
             self,
@@ -4863,13 +4870,14 @@ class MainWindow(QMainWindow):
             "- Single-click a gate point to move it.<br>"
             "- Double-click a gate line to move the entire gate."
         )
-
-        #########################################################
+        """
+        ######################################################
         # Pause auto update when edit gate
         self.skipAutoUpdateThread.set()
         #Default gate actions is gate creation
         self.gatePopup.gateActionCreate.setChecked(True)
-        self.gatePopup.preview.setEnabled(False)
+        ### Bashir commented out preview
+        # self.gatePopup.preview.setEnabled(False)
         #in otherOptions.py define a checkbox to have the possibility to disable gate edition
         if self.extraPopup.options.gateEditDisable.isChecked():
             self.gatePopup.gateActionEdit.setChecked(False)
@@ -4886,7 +4894,8 @@ class MainWindow(QMainWindow):
 
         self.gatePopup.gateNameList.setEditable(True)
         self.gatePopup.gateNameList.setInsertPolicy(QComboBox.NoInsert)
-        self.gatePopup.gateNameList.setCurrentText("None")
+        # self.gatePopup.gateNameList.setCurrentText("None")
+        self.gatePopup.gateNameList.setCurrentText("gate-001")
 
 
         if self.currentPlot.selected_plot_index is None:
@@ -4921,9 +4930,50 @@ class MainWindow(QMainWindow):
             self.sidGateTypeListChanged = self.gatePopup.listGateType.currentIndexChanged.connect(self.gateTypeListChanged)
 
             self.gatePopup.gateSpectrumIndex = self.currentPlot.selected_plot_index
+
+            #### Bashir added to see gate names while creating
+            self._populateGateNameListFromAxis(self.gatePopup.gateSpectrumIndex)
+            self.gatePopup.gateNameList.setCurrentText(self._nextGateName())
+            #######################################################################
+
+
             self.gatePopup.show()
 
 
+    ##### Bashir added to go automatically to the next gate name
+
+    def _populateGateNameListFromAxis(self, spec_index):
+        ax = self.getSpectrumInfo("axis", index=spec_index)
+        dim = self.getSpectrumInfoREST("dim", index=spec_index)
+        cb = self.gatePopup.gateNameList
+        cb.clear()
+        if ax is None or dim is None:
+            return
+        seen = set()
+        for child in ax.get_children():
+            if isinstance(child, matplotlib.lines.Line2D):
+                label = child.get_label()
+                if "_-_" not in label:
+                    continue
+                parts = label.split("_-_")
+                if dim == 1 and parts[0] == "gate" and parts[2] == "0":
+                    if parts[1] not in seen:
+                        cb.addItem(parts[1]); seen.add(parts[1])
+                elif dim == 2 and parts[0] == "gate":
+                    if parts[1] not in seen:
+                        cb.addItem(parts[1]); seen.add(parts[1])
+
+    def _nextGateName(self):
+        rx = re.compile(r"^gate-(\d+)$")
+        mx = 0
+        cb = self.gatePopup.gateNameList
+        for i in range(cb.count()):
+            m = rx.match(cb.itemText(i))
+            if m:
+                mx = max(mx, int(m.group(1)))
+        return f"gate-{mx+1:03d}"
+
+##########################################################################
     #Draw a preview of the gate in case modified by editing the text gatePopup.regionPoint
     def onGatePopupPreview(self):
         self.logger.info('onGatePopupPreview')
@@ -4994,7 +5044,8 @@ class MainWindow(QMainWindow):
         self.logger.info('editGate')
 
         self.gatePopup.gateActionCreate.setChecked(False)
-        self.gatePopup.preview.setEnabled(True)
+        #### Bashir commented out preview
+        # self.gatePopup.preview.setEnabled(True)
 
         try:
             if hasattr(self, 'sidGateTypeListChanged') :
@@ -5004,7 +5055,8 @@ class MainWindow(QMainWindow):
             pass
 
         self.sid = self.wTab.wPlot[self.wTab.currentIndex()].canvas.mpl_connect('pick_event', self.clickOnGateLine)
-        self.gatePopupPreview = self.gatePopup.preview.clicked.connect(self.onGatePopupPreview)
+        ### Bashir commented out preview
+        # self.gatePopupPreview = self.gatePopup.preview.clicked.connect(self.onGatePopupPreview)
 
         # Hotkeys, insert and delete gate point (2d)
         # self.sidOnKeyPressEditGate = self.wTab.wPlot[self.wTab.currentIndex()].canvas.mpl_connect('key_press_event', self.onKeyPressEditGate)
@@ -5055,7 +5107,8 @@ class MainWindow(QMainWindow):
     def gateTypeListChanged(self):
         self.logger.info('gateTypeListChanged')
         self.gatePopup.gateNameList.clear()
-        self.gatePopup.gateNameList.setCurrentText("None")
+        # self.gatePopup.gateNameList.setCurrentText("None")
+        self.gatePopup.gateNameList.setCurrentText("gate-001")
         for line in self.gatePopup.listRegionLine:
             line.remove()
         self.gatePopup.listRegionLine.clear()
@@ -5099,10 +5152,11 @@ class MainWindow(QMainWindow):
         for line in lines :
             line.set_marker(marker='o')
             line.set_color("green")
+        ''' # Bashir commented out
         for line in otherLines :
             line.set_marker(marker=None)
             line.set_color("red")
-
+        '''
         self.currentPlot.canvas.draw()
 
 
@@ -5787,7 +5841,8 @@ class MainWindow(QMainWindow):
         minxREST = self.getSpectrumInfoREST("minx", index=index)
         maxxREST = self.getSpectrumInfoREST("maxx", index=index)
 
-        config = self.fit_factory._configs.get(fit_funct)
+        #### Bashir added {} ###
+        config = self.fit_factory._configs.get(fit_funct) or {}
         self.logger.debug('fit - config: %s',config)
 
         fit = self.fit_factory.create(fit_funct, **config)
@@ -5834,12 +5889,12 @@ class MainWindow(QMainWindow):
                     y = np.array(y)
 
                     fitResultsText = QTextEdit()
-                    if fit_funct == "Skeleton":
-                        fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
-                        self.setFitLineLabel(ax, fitln, fitResultsText, spectrumName)
-                    else:
-                        fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
-                        self.setFitLineLabel(ax, fitln, fitResultsText, spectrumName)
+                    # if fit_funct == "Skeleton":
+                        # fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
+                        # self.setFitLineLabel(ax, fitln, fitResultsText, spectrumName)
+                    # else:
+                    fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
+                    self.setFitLineLabel(ax, fitln, fitResultsText, spectrumName)
                 else:
                     QMessageBox.about(self, "Warning", "Sorry 2D fitting is not implemented yet")
             else:
