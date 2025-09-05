@@ -1264,9 +1264,11 @@ class MainWindow(QMainWindow):
                 #setup single pad canvas
                 self.currentPlot.InitializeCanvas(1,1,False)
                 autoscale_status = self.currentPlot.histo_autoscale.isChecked()
-
                 self.add(idx)
                 self.updatePlot()
+                
+                ###################################################################
+
                 ax = self.getSpectrumInfo("axis", index=idx)
                 if dim == 1:
                     if not autoscale_status and hasattr(self.currentPlot, "_saved_ylims") and idx in self.currentPlot._saved_ylims:
@@ -5851,13 +5853,30 @@ class MainWindow(QMainWindow):
                     xmin, xmax = self.axisLimitsForFit(ax)
 
                     # create new tmp list with subrange for fitting
-                    for i in range(len(xtmp)):
+                    for i in range(1, len(xtmp)):
                         if (xtmp[i]>xmin and xtmp[i]<=xmax):
                             # xtmp and ytmp offset by one bin compared to data because of ytmp obtained with tolist(), correct x:
                             x.append(xtmp[i-1]+(xtmp[i]-xtmp[i-1])/2)
                             y.append(ytmp[i])
                     x = np.array(x)
                     y = np.array(y)
+
+                    # ---- BASHIR: append bin width + weighting for SkelFit/EMG1 only ----
+                    if fit_funct in ("Skeleton", "SkelFit", "AlphaEMG1", "AlphaEMG2", "AlphaEMG3"):
+                        # Prefer exact bin width from metadata; fall back to edges 'xtmp'
+                        try:
+                            bw = float(maxxREST - minxREST) / float(binx)
+                            if not np.isfinite(bw) or bw <= 0:
+                                raise ValueError
+                        except Exception:
+                            # xtmp are bin edges (len ~ binx+1); robust fallback
+                            bw = float(np.median(np.diff(xtmp))) if len(xtmp) > 1 else 1.0
+
+                        wmode = 2  # 0=none, 1=Poisson(data), 2=Poisson(model IRLS)
+
+                        fitpar = fitpar + [bw, int(wmode)]
+                        self.logger.debug('fit - appended bw=%.6g, wmode=%d', bw, wmode)
+                    # -------------------------------------------------------------------
 
                     fitResultsText = QTextEdit()
                     # if fit_funct == "Skeleton":

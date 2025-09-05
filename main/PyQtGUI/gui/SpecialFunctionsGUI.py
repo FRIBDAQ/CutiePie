@@ -12,6 +12,7 @@ from Functions1DGUI import Fncts1D # popup peak finder window
 from Functions2DGUI import Fncts2D # popup clustering and overlaying an image window
 from otherOptions import options # popup clustering and overlaying an image window
 
+
 class SpecialFunctions(QWidget):
     def __init__(self, *args, **kwargs):
             super(SpecialFunctions, self).__init__(*args, **kwargs)
@@ -43,8 +44,50 @@ class SpecialFunctions(QWidget):
         fitBox = QGroupBox("Fitting Functions")
         
         self.fit_label = QLabel("Fitting Functions 1D")
-        self.fit_label.setToolTip("Gauss\np0*exp(-(x-p1)^2/(2*p2^2))\n\nExpo\np0+p1*exp(x*p2)\n\nPol1\np0+p1*x\n\nPol2\np0+p1*x+p2*x^2\n\nG+Pol1\np5*p0*exp(-(x-p1)^2/(2*p2^2))+(1-p5)*(p3+p4*x)\n\nG+Pol2\np6*p0*exp(-(x-p1)^2/(2*p2^2))+(1-p6)*(p3+p4*x+p5*x^2)\n\nSkeleton\nUser-defined function (needs implementation)")
+        # self.fit_label.setToolTip("Gauss\np0*exp(-(x-p1)^2/(2*p2^2))\n\nExpo\np0+p1*exp(x*p2)\n\nPol1\np0+p1*x\n\nPol2\np0+p1*x+p2*x^2\n\nG+Pol1\np5*p0*exp(-(x-p1)^2/(2*p2^2))+(1-p5)*(p3+p4*x)\n\nG+Pol2\np6*p0*exp(-(x-p1)^2/(2*p2^2))+(1-p6)*(p3+p4*x+p5*x^2)\n\nSkeleton\nUser-defined function (needs implementation)")
+        self.fit_label.setToolTip(
+        """Gauss
+        p0*exp(-(x-p1)^2/(2*p2^2))
+
+        Expo
+        p0+p1*exp(x*p2)
+
+        Pol1
+        p0+p1*x
+
+        Pol2
+        p0+p1*x+p2*x^2
+
+        G+Pol1
+        p5*p0*exp(-(x-p1)^2/(2*p2^2)) + (1-p5)*(p3+p4*x)
+
+        G+Pol2
+        p6*p0*exp(-(x-p1)^2/(2*p2^2)) + (1-p6)*(p3+p4*x+p5*x^2)
+
+        AlphaEMG1 (single peak, single tail)
+        Model: Exponentially-Modified Gaussian (EMG) integrated over bin width (counts/bin).
+        Seeds: p0=A, p1=mu, p2=sigma, p3=tau.  (p4..p7 ignored)
+        Extras (appended by GUI): bw (bin width), wmode.
+        wmode: 0=unweighted, 1=Poisson(data), 2=Poisson(model, IRLS)
+
+        AlphaEMG2 (two peaks)
+        Model: Sum of two AlphaEMG1 peaks (same bin integration).
+        Seeds: p0=A1, p1=mu1, p2=sig1, p3=tau11,  p4=A2, p5=mu2, p6=sig2, p7=tau12
+        Notes: mu2 = mu1 + dmu with a minimum separation to avoid merging peaks.
+            (tau12 can be linked to tau11 via config)
+        
+        AlphaEMG3 (three peaks)
+        Model: Sum of three AlphaEMG1 peaks (with bin integration).
+        Seeds: p0..p3 → peak1, p4..p7 → peak2; peak3 is auto-guessed unless provided
+        via extended seeds (p8..p11 = A3,mu3,sig3,tau13). Same separation rule.
+        """
+        )
+
         self.fit_list = QComboBox()
+        #### Bashir added for alpha spectra ########################
+        # self.fit_list.addItem("AlphaEMG1")
+        # self.fit_list.addItem("AlphaEMG2")
+        ############################################################
         self.fit_button = QPushButton("Fit", self)
         self.fit_button.setStyleSheet("background-color:#bcee68;")
         self.fit_range_label = QLabel("Fitting Range")
