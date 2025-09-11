@@ -39,8 +39,10 @@ class MenuGate(QWidget):
         self.gateNameList = QComboBox()
         self.gateNameList.setFixedWidth(180) 
         # self.gateName = QLineEdit()
-        # self.gateName.setFixedWidth(180) 
-        self.gateNameList.setCurrentText('None')
+        # self.gateName.setFixedWidth(180)
+        ### Bashir changed the gate name
+        # self.gateNameList.setCurrentText('None')
+        self.gateNameList.setCurrentText('gate-001')
 
         self.gateTypeLabel = QLabel()
         self.gateTypeLabel.setText('Type: ')
@@ -52,11 +54,14 @@ class MenuGate(QWidget):
         self.regionPoint.setReadOnly(True)
 
         self.ok = QPushButton("Ok", self)       
-        self.cancel = QPushButton("Cancel", self)         
-        self.preview = QPushButton("Preview", self)      
-        # self.preview.setStyleSheet("background-color:#ffc7fd;")   
-        self.preview.setEnabled(False)
-
+        self.cancel = QPushButton("Cancel", self)
+        ## Bashir added
+        self.cancel.clicked.connect(self.close)   # QWidget.close()         
+        ################
+        ### Bashir commented out preview
+        # self.preview = QPushButton("Preview", self)      
+        # self.preview.setEnabled(False)
+        ###################################################
         # Holds previous points [x,y] for drawing 2d gate 
         self.prevPoint = []   
         # Temporary holds gate lines - to control edition with on_singleclick and on_dblclick (reset once gate is pushed to ReST)
@@ -82,7 +87,8 @@ class MenuGate(QWidget):
         layout.addWidget(self.regionPoint, 4, 1, 1, 4)           
 
         self.lay = QHBoxLayout()
-        self.lay.addWidget(self.preview)            
+        ### Bashir commented out preview
+        # self.lay.addWidget(self.preview)            
         self.lay.addWidget(self.ok)
         self.lay.addWidget(self.cancel)
         layout.addLayout(self.lay, 5, 1, 1, 4)    
@@ -108,7 +114,9 @@ class MenuGate(QWidget):
         self.gateSpectrumIndex = 0
         self.gateEditOption = None
         self.gateNameList.clear()
-        self.gateNameList.setCurrentText('None')
+        ### Bashir changed the gate name
+        self.gateNameList.setCurrentText('gate-001')
+        # self.gateNameList.setCurrentText('None')
         self.regionPoint.setReadOnly(True)
 
 
