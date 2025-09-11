@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3os
 # import modules and packages
 
 import sys, os, ast
@@ -11,35 +11,10 @@ import numpy as np
 import logging, logging.handlers
 import CPyConverter as cpy
 
-
-## Bashir added to kill orphan process ###
+## Bashir imports ###
 import signal, ctypes
-# LOG = os.path.join(os.path.dirname(__file__), "debugCutiePie1.log")
-# _fd = os.open(LOG, os.O_WRONLY|os.O_CREAT|os.O_APPEND, 0o644)
+import re
 
-# def _log(msg: str):
-#     os.write(_fd, (msg + "\n").encode())
-
-def tie_lifetime_to_parent():
-    try:
-        libc = ctypes.CDLL("libc.so.6")
-        libc.prctl(1, signal.SIGTERM, 0, 0, 0)   # PR_SET_PDEATHSIG=SIGTERM
-        # _log(f"armed PDEATHSIG; PID={os.getpid()} PPID={os.getppid()}")
-        # log + exit on delivery:
-        def _on_term(*_):
-            _log("parent died -> exiting")
-            os._exit(0)
-        signal.signal(signal.SIGTERM, _on_term)
-        # race: parent already gone?
-        if os.getppid() == 1:
-            # _log("already orphaned at arm -> exiting")
-            os._exit(0)
-    except Exception as e:
-        # _log(f"tie_lifetime_to_parent error: {e}")
-        pass
-
-tie_lifetime_to_parent()
-#######################################################################
 
 # import importlib
 # import io, pickle, traceback, sys, os, subprocess, ast, csv, gzip
@@ -1289,9 +1264,11 @@ class MainWindow(QMainWindow):
                 #setup single pad canvas
                 self.currentPlot.InitializeCanvas(1,1,False)
                 autoscale_status = self.currentPlot.histo_autoscale.isChecked()
-
                 self.add(idx)
                 self.updatePlot()
+                
+                ###################################################################
+
                 ax = self.getSpectrumInfo("axis", index=idx)
                 if dim == 1:
                     if not autoscale_status and hasattr(self.currentPlot, "_saved_ylims") and idx in self.currentPlot._saved_ylims:
@@ -2375,14 +2352,25 @@ class MainWindow(QMainWindow):
             self.logger.debug('connectShMem - host: %s -- user: %s -- RESTPort: %s -- MirrorPort: %s', hostname, user, port, mirror)
 
             # configuration of the REST plugin
-            self.rest = PyREST(self.logger,hostname,port)
+            ###### Bashir changed here to allow reconfigure of existing client
+            # reuse existing client if present; otherwise create
+            if getattr(self, 'rest', None):
+                try:
+                    self.rest.reconfigure(hostname, port)
+                except Exception:
+                    self.rest = PyREST(self.logger, hostname, port)
+            else:
+                self.rest = PyREST(self.logger, hostname, port)
+
+            # self.rest = PyREST(self.logger,hostname,port)
+            ####################################################################
             self.wConf.connectButton.setStyleSheet("background-color:rgb(252, 48, 3);")
             self.wConf.connectButton.setText("Disconnected")
             # check if thread already exists, if yes reset, and set traces
-            self.stopRestThread.set()
-            self.endThread(self.threadRest)
-            self.threadRest = threading.Thread(target=self.restThread, args=(6,))
-            self.threadRest.start()
+            # self.stopRestThread.set()
+            # self.endThread(self.threadRest)
+            # self.threadRest = threading.Thread(target=self.restThread, args=(6,))
+            # self.threadRest.start()
 
             # way to stop connectShMem, url checks are done on trace thread but if find issue it wont be communicated here
             if self.rest.checkSpecTclREST() == False:
@@ -2390,6 +2378,10 @@ class MainWindow(QMainWindow):
                 return
             else:
                 self.logger.debug("connectShMem - could make REST request of server")
+                self.stopRestThread.set()
+                self.endThread(self.threadRest)
+                self.threadRest = threading.Thread(target=self.restThread, args=(6,))
+                self.threadRest.start()
             timer1 = QElapsedTimer()
             timer1.start()
 
@@ -2587,8 +2579,10 @@ class MainWindow(QMainWindow):
             infoGeo = self.openGeo(fileName)
             if infoGeo is None:
                 return
-            row = infoGeo["row"]
-            col = infoGeo["col"]
+            
+            ### Bashir added -1
+            row = infoGeo["row"] - 1
+            col = infoGeo["col"] - 1
             # change index in combobox to the actual loaded values
             #### Bashir changed to examine the apply button
             index_row = self.wConf.histo_geo_row.findText(str(row), QtCore.Qt.MatchFixedString)
@@ -2630,8 +2624,8 @@ class MainWindow(QMainWindow):
                 self.currentPlot.selected_plot_index = None
                 self.currentPlot.next_plot_index = -1
 
-            self.addPlot()
-            self.updatePlot()
+            # self.addPlot()
+            # self.updatePlot()
             self.currentPlot.isLoaded = False
         except TypeError:
             self.logger.debug('loadGeo - TypeError exception', exc_info=True)
@@ -4847,6 +4841,7 @@ class MainWindow(QMainWindow):
     #The flag self.currentPlot.toCreateGate determines if by clicking one sets the gate points (in on_singleclick)
     def createGate(self):
         self.logger.info('createGate')
+        """
         ####### Bashir added a guidline for gate creation #######
         QMessageBox.information(
             self,
@@ -4863,13 +4858,14 @@ class MainWindow(QMainWindow):
             "- Single-click a gate point to move it.<br>"
             "- Double-click a gate line to move the entire gate."
         )
-
-        #########################################################
+        """
+        ######################################################
         # Pause auto update when edit gate
         self.skipAutoUpdateThread.set()
         #Default gate actions is gate creation
         self.gatePopup.gateActionCreate.setChecked(True)
-        self.gatePopup.preview.setEnabled(False)
+        ### Bashir commented out preview
+        # self.gatePopup.preview.setEnabled(False)
         #in otherOptions.py define a checkbox to have the possibility to disable gate edition
         if self.extraPopup.options.gateEditDisable.isChecked():
             self.gatePopup.gateActionEdit.setChecked(False)
@@ -4886,7 +4882,8 @@ class MainWindow(QMainWindow):
 
         self.gatePopup.gateNameList.setEditable(True)
         self.gatePopup.gateNameList.setInsertPolicy(QComboBox.NoInsert)
-        self.gatePopup.gateNameList.setCurrentText("None")
+        # self.gatePopup.gateNameList.setCurrentText("None")
+        self.gatePopup.gateNameList.setCurrentText("gate-001")
 
 
         if self.currentPlot.selected_plot_index is None:
@@ -4921,9 +4918,50 @@ class MainWindow(QMainWindow):
             self.sidGateTypeListChanged = self.gatePopup.listGateType.currentIndexChanged.connect(self.gateTypeListChanged)
 
             self.gatePopup.gateSpectrumIndex = self.currentPlot.selected_plot_index
+
+            #### Bashir added to see gate names while creating
+            self._populateGateNameListFromAxis(self.gatePopup.gateSpectrumIndex)
+            self.gatePopup.gateNameList.setCurrentText(self._nextGateName())
+            #######################################################################
+
+
             self.gatePopup.show()
 
 
+    ##### Bashir added to go automatically to the next gate name
+
+    def _populateGateNameListFromAxis(self, spec_index):
+        ax = self.getSpectrumInfo("axis", index=spec_index)
+        dim = self.getSpectrumInfoREST("dim", index=spec_index)
+        cb = self.gatePopup.gateNameList
+        cb.clear()
+        if ax is None or dim is None:
+            return
+        seen = set()
+        for child in ax.get_children():
+            if isinstance(child, matplotlib.lines.Line2D):
+                label = child.get_label()
+                if "_-_" not in label:
+                    continue
+                parts = label.split("_-_")
+                if dim == 1 and parts[0] == "gate" and parts[2] == "0":
+                    if parts[1] not in seen:
+                        cb.addItem(parts[1]); seen.add(parts[1])
+                elif dim == 2 and parts[0] == "gate":
+                    if parts[1] not in seen:
+                        cb.addItem(parts[1]); seen.add(parts[1])
+
+    def _nextGateName(self):
+        rx = re.compile(r"^gate-(\d+)$")
+        mx = 0
+        cb = self.gatePopup.gateNameList
+        for i in range(cb.count()):
+            m = rx.match(cb.itemText(i))
+            if m:
+                mx = max(mx, int(m.group(1)))
+        return f"gate-{mx+1:03d}"
+
+##########################################################################
     #Draw a preview of the gate in case modified by editing the text gatePopup.regionPoint
     def onGatePopupPreview(self):
         self.logger.info('onGatePopupPreview')
@@ -4994,7 +5032,8 @@ class MainWindow(QMainWindow):
         self.logger.info('editGate')
 
         self.gatePopup.gateActionCreate.setChecked(False)
-        self.gatePopup.preview.setEnabled(True)
+        #### Bashir commented out preview
+        # self.gatePopup.preview.setEnabled(True)
 
         try:
             if hasattr(self, 'sidGateTypeListChanged') :
@@ -5004,7 +5043,8 @@ class MainWindow(QMainWindow):
             pass
 
         self.sid = self.wTab.wPlot[self.wTab.currentIndex()].canvas.mpl_connect('pick_event', self.clickOnGateLine)
-        self.gatePopupPreview = self.gatePopup.preview.clicked.connect(self.onGatePopupPreview)
+        ### Bashir commented out preview
+        # self.gatePopupPreview = self.gatePopup.preview.clicked.connect(self.onGatePopupPreview)
 
         # Hotkeys, insert and delete gate point (2d)
         # self.sidOnKeyPressEditGate = self.wTab.wPlot[self.wTab.currentIndex()].canvas.mpl_connect('key_press_event', self.onKeyPressEditGate)
@@ -5055,7 +5095,8 @@ class MainWindow(QMainWindow):
     def gateTypeListChanged(self):
         self.logger.info('gateTypeListChanged')
         self.gatePopup.gateNameList.clear()
-        self.gatePopup.gateNameList.setCurrentText("None")
+        # self.gatePopup.gateNameList.setCurrentText("None")
+        self.gatePopup.gateNameList.setCurrentText("gate-001")
         for line in self.gatePopup.listRegionLine:
             line.remove()
         self.gatePopup.listRegionLine.clear()
@@ -5099,10 +5140,11 @@ class MainWindow(QMainWindow):
         for line in lines :
             line.set_marker(marker='o')
             line.set_color("green")
+        ''' # Bashir commented out
         for line in otherLines :
             line.set_marker(marker=None)
             line.set_color("red")
-
+        '''
         self.currentPlot.canvas.draw()
 
 
@@ -5787,7 +5829,8 @@ class MainWindow(QMainWindow):
         minxREST = self.getSpectrumInfoREST("minx", index=index)
         maxxREST = self.getSpectrumInfoREST("maxx", index=index)
 
-        config = self.fit_factory._configs.get(fit_funct)
+        #### Bashir added {} ###
+        config = self.fit_factory._configs.get(fit_funct) or {}
         self.logger.debug('fit - config: %s',config)
 
         fit = self.fit_factory.create(fit_funct, **config)
@@ -5825,7 +5868,7 @@ class MainWindow(QMainWindow):
                     xmin, xmax = self.axisLimitsForFit(ax)
 
                     # create new tmp list with subrange for fitting
-                    for i in range(len(xtmp)):
+                    for i in range(1, len(xtmp)):
                         if (xtmp[i]>xmin and xtmp[i]<=xmax):
                             # xtmp and ytmp offset by one bin compared to data because of ytmp obtained with tolist(), correct x:
                             x.append(xtmp[i-1]+(xtmp[i]-xtmp[i-1])/2)
@@ -5833,13 +5876,30 @@ class MainWindow(QMainWindow):
                     x = np.array(x)
                     y = np.array(y)
 
+                    # ---- BASHIR: append bin width + weighting for SkelFit/EMG1 only ----
+                    if fit_funct in ("Skeleton", "SkelFit", "AlphaEMG1", "AlphaEMG2", "AlphaEMG3"):
+                        # Prefer exact bin width from metadata; fall back to edges 'xtmp'
+                        try:
+                            bw = float(maxxREST - minxREST) / float(binx)
+                            if not np.isfinite(bw) or bw <= 0:
+                                raise ValueError
+                        except Exception:
+                            # xtmp are bin edges (len ~ binx+1); robust fallback
+                            bw = float(np.median(np.diff(xtmp))) if len(xtmp) > 1 else 1.0
+
+                        wmode = 2  # 0=none, 1=Poisson(data), 2=Poisson(model IRLS)
+
+                        fitpar = fitpar + [bw, int(wmode)]
+                        self.logger.debug('fit - appended bw=%.6g, wmode=%d', bw, wmode)
+                    # -------------------------------------------------------------------
+
                     fitResultsText = QTextEdit()
-                    if fit_funct == "Skeleton":
-                        fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
-                        self.setFitLineLabel(ax, fitln, fitResultsText, spectrumName)
-                    else:
-                        fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
-                        self.setFitLineLabel(ax, fitln, fitResultsText, spectrumName)
+                    # if fit_funct == "Skeleton":
+                        # fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
+                        # self.setFitLineLabel(ax, fitln, fitResultsText, spectrumName)
+                    # else:
+                    fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
+                    self.setFitLineLabel(ax, fitln, fitResultsText, spectrumName)
                 else:
                     QMessageBox.about(self, "Warning", "Sorry 2D fitting is not implemented yet")
             else:
