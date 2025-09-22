@@ -10,6 +10,14 @@ class PyREST:
         self.server = server
         self.rest = rest
         self.logger = loggerMain
+    
+
+    #### Bashir added so the REST client can switch to whatever they type in the Connect window #################
+    def reconfigure(self, server, rest):
+        self.server = str(server).strip()
+        self.rest = str(rest).strip()
+        # self.logger.info("PyREST reconfigured to http://%s:%s", self.server, self.rest)
+    ##################################################################################
 
     ########################################
     ## Parameter requests
@@ -979,6 +987,9 @@ class PyREST:
     
     def sendRequest(self, url):
         try:
+            ### Bashur added #################
+            self.logger.debug("REST GET %s", url)   # <-- add
+            ##################################
             status, content = httplib2.Http().request(url, method="GET") # SpecTclREST only takes GET methods.
             #May have other bad keywords
             badKeyWords = ["bad parameter", "Invalid gate"]
@@ -992,8 +1003,8 @@ class PyREST:
             self.logger.error('sendRequest -- check Server/User/REST Port/Mirror Port')
             return None
     
-
-    #check if url is valid
+    ''' # Bashir commented out
+     #check if url is valid
     def checkSpecTclREST(self):
         url = "http://"+self.server+":"+self.rest+"/spectcl"
         try:
@@ -1001,4 +1012,19 @@ class PyREST:
             return True
         except Exception :
             return False
+    '''
+
+    def checkSpecTclREST(self):
+        url = f"http://{self.server}:{self.rest}/spectcl/spectrum/list?filter=*"
+        try:
+            status, content = httplib2.Http().request(url, method="GET")
+            data = json.loads(content.decode())
+            ok = isinstance(data, dict) and data.get("status") == "OK"
+            print(f"[PyREST] REST health {'OK' if ok else 'FAIL'} via {url}", flush=True)  # <-- add
+            return ok
+        except Exception:
+            print(f"[PyREST] REST health FAIL via {url} (exception)", flush=True)          # <-- add
+            return False
+
+
             

@@ -3,6 +3,19 @@ import io
 import re
 import sys, os, platform
 
+# Bashir: --- drop any inherited file descriptors >=3 (prevents holding REST/Mirror after parent exit) ---
+import os
+try:
+    maxfd = os.sysconf("SC_OPEN_MAX")
+except Exception:
+    maxfd = 1024
+try:
+    os.closerange(3, maxfd)
+except Exception:
+    pass
+# --- end drop inherited FDs ---
+
+
 cwd = os.getcwd()
 
 #  Sadly it seems that environment variables sent in via setenv
@@ -46,7 +59,8 @@ if "USERDIR" in os.environ:
     sys.path.append(os.environ["USERDIR"])
     print("The .py user-based files are in ",os.environ["USERDIR"])
 # Check if the user-based files are in the current working directory.
-elif os.path.exists(os.path.join(cwd, "fit_skel_creator.py")) and os.path.exists(os.path.join(cwd, "algo_skel_creator.py")):
+elif os.path.exists(os.path.join(cwd, "fit_alpha1_creator.py")) and os.path.exists(os.path.join(cwd, "fit_alpha2_creator.py")) \
+and os.path.exists(os.path.join(cwd, "algo_skel_creator.py")):
     print("The .py user-based files are in the current working directory.")
     sys.path.append(cwd)
 
@@ -64,6 +78,9 @@ from GUI import MainWindow
 import fit_factory
 # skeleton for user-based FIT implementation
 import fit_skel_creator
+import fit_alpha1_creator
+import fit_alpha2_creator
+import fit_alpha3_creator
 # already implemented examples
 import fit_gaus_creator
 import fit_exp_creator
@@ -71,6 +88,7 @@ import fit_p1_creator
 import fit_p2_creator
 import fit_gp1_creator
 import fit_gp2_creator
+
 
 import algo_factory
 # skeleton for user-based ML implementation
@@ -142,6 +160,25 @@ config_fit_skel = {
     'param_3': 10
 }
 
+config_fit_alph1 = {
+    'param_1': 1,
+    'param_2': 1,
+    'param_3': 10
+}
+
+config_fit_alph2 = {
+    'param_1': 1,
+    'param_2': 1,
+    'param_3': 10
+}
+
+config_fit_alph3 = {
+    'param_1': 1,
+    'param_2': 1,
+    'param_3': 10
+}
+
+
 
 #######################################
 ##  ML
@@ -190,7 +227,10 @@ fitfactory.register_builder('Pol1', fit_p1_creator.Pol1FitBuilder(), config_fit_
 fitfactory.register_builder('Pol2', fit_p2_creator.Pol2FitBuilder(), config_fit_p2)
 fitfactory.register_builder('G+Pol1', fit_gp1_creator.GPol1FitBuilder(), config_fit_gp1)
 fitfactory.register_builder('G+Pol2', fit_gp2_creator.GPol2FitBuilder(), config_fit_gp2)
-fitfactory.register_builder('Skeleton', fit_skel_creator.SkelFitBuilder(), config_fit_skel)
+fitfactory.register_builder('AlphaEMG1', fit_alpha1_creator.AlphaEMG1FitBuilder(), config_fit_alph1)
+fitfactory.register_builder('AlphaEMG2', fit_alpha2_creator.AlphaEMG2FitBuilder(), config_fit_alph2)
+fitfactory.register_builder('AlphaEMG3', fit_alpha3_creator.AlphaEMG3FitBuilder(), config_fit_alph3)
+# fitfactory.register_builder('Skeleton', fit_skel_creator.SkelFitBuilder(), config_fit_skel)
 
 # ML Algorithm registration
 algofactory.register_builder('Skeleton', algo_skel_creator.SkelAlgoBuilder(), config_algo_skel)

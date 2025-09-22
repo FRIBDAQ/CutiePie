@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3os
 # import modules and packages
 
 import sys, os, ast
@@ -15,35 +15,6 @@ import CPyConverter as cpy
 import signal, ctypes
 import re
 
-
-## Bashir added to kill orphan process ###
-import signal, ctypes
-# LOG = os.path.join(os.path.dirname(__file__), "debugCutiePie1.log")
-# _fd = os.open(LOG, os.O_WRONLY|os.O_CREAT|os.O_APPEND, 0o644)
-
-# def _log(msg: str):
-#     os.write(_fd, (msg + "\n").encode())
-
-def tie_lifetime_to_parent():
-    try:
-        libc = ctypes.CDLL("libc.so.6")
-        libc.prctl(1, signal.SIGTERM, 0, 0, 0)   # PR_SET_PDEATHSIG=SIGTERM
-        # _log(f"armed PDEATHSIG; PID={os.getpid()} PPID={os.getppid()}")
-        # log + exit on delivery:
-        def _on_term(*_):
-            _log("parent died -> exiting")
-            os._exit(0)
-        signal.signal(signal.SIGTERM, _on_term)
-        # race: parent already gone?
-        if os.getppid() == 1:
-            # _log("already orphaned at arm -> exiting")
-            os._exit(0)
-    except Exception as e:
-        # _log(f"tie_lifetime_to_parent error: {e}")
-        pass
-
-tie_lifetime_to_parent()
-#######################################################################
 
 # import importlib
 # import io, pickle, traceback, sys, os, subprocess, ast, csv, gzip
@@ -1293,9 +1264,11 @@ class MainWindow(QMainWindow):
                 #setup single pad canvas
                 self.currentPlot.InitializeCanvas(1,1,False)
                 autoscale_status = self.currentPlot.histo_autoscale.isChecked()
-
                 self.add(idx)
                 self.updatePlot()
+                
+                ###################################################################
+
                 ax = self.getSpectrumInfo("axis", index=idx)
                 if dim == 1:
                     if not autoscale_status and hasattr(self.currentPlot, "_saved_ylims") and idx in self.currentPlot._saved_ylims:
@@ -2379,14 +2352,25 @@ class MainWindow(QMainWindow):
             self.logger.debug('connectShMem - host: %s -- user: %s -- RESTPort: %s -- MirrorPort: %s', hostname, user, port, mirror)
 
             # configuration of the REST plugin
-            self.rest = PyREST(self.logger,hostname,port)
+            ###### Bashir changed here to allow reconfigure of existing client
+            # reuse existing client if present; otherwise create
+            if getattr(self, 'rest', None):
+                try:
+                    self.rest.reconfigure(hostname, port)
+                except Exception:
+                    self.rest = PyREST(self.logger, hostname, port)
+            else:
+                self.rest = PyREST(self.logger, hostname, port)
+
+            # self.rest = PyREST(self.logger,hostname,port)
+            ####################################################################
             self.wConf.connectButton.setStyleSheet("background-color:rgb(252, 48, 3);")
             self.wConf.connectButton.setText("Disconnected")
             # check if thread already exists, if yes reset, and set traces
-            self.stopRestThread.set()
-            self.endThread(self.threadRest)
-            self.threadRest = threading.Thread(target=self.restThread, args=(6,))
-            self.threadRest.start()
+            # self.stopRestThread.set()
+            # self.endThread(self.threadRest)
+            # self.threadRest = threading.Thread(target=self.restThread, args=(6,))
+            # self.threadRest.start()
 
             # way to stop connectShMem, url checks are done on trace thread but if find issue it wont be communicated here
             if self.rest.checkSpecTclREST() == False:
@@ -2394,6 +2378,10 @@ class MainWindow(QMainWindow):
                 return
             else:
                 self.logger.debug("connectShMem - could make REST request of server")
+                self.stopRestThread.set()
+                self.endThread(self.threadRest)
+                self.threadRest = threading.Thread(target=self.restThread, args=(6,))
+                self.threadRest.start()
             timer1 = QElapsedTimer()
             timer1.start()
 
@@ -5880,13 +5868,30 @@ class MainWindow(QMainWindow):
                     xmin, xmax = self.axisLimitsForFit(ax)
 
                     # create new tmp list with subrange for fitting
-                    for i in range(len(xtmp)):
+                    for i in range(1, len(xtmp)):
                         if (xtmp[i]>xmin and xtmp[i]<=xmax):
                             # xtmp and ytmp offset by one bin compared to data because of ytmp obtained with tolist(), correct x:
                             x.append(xtmp[i-1]+(xtmp[i]-xtmp[i-1])/2)
                             y.append(ytmp[i])
                     x = np.array(x)
                     y = np.array(y)
+
+                    # ---- BASHIR: append bin width + weighting for SkelFit/EMG1 only ----
+                    if fit_funct in ("Skeleton", "SkelFit", "AlphaEMG1", "AlphaEMG2", "AlphaEMG3"):
+                        # Prefer exact bin width from metadata; fall back to edges 'xtmp'
+                        try:
+                            bw = float(maxxREST - minxREST) / float(binx)
+                            if not np.isfinite(bw) or bw <= 0:
+                                raise ValueError
+                        except Exception:
+                            # xtmp are bin edges (len ~ binx+1); robust fallback
+                            bw = float(np.median(np.diff(xtmp))) if len(xtmp) > 1 else 1.0
+
+                        wmode = 2  # 0=none, 1=Poisson(data), 2=Poisson(model IRLS)
+
+                        fitpar = fitpar + [bw, int(wmode)]
+                        self.logger.debug('fit - appended bw=%.6g, wmode=%d', bw, wmode)
+                    # -------------------------------------------------------------------
 
                     fitResultsText = QTextEdit()
                     # if fit_funct == "Skeleton":
