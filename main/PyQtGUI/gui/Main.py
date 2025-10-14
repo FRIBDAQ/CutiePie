@@ -189,7 +189,7 @@ config_fit_alph12 = {
     'param_1': 1,
     'param_2': 1,
     'param_3': 10,
-    'eta_vary': False,
+    'eta_vary': True,
     'eta_value': 0.01
 }
 
@@ -294,11 +294,11 @@ fitfactory.register_builder('AlphaEMG2', fit_alpha2_creator.AlphaEMG2FitBuilder(
 fitfactory.register_builder('AlphaEMG3', fit_alpha3_creator.AlphaEMG3FitBuilder(), config_fit_alph3)
 fitfactory.register_builder('AlphaEMG12', fit_alpha12_creator.AlphaEMG12FitBuilder(), config_fit_alph12)
 fitfactory.register_builder('AlphaEMG22', fit_alpha22_creator.AlphaEMG22FitBuilder(), config_fit_alph22)
-fitfactory.register_builder('AlphaEMG22Vanilla', fit_alpha22_vanila.AlphaEMG22FitVanillaBuilder(), config_fit_alph22_vanilla)
+# fitfactory.register_builder('AlphaEMG22Vanilla', fit_alpha22_vanila.AlphaEMG22FitVanillaBuilder(), config_fit_alph22_vanilla)
 fitfactory.register_builder('AlphaEMG32', fit_alpha32_creator.AlphaEMG32FitBuilder(), config_fit_alph32)
-fitfactory.register_builder('AlphaEMGMulti', fit_alpha_multi_creator.AlphaMultiEMGFitBuilder(), config_fit_alphmulti)
+# fitfactory.register_builder('AlphaEMGMulti', fit_alpha_multi_creator.AlphaMultiEMGFitBuilder(), config_fit_alphmulti)
 fitfactory.register_builder('AlphaEMGMultiSigma', fit_alpha_multi_sigma_creator.AlphaMultiEMGSigmaFitBuilder(), config_fit_alph_sigma_multi)
-fitfactory.register_builder('AlphaEMGLinear', fit_alpha_linear_creator.AlphaEMGLinearFitBuilder(), config_fit_alph_linear)
+# fitfactory.register_builder('AlphaEMGLinear', fit_alpha_linear_creator.AlphaEMGLinearFitBuilder(), config_fit_alph_linear)
 # fitfactory.register_builder('Skeleton', fit_skel_creator.SkelFitBuilder(), config_fit_skel)
 
 # ML Algorithm registration

@@ -98,6 +98,11 @@ class SpecialFunctions(QWidget):
         ############################################################
         self.fit_button = QPushButton("Fit", self)
         self.fit_button.setStyleSheet("background-color:#bcee68;")
+
+        # Bashir added Abort button ################################
+        self.abort_button = QPushButton("Abort", self)
+        self.abort_button.setStyleSheet("background-color:#ff6b6b;")
+        ###############################################################
         self.fit_range_label = QLabel("Fitting Range")
         self.fit_range_label_min = QLabel("Min X")
         self.fit_range_label_max = QLabel("Max X")
@@ -243,6 +248,7 @@ class SpecialFunctions(QWidget):
         v2.addLayout(v1b)
         v2.addLayout(deflayout)
         v2.addWidget(self.fit_button)
+        v2.addWidget(self.abort_button)  # Bashir added Abort button
         
         v3 = QVBoxLayout()
         v3.addWidget(self.fit_results_label)

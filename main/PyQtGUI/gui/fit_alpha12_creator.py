@@ -27,7 +27,8 @@ Cm-244:
 5805 → 35653.84, 5763 → 35361.43
 '''
 
-import sys, os
+import sys, os, csv
+from datetime import datetime 
 sys.path.append(os.getcwd())
 
 import numpy as np
@@ -92,7 +93,7 @@ def _alphaemg1_binned(x, A, mu, sigma, tau1, tau2, eta, bw):
 
 class AlphaEMG12Fit:
     def __init__(self, param_1=1, param_2=2, param_3=10,
-                 eta_vary=True, eta_value=0.0):
+                 eta_vary=True, eta_value=0):
         self.param_1 = param_1
         self.param_2 = param_2
         self.param_3 = param_3
@@ -171,28 +172,34 @@ class AlphaEMG12Fit:
         pars.add('sigma', value=max(pick(sig_ui,  sigma0), dx/4.0), min=dx/4.0, max=span)
         pars.add('tau1',  value=max(pick(tau1_ui, tau10), dx/10.0), min=dx/10.0, max=10.0*sigma0)
 
-        # tau2 / eta: if not provided, default to tau2=tau1 and eta=0 (single-tail)
+ 
+        # --- tau2 / eta seeds ---
         t2_seed  = pick(tau2_ui, tau20)
-        eta_seed = np.clip(pick(eta_ui, eta0), 0.0, 1.0)
 
-        # If the builder/factory wants to force eta, override the seed.
-        if not self.eta_vary:
-            if np.isfinite(eta_ui):
-                eta_seed = np.clip(float(eta_ui), 0.0, 1.0)
-            else:
-                eta_seed = np.clip(self.eta_value, 0.0, 1.0)
-        pars.add('eta', value=float(eta_seed), min=0.0, max=1.0, vary=self.eta_vary)
+        # DEFAULTS you asked for:
+        # - if user didn't set anything: eta starts at 0 and VARIES
+        # - only fix eta when the builder says so (eta_vary == False)
 
-        # Enforce tau2 > tau1 via positive offset dtau:
-        dtau0 = max(t2_seed - pars['tau1'].value, max(dx/10.0, 0.05*sigma0))
+        if self.eta_vary:
+            # user may have typed an initial eta; use it as seed but still vary
+            eta_seed = float(eta_ui) if np.isfinite(eta_ui) else 0
+            eta_seed = float(np.clip(eta_seed, 0.0, 1.0))
+            pars.add('eta', value=eta_seed, min=0.0, max=1.0, vary=True)
+            freeze_dtau = False
+            freeze_tau1 = False
+        else:
+            # builder requests fixed eta (e.g., lock to 0 or any value)
+            eta_seed = float(eta_ui) if np.isfinite(eta_ui) else float(self.eta_value)
+            eta_seed = float(np.clip(eta_seed, 0.0, 1.0))
+            pars.add('eta', value=eta_seed, min=0.0, max=1.0, vary=False)
+            # identifiability guards only when eta is fixed
+            freeze_dtau = (eta_seed <= 1e-8)          # eta==0 -> slow tail unused
+            freeze_tau1 = (eta_seed >= 1.0 - 1e-8)    # eta==1 -> fast tail unused
 
-        # ---- Identifiability guards ----
-        # If eta == 0, the slow tail never contributes -> freeze tau2 (dtau) to avoid NaNs/huge errors
-        # If eta == 1, the fast tail does not contribute -> it's often best to freeze tau1.
-        freeze_dtau = (not self.eta_vary) and (eta_seed <= 1e-8)
-        freeze_tau1 = (not self.eta_vary) and (eta_seed >= 1.0 - 1e-8)
-
-        pars.add('dtau', value=dtau0, min=max(dx/10.0, 0.05*sigma0), max=20.0*sigma0, vary=not freeze_dtau)
+        # Enforce tau2 > tau1 via positive offset dtau
+        dtau_min = max(dx/10.0, 0.05*sigma0)
+        dtau0    = max(t2_seed - pars['tau1'].value, dtau_min)
+        pars.add('dtau', value=dtau0, min=dtau_min, max=20.0*sigma0, vary=not freeze_dtau)
         pars.add('tau2', expr='tau1 + dtau')
 
         if freeze_tau1:
@@ -243,6 +250,49 @@ class AlphaEMG12Fit:
             except Exception:
                 pass
 
+        R2_plain = getattr(res, "rsquared", None)
+
+        if R2_plain is None:
+            yhat = model.eval(res.params, x=x)
+            ss_res = float(np.sum((y - yhat)**2))
+            ss_tot = float(np.sum((y - y.mean())**2))
+            R2_plain = 1.0 - ss_res / (ss_tot + 1e-16)
+        # Writing to a CSV file
+        # --- Save CSV (main values only) --------------------------------------
+        p = res.params  # shorthand
+
+        def _get(name):
+            try:
+                return float(p[name].value)
+            except Exception:
+                return np.nan
+
+        redchi = float(getattr(res, "redchi", np.nan)) 
+        timestamp = datetime.now().isoformat(timespec="seconds") # e.g. '2024-06-30T14:23:05'
+        fieldnames = [
+            "timestamp",
+            "chi-square",
+            "R2",
+            "A","mu","sigma","tau11","tau12","eta"
+        ]
+        row = {
+            "timestamp": timestamp,
+            "chi-square": redchi,
+            "R2": R2_plain,
+            "A": _get("A"),        "mu": _get("mu1"),        "sigma": _get("sigma"),
+            "tau11": _get("tau11"),    "tau12": _get("tau12"),      "eta": _get("eta")
+        }
+
+        csv_path = os.path.join(os.getcwd(), "fit_EMG12_results.csv")
+        write_header = (not os.path.exists(csv_path)) or (os.path.getsize(csv_path) == 0)
+
+        with open(csv_path, "a", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=fieldnames)
+            if write_header:
+                w.writeheader()
+            w.writerow(row)
+        # ----------------------------------------------------------------------
+
         # Report (named parameters first, then full lmfit report)
         def _format_params(params):
             lines = []
@@ -285,7 +335,7 @@ class AlphaEMG12Fit:
 class AlphaEMG12FitBuilder:
     def __init__(self):
         self._instance = None
-    def __call__(self, param_1=1, param_2=2, param_3=10, eta_vary=True, eta_value=0.0, **_ignored):
+    def __call__(self, param_1=1, param_2=2, param_3=10, eta_vary=True, eta_value=0, **_ignored):
         if not self._instance:
             self._instance = AlphaEMG12Fit(param_1, param_2, param_3, eta_vary=eta_vary, eta_value=eta_value)
         return self._instance

@@ -14,7 +14,7 @@ import CPyConverter as cpy
 ## Bashir imports ###
 import signal, ctypes
 import re
-import csv
+import csv, json
 from types import SimpleNamespace
 
 
@@ -178,6 +178,9 @@ class MainWindow(QMainWindow):
 
         self.factory = factory
         self.fit_factory = fit_factory
+
+
+        self._abort_fit = False # Bashir added for aborting fit
 
         self.setWindowTitle("CutiePie - (QtPy) - It's not a bug, it's a feature (cit.) Qt5 and PyQty5 used under open source terms.")
         #### Bashir added for lightgrey visualization #######
@@ -486,6 +489,7 @@ class MainWindow(QMainWindow):
 
         # extra popup
         self.extraPopup.fit_button.clicked.connect(self.fit)
+        self.extraPopup.abort_button.clicked.connect(self.on_abort_clicked)  # Bashir added Abort button
         self.extraPopup.all_fitIdx_button.clicked.connect(self.printFitLineLabels)
         self.extraPopup.delete_button.clicked.connect(self.deleteFit)
 
@@ -5832,6 +5836,16 @@ class MainWindow(QMainWindow):
         return left, right
 
     #Main fit function, reads user defined intial parameters and calls appropriate fit model
+    def on_abort_clicked(self):
+        self._abort_fit = True
+        # disable the abort button so the user sees it's registered
+        try: self.extraPopup.abort_button.setEnabled(False)
+        except Exception: pass
+        # optional: show a message in the side output box
+        try: self.extraPopup.fit_results.append("[abort] Requested…")
+        except Exception: pass
+
+
     def fit(self):
 
         self.logger.info('fit')
@@ -5840,13 +5854,20 @@ class MainWindow(QMainWindow):
         
         fit_funct = self.extraPopup.fit_list.currentText().strip()
         model_name = fit_funct
-        force_prompt = bool(QApplication.keyboardModifiers() & Qt.ShiftModifier)
+        # force_prompt = bool(QApplication.keyboardModifiers() & Qt.ShiftModifier)
+        force_prompt = bool(True)
 
         try:
             config = self.prepare_fit_config(fit_funct, force_prompt=force_prompt)
         except ValueError as e:
             QMessageBox.warning(self, "Fit cancelled", str(e))
             return
+        
+        # Bashir added to prepare Abort UI
+        self._abort_fit = False
+        self.extraPopup.fit_button.setEnabled(False)
+        self.extraPopup.abort_button.setEnabled(True)
+
 
 
         index = self.autoIndex()
@@ -5922,7 +5943,8 @@ class MainWindow(QMainWindow):
                     except Exception:
                         pass
 
-                    if force_prompt or ask_pref:
+                    # if force_prompt or ask_pref:
+                    if fit_funct in {"AlphaEMGMulti", "AlphaEMGMultiSigma"} and (force_prompt or ask_pref):
                         msg = QMessageBox(self)
                         msg.setWindowTitle("Energy calibration")
                         msg.setText("Run energy calibration before fitting?")
@@ -5950,46 +5972,51 @@ class MainWindow(QMainWindow):
                         # User had previously chosen "don't ask again" => skip the prompt
                         run_cal = False
 
+                    
                     cal = None
-                    if run_cal:
+                    if run_cal and fit_funct in {"AlphaEMGMulti", "AlphaEMGMultiSigma"}:
                         cal = self._prompt_energy_calibration(ax, x, y, min_pts=2, max_pts=4, snap_halfwin=150)
                         if cal is not None:
-                            # inject into config so the fitter uses the fresh calibration
                             config = dict(config)
-                            config["calib_a"] = cal["a"]
-                            config["calib_b"] = cal["b"]
-                            # persist latest numbers
+                            config["calib_a"] = float(cal["a"])
+                            config["calib_b"] = float(cal["b"])
                             try:
                                 s.setValue("calibration/a", cal["a"])
                                 s.setValue("calibration/b", cal["b"])
                                 s.setValue("calibration/R2", cal["R2"])
                             except Exception:
                                 pass
+
                     # Ask just the two flags
-                    flags = self._prompt_shape_flags(
-                        default_global=config.get("fit_global_shapes", True),
-                        default_iso_scales=config.get("fit_iso_shape_scales", False),
-                    )
-                    if flags is not None:
-                        # enforce: iso scales only makes sense if global fitting is on
-                        if flags["fit_iso_shape_scales"] and not flags["fit_global_shapes"]:
-                            flags["fit_iso_shape_scales"] = False
-                        config.update(flags)
+                    if fit_funct == "AlphaEMGMultiSigma":
+                        flags = self._prompt_shape_flags(
+                            default_global=config.get("fit_global_shapes", True),
+                            default_iso_scales=config.get("fit_iso_shape_scales", False),
+                        )
+                        if flags is not None:
+                            # enforce: iso scales only makes sense if global fitting is on
+                            if flags["fit_iso_shape_scales"] and not flags["fit_global_shapes"]:
+                                flags["fit_iso_shape_scales"] = False
+                            config.update(flags)
 
                     ##################################################################################
 
                     # now create the fitter with (possibly) updated calibration
                     fit = self.fit_factory.create(fit_funct, **config)
-                    # np.savetxt("fit_debug_xy.txt", np.column_stack((x, y)), fmt="%.8g", header="x y")
+
+                    # Bashir added to poll abort flag
+                    setattr(fit, "_should_abort", lambda: self._abort_fit)
+
 
                     # ---- Append/insert bw + wmode (model-aware indices) ----
+                    # right before you set bw/wmode
                     EMG_MODELS = {
                         "AlphaEMG1","AlphaEMG12","AlphaEMG2","AlphaEMG22",
-                        "AlphaEMG3","AlphaEMG32","AlphaEMGMulti", 'AlphaEMGMultiSigma'
+                        "AlphaEMG3","AlphaEMG32","AlphaEMGMulti","AlphaEMGMultiSigma"
                     }
 
                     if model_name in EMG_MODELS:
-                        # compute bin width safely
+                        # safe bin width
                         try:
                             bw = float(maxxREST - minxREST) / float(binx)
                             if not np.isfinite(bw) or bw <= 0:
@@ -5997,54 +6024,61 @@ class MainWindow(QMainWindow):
                         except Exception:
                             bw = float(np.median(np.diff(xtmp))) if len(xtmp) > 1 else 1.0
 
-                        wmode = 2  # default: Poisson(model, 1-step IRLS)
+                        wmode = 2  # Poisson(model), IRLS default
 
                         if model_name in {"AlphaEMGMulti", "AlphaEMGMultiSigma"}:
-                            # Multi fitter expects bw, wmode at the END of fitpar
+                            # these take bw,wmode at the END
                             fitpar = (fitpar or [])
                             fitpar.extend([bw, int(wmode)])
-                            self.logger.debug(
-                                "fit %s: appended bw/wmode -> tail=(%g,%d) len=%d",
-                                fit_funct, bw, int(wmode), len(fitpar)
-                            )
-                        else:
-                            # Fixed-slot models (22/32 etc.)
-                            BW_WMODE_SLOT = {
-                                "AlphaEMG22": (12, 13),
-                                "AlphaEMG32": (18, 19),
-                            }
-                            bw_idx, wm_idx = BW_WMODE_SLOT.get(model_name, (12, 13))  # sane default
 
+                        elif model_name in {"AlphaEMG22"}:
+                            bw_idx, wm_idx = 12, 13
                             need_len = wm_idx + 1
                             if len(fitpar) < need_len:
                                 fitpar += [0.0] * (need_len - len(fitpar))
-
                             fitpar[bw_idx] = bw
                             fitpar[wm_idx] = int(wmode)
-                            self.logger.debug(
-                                "fit %s: set bw/wmode at [%d,%d]=(%g,%d) len=%d",
-                                fit_funct, bw_idx, wm_idx, bw, int(wmode), len(fitpar)
-                            )
 
-                        # ---------------------------------------------------------
+                        elif model_name in {"AlphaEMG32"}:
+                            bw_idx, wm_idx = 18, 19
+                            need_len = wm_idx + 1
+                            if len(fitpar) < need_len:
+                                fitpar += [0.0] * (need_len - len(fitpar))
+                            fitpar[bw_idx] = bw
+                            fitpar[wm_idx] = int(wmode)
 
-                        # ----------------------------------------------------------------
+                        else:
+                            wmode = 1
+                            # AlphaEMG1 / 12 / 2 / 3 use the NEW 6-field layout
+                            # [A, mu, sigma, tau1, bw, wmode]
+                            # (For 12 you already remapped to 6 fields above)
+                            need_len = 6
+                            if len(fitpar) < need_len:
+                                fitpar += [0.0] * (need_len - len(fitpar))
+                            fitpar[4] = bw
+                            fitpar[5] = int(wmode)
+
+                    # ----------------------------------------------------------------
 
                     # --- Run fit (works for AlphaEMG22 and others) ---
                     fitResultsText = QTextEdit()
+                    print(f"Fitting {fit_funct} ...")
                     fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
+                    print("Fitting is done.")
+
+
                     if cal is not None:
                         fitResultsText.insertPlainText(
                             f"[calibration] μ = {cal['a']:.8g} * E + {cal['b']:.8g}  "
                             f"(R²={cal['R2']:.6f}, N={len(cal['E'])})\n\n"
                         )
-                    if model_name == "AlphaEMG22" and hasattr(fitln, "_ratio"):
-                        self.extraPopup.fit_p6.setText(f"{fitln._ratio:.6g}")
-                    elif model_name == "AlphaEMG32":
-                        if hasattr(fitln, "_ratio2"):
-                            self.extraPopup.fit_p6.setText(f"{fitln._ratio2:.6g}")
-                        if hasattr(fitln, "_ratio3"):
-                            self.extraPopup.fit_p12.setText(f"{fitln._ratio3:.6g}")
+                    elif "calib_a" in config and "calib_b" in config:
+                        src = config.get("calibration_file", "saved defaults")
+                        fitResultsText.insertPlainText(
+                            f"[calibration] μ = {config['calib_a']:.8g} * E + {config['calib_b']:.8g}  "
+                            f"(source: {src})\n\n"
+                        )
+
 
                     self.setFitLineLabel(ax, fitln, fitResultsText, spectrumName)
 
@@ -6076,6 +6110,12 @@ class MainWindow(QMainWindow):
         except NameError as err:
             print(err)
             pass
+
+        # Bashir added to restore UI for abort    
+        finally:
+            # ALWAYS restore UI
+            self.extraPopup.abort_button.setEnabled(False)
+            self.extraPopup.fit_button.setEnabled(True)
 
     # --- Energy calibration helper -------------------------------------------------
     def _prompt_energy_calibration(self, ax, x, y, min_pts=2, max_pts=4, snap_halfwin=150):
@@ -6236,42 +6276,198 @@ class MainWindow(QMainWindow):
         }
 
     ################################ Bashir added to loadpre-fitted parameters for alpha spectra ######
-    # --- in your GUI class ---
+
     def _choose_shape_file(self, settings_key: str) -> str:
         s = QSettings("YourLab", "AlphaGUI")
         last = s.value(settings_key, "", type=str) or os.getcwd()
         path, _ = QFileDialog.getOpenFileName(
             self, "Choose shape file", last,
-            "Text/CSV files (*.txt *.csv *.dat *.tsv);;All files (*)"
+            "Text/CSV files (*.txt *.csv);;All files (*)"
         )
         if path:
             s.setValue(settings_key, path)
         return path or ""
 
+    def _choose_calibration_file(self, settings_key: str) -> str:
+        s = QSettings("YourLab", "AlphaGUI")
+        last = s.value(settings_key, "", type=str) or os.getcwd()
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Calibration file", last,
+            "Text/CSV/JSON (*.txt *.csv *.json);;All files (*)"
+        )
+        if path:
+            s.setValue(settings_key, path)
+        return path or ""
+
+
+    def load_calibration_any(self, path):
+        """
+        Accepts any of:
+        - JSON: {"a": 6.89, "b": -4943.24} or {"calib_a":..., "calib_b":...}
+        - INI-like: a=6.89\nb=-4943.24   (order free, spaces ok)
+        - CSV/whitespace: 6.89, -4943.24  or  6.89 -4943.24
+        - First two floats anywhere in file.
+        Returns (a, b) as floats.
+        """
+        with open(path, "r") as f:
+            txt = f.read()
+
+        # Try JSON
+        try:
+            obj = json.loads(txt)
+            for key_a, key_b in (("a", "b"), ("calib_a", "calib_b")):
+                if key_a in obj and key_b in obj:
+                    return float(obj[key_a]), float(obj[key_b])
+        except Exception:
+            pass
+
+        # Try key=value
+        a = b = None
+        for m in re.finditer(r'^\s*([ab]|calib_a|calib_b)\s*=\s*([+-]?\d+(\.\d+)?([eE][+-]?\d+)?)\s*$', txt, re.M):
+            k = m.group(1).lower()
+            v = float(m.group(2))
+            if k in ("a", "calib_a"): a = v
+            elif k in ("b", "calib_b"): b = v
+        if a is not None and b is not None:
+            return a, b
+
+        # Try two numbers on a line / anywhere
+        nums = re.findall(r'[+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?', txt)
+        if len(nums) >= 2:
+            return float(nums[0]), float(nums[1])
+
+        raise ValueError(f"Could not parse calibration from: {path}")
+
     def prepare_fit_config(self, fit_funct: str, force_prompt: bool = False) -> dict:
         config = dict(self.fit_factory._configs.get(fit_funct) or {})
 
         if fit_funct in {"AlphaEMGMulti", "AlphaEMGMultiSigma"}:
-            key = f"{fit_funct}/shape_file"
-            shape_path = config.get("shape_file", "")
+            # ---------- SHAPE FILE (unchanged) ----------
+            key_shape = f"{fit_funct}/shape_file"
+            s = QSettings("YourLab", "AlphaGUI")
 
-            # Force the file chooser when Shift is held
+            shape_path = config.get("shape_file", "")
             if force_prompt:
                 shape_path = ""
-
             if not (isinstance(shape_path, str) and os.path.isfile(shape_path)):
-                shape_path = self._choose_shape_file(key)
+                shape_path = self._choose_shape_file(key_shape)
                 if not shape_path:
                     raise ValueError("No shape file selected.")
                 if not os.path.isfile(shape_path):
                     raise ValueError(f"Shape file not found:\n{shape_path}")
-
                 config["shape_file"] = shape_path
-                self.fit_factory._configs[fit_funct] = config  # persist
+                s.setValue(key_shape, shape_path)
+
+            # ---------- CALIBRATION FILE (fixed) ----------
+            per_model_key = f"{fit_funct}/calibration_file"
+
+            # Prefer explicit config → per-model key → global key
+            cal_path = (
+                config.get("calibration_file")
+                or s.value(per_model_key, "", type=str)
+                or s.value("calibration/file", "", type=str)
+                or ""
+            )
+
+            have_numbers_already = ("calib_a" in config and "calib_b" in config)
+
+            # Prompt if Shift held OR no usable file AND we don't already have numbers
+            need_prompt = (
+                force_prompt
+                or (not os.path.isfile(cal_path) and not have_numbers_already)
+            )
+            if need_prompt:
+                cal_path = self._choose_calibration_file(per_model_key)
+
+            # If we have a file now, parse it; otherwise keep existing numbers (if any) or bail
+            if cal_path and os.path.isfile(cal_path):
+                try:
+                    a, b = self.load_calibration_any(cal_path)
+                    config["calib_a"] = float(a)
+                    config["calib_b"] = float(b)
+                    config["calibration_file"] = cal_path
+                    # persist both per-model and global for convenience
+                    s.setValue(per_model_key, cal_path)
+                    s.setValue("calibration/file", cal_path)
+                    s.setValue("calibration/a", a)
+                    s.setValue("calibration/b", b)
+                except Exception as e:
+                    QMessageBox.warning(
+                        self, "Calibration",
+                        f"Could not parse calibration from:\n{cal_path}\n\n{e}\n\nUsing defaults."
+                    )
+                    # if no existing numbers, abort
+                    if not have_numbers_already:
+                        raise ValueError("No valid calibration available.")
+            else:
+                # User canceled and we don't already have numbers → abort
+                if not have_numbers_already:
+                    raise ValueError("No calibration file selected.")
+
+            # Persist updated config
+            self.fit_factory._configs[fit_funct] = config
 
         return config
 
-    ################################# Bashir added for ploting the fitting calibration results ######
+    
+    '''
+    def prepare_fit_config(self, fit_funct: str, force_prompt: bool = False) -> dict:
+        config = dict(self.fit_factory._configs.get(fit_funct) or {})
+
+        if fit_funct in {"AlphaEMGMulti", "AlphaEMGMultiSigma"}:
+            # ----- SHAPE FILE (existing flow) -----
+            key_shape = f"{fit_funct}/shape_file"
+            shape_path = config.get("shape_file", "")
+            if force_prompt:
+                shape_path = ""
+            if not (isinstance(shape_path, str) and os.path.isfile(shape_path)):
+                shape_path = self._choose_shape_file(key_shape)
+                if not shape_path:
+                    raise ValueError("No shape file selected.")
+                if not os.path.isfile(shape_path):
+                    raise ValueError(f"Shape file not found:\n{shape_path}")
+                config["shape_file"] = shape_path
+
+            # ----- CALIBRATION FILE (new) -----
+            # prefer persisted path; fall back to config; allow Shift to force chooser
+            s = QSettings("YourLab", "AlphaGUI")
+
+            # prefer config, then persisted setting
+            cal_path = (config.get("calibration_file") 
+                        or s.value("calibration/file", "", type=str) 
+                        or "")
+
+            need_prompt = (force_prompt
+                        or (not isinstance(cal_path, str))
+                        or (not os.path.isfile(cal_path)))
+
+            if need_prompt:
+                key_cal = f"{fit_funct}/calibration_file"
+                cal_path = self._choose_calibration_file(key_cal)
+
+            if cal_path and os.path.isfile(cal_path):
+                try:
+                    a, b = self.load_calibration_any(cal_path)
+                    config["calib_a"] = float(a)
+                    config["calib_b"] = float(b)
+                    config["calibration_file"] = cal_path
+                    s.setValue("calibration/file", cal_path)
+                    s.setValue("calibration/a", a)
+                    s.setValue("calibration/b", b)
+                except Exception as e:
+                    QMessageBox.warning(
+                        self, "Calibration",
+                        f"Could not parse calibration from:\n{cal_path}\n\n{e}\n\nUsing defaults."
+                    )
+
+
+            # persist the updated config back into the factory
+            self.fit_factory._configs[fit_funct] = config
+
+        return config
+
+    '''
+ ################################# Bashir added for ploting the fitting calibration results ######
     # --- ADD: helper to lazily create/show the dialog ---
     def _ensure_fit_params_dialog(self):
         if not hasattr(self, "_fit_params_dialog") or self._fit_params_dialog is None:

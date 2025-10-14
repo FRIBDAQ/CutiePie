@@ -36,6 +36,13 @@ from scipy.special import erfcx, erfc
 # Keep import so the factory can discover this module
 import fit_factory  # noqa: F401
 
+# Bashir added for aborting fit
+try:
+    from PyQt5.QtWidgets import QApplication
+except Exception:
+    QApplication = None
+
+
 # ---- Gauss–Legendre (GL7) for bin integration -----------------------------------
 _GL7_T = np.array(
     [0.0,
@@ -227,14 +234,28 @@ class AlphaMultiEMGSigmaFit:
     def __init__(self,
                  shape_file,
                  calib_a=7.1195126, calib_b=-7029.0,
+                 calibration_file=None,
                 #  calib_a=5.1787509, calib_b=-5436.5,
-                 allow_shift=True, shift_bound=150.0,
+                 allow_shift=True, shift_bound=100.0,
                  fix_ratios=True, wmode_default=2,
                  fit_global_shapes=True,
                  fit_iso_shape_scales=True,      
                  iso_scale_bounds=None,     
                  shape_bounds=None):
         self.shape_file    = shape_file
+
+        if isinstance(calibration_file, (tuple, list)) and len(calibration_file) == 2:
+            a, b = calibration_file
+            self.calib_a = float(a)
+            self.calib_b = float(b)
+            self.calibration_file = None
+        else:
+            self.calib_a = float(calib_a)
+            self.calib_b = float(calib_b)
+            # keep the path only for info/reporting (optional)
+            self.calibration_file = calibration_file if isinstance(calibration_file, str) else None
+
+
         self.calib_a       = float(calib_a)
         self.calib_b       = float(calib_b)
         self.allow_shift   = bool(allow_shift)
@@ -382,43 +403,41 @@ class AlphaMultiEMGSigmaFit:
 
         # ---- the model (NESTED inside start!) ----
         def _sum_multi_binned(x, **kw):
-            bw_loc = kw.get('bw', dx)
+            bw_loc = float(kw.get('bw', dx))
 
             def _sum_multi(x):
                 out = np.zeros_like(x, dtype=float)
                 d0 = float(kw.get('d0', 0.0))
                 dg = float(kw.get('dg', 0.0))
 
-                # pull global shapes once if enabled
+                # cache global shapes once if enabled
                 if self.fit_global_shapes:
-                    g_sigma = float(kw.get('sigma'))
-                    g_t1    = float(kw.get('tau1'))
-                    g_t2    = float(kw.get('tau2'))
-                    g_eta   = float(kw.get('eta'))
+                    g_sigma = float(kw.get('sigma', 0.0))
+                    g_t1    = float(kw.get('tau1',  0.0))
+                    g_t2    = float(kw.get('tau2',  0.0))
+                    g_eta   = float(kw.get('eta',   0.0))
 
                 for p in pulses:
-                    stem = self._isotopes[p['iso_idx']]['safe']
-                    A_iso = float(kw.get(f"A_{stem}", 0.0))
+                    stem   = self._isotopes[p['iso_idx']]['safe']
+                    A_iso  = float(kw.get(f"A_{stem}", 0.0))
                     if A_iso <= 0.0:
                         continue
-                    dm = float(kw.get(f"dm_{stem}", 0.0)) if allow_shift else 0.0
 
+                    dm = float(kw.get(f"dm_{stem}", 0.0)) if allow_shift else 0.0
                     A  = A_iso * p['ratio']
                     mu = (1.0 + dg) * p['mu0'] + d0 + dm
 
-                    # choose baseline shapes (global if fitted, else from file)
+                    # (1) choose baseline shapes
                     if self.fit_global_shapes:
-                        base_sigma, base_t1, base_t2 = g_sigma, g_t1, g_t2
-                        eta = g_eta
+                        base_sigma, base_t1, base_t2, eta = g_sigma, g_t1, g_t2, g_eta
                     else:
-                        base_sigma, base_t1, base_t2 = p['sigma'], p['tau1'], p['tau2']
-                        eta = p['eta']
+                        base_sigma, base_t1, base_t2, eta = p['sigma'], p['tau1'], p['tau2'], p['eta']
 
-                    # apply per-isotope scales if enabled
-                    if self.fit_iso_shape_scales:
+                    # (2) optionally apply per-isotope scale factors
+                    if getattr(self, 'fit_iso_shape_scales', False):
                         sS = float(kw.get(f"s_sigma_{stem}", 1.0))
-                        s1 = float(kw.get(f"s_tau1_{stem}", 1.0))
-                        s2 = float(kw.get(f"s_tau2_{stem}", 1.0))
+                        s1 = float(kw.get(f"s_tau1_{stem}",  1.0))
+                        s2 = float(kw.get(f"s_tau2_{stem}",  1.0))
                         sigma = base_sigma * sS
                         t1    = base_t1    * s1
                         t2    = base_t2    * s2
@@ -452,9 +471,22 @@ class AlphaMultiEMGSigmaFit:
         # Use linear loss to get interpretable χ²
         fit_kws = dict(loss='linear')
 
+        # ---- Bashir's Abort callback ----
+        _should_abort = getattr(self, "_should_abort", None)
+
+        def _iter_cb(params=None, iter=None, resid=None, *args, **kwargs):
+            # let the GUI process clicks so Abort can be pressed
+            if QApplication is not None:
+                QApplication.processEvents()
+            # returning True tells lmfit to stop
+            return bool(_should_abort and _should_abort())
+        ###########################################################
+
         # single initial fit
         res = model.fit(yf, params=pars, x=xf, method='least_squares',
-                        weights=w_fit, fit_kws=fit_kws, max_nfev=2000)
+                        weights=w_fit, fit_kws=fit_kws, max_nfev=2000,
+                        iter_cb=_iter_cb,   # Bashir added for aborting fit
+                        )
 
         # IRLS: switch weights to model
         if wmode == 2:
@@ -465,7 +497,13 @@ class AlphaMultiEMGSigmaFit:
                     w_fit = 1.0 / np.sqrt(np.clip(yhat, 1.0, None))
                     new = model.fit(yf, params=last.params.copy(), x=xf,
                                     method='least_squares', weights=w_fit,
-                                    fit_kws=fit_kws, max_nfev=1500)
+                                    fit_kws=fit_kws, max_nfev=1500,
+                                    iter_cb=_iter_cb,   # Bashir added for aborting fit
+                                    )
+                    if _should_abort and _should_abort():
+                        fit_results.append("[abort] Stopped during IRLS.")
+                        return None
+                        
                     rel = abs(new.chisqr - last.chisqr) / max(last.chisqr, 1.0)
                     last = new
                     if rel < IRLS_IMPROVE:
@@ -527,14 +565,17 @@ class AlphaMultiEMGSigmaFit:
 
         wtxt = {0: "none", 1: "Poisson(data)", 2: "Poisson(model, IRLS)"}[wmode]
         bw_str = _fmt_val_err(res.params['bw'].value, res.params['bw'].stderr)
+
+        # numeric d0/dg (needed for μ_eff); also formatted strings for header
         d0p = res.params.get('d0'); dgp = res.params.get('dg')
+        d0   = float(d0p.value) if d0p is not None else 0.0
+        dg   = float(dgp.value) if dgp is not None else 0.0
         d0_str = _fmt_val_err(d0p.value, getattr(d0p, "stderr", None)) if d0p else "n/a"
         dg_str = _fmt_val_err(dgp.value, getattr(dgp, "stderr", None)) if dgp else "n/a"
 
         header = (f"Notes: bandwidth = {bw_str} ; weighting = {wtxt}\n"
                 f"Global shift d0 = {d0_str} ; Global gain dg = {dg_str}")
 
-        # show fitted global shapes if enabled
         if self.fit_global_shapes:
             def fmt(pn):
                 pp = res.params.get(pn)
@@ -558,7 +599,6 @@ class AlphaMultiEMGSigmaFit:
                     f"sτ1={fmt_s(f's_tau1_{stem}')}, sτ2={fmt_s(f's_tau2_{stem}')}"
                 )
 
-
         stats = (f"[stats] chi-square={res.chisqr:.3f} ; reduced chi-square={res.redchi:.3f} ; "
                 f"dof={res.nfree} (N={res.ndata}, k={res.nvarys}) ; R^2 (plain)={R2_plain:.4f}")
 
@@ -580,20 +620,175 @@ class AlphaMultiEMGSigmaFit:
             base += f"   (subpeaks={len(blockE)}; ratios=[{rat_str}]; E=[{E_str}])"
             iso_lines.append(base)
 
-        # note dm’s at bounds
+        # ---- build per-isotope effective values ONCE (rows), then use for report + CSV
+        p = res.params
+        use_scales = getattr(self, 'fit_iso_shape_scales', False)
+        now = datetime.now().isoformat(timespec="seconds")
+        rows = []
+
+        for iso in self._isotopes:
+            stem = iso['safe']; name = iso['name']
+
+            A_iso = float(p[f"A_{stem}"].value)
+            dm    = float(p[f"dm_{stem}"].value) if (self.allow_shift and f"dm_{stem}" in p) else 0.0
+
+            sS = float(p.get(f"s_sigma_{stem}", 1.0).value) if use_scales and p.get(f"s_sigma_{stem}") else 1.0
+            s1 = float(p.get(f"s_tau1_{stem}",  1.0).value) if use_scales and p.get(f"s_tau1_{stem}")  else 1.0
+            s2 = float(p.get(f"s_tau2_{stem}",  1.0).value) if use_scales and p.get(f"s_tau2_{stem}")  else 1.0
+
+            idx0, idx1 = iso['start_idx'], iso['end_idx']
+            q_best = max(self._pulses[idx0:idx1+1], key=lambda q: float(q.get('ratio', 0.0)))
+
+            if self.fit_global_shapes:
+                sigma0, t10, t20, eta0 = float(p['sigma'].value), float(p['tau1'].value), float(p['tau2'].value), float(p['eta'].value)
+            else:
+                sigma0, t10, t20, eta0 = float(q_best['sigma']), float(q_best['tau1']), float(q_best['tau2']), float(q_best['eta'])
+
+            mu_eff   = (1.0 + dg) * float(q_best['mu0']) + d0 + dm
+            sigma_eff = sigma0 * sS
+            tau1_eff  = t10    * s1
+            tau2_eff  = t20    * s2
+
+            rows.append({
+                "timestamp": now,
+                "chi-square": float(getattr(res, "redchi", np.nan)),   # store redchi here; change if you want raw chisqr
+                "R2": float(R2_plain),
+                "A": float(A_iso),
+                "mu": float(mu_eff),
+                "sigma": float(sigma_eff),
+                "tau11": float(tau1_eff),
+                "tau12": float(tau2_eff),
+                "eta": float(eta0),
+                # optionally: "isotope": name, "E_keV": q_best['E']
+            })
+
+
+        # --- NEW: Per-subpeak (component) printout: A, σ, τ1, τ2, η ---
+        subpeak_lines = []
+        subpeak_lines.append("\nPer-subpeak parameters:")
+
+        use_scales = getattr(self, 'fit_iso_shape_scales', False)
+
+        for iso in self._isotopes:
+            stem = iso['safe']; name = iso['name']
+
+            A_iso = float(p[f"A_{stem}"].value)
+            dm    = float(p[f"dm_{stem}"].value) if (self.allow_shift and f"dm_{stem}" in p) else 0.0
+
+            sS = float(p.get(f"s_sigma_{stem}", 1.0).value) if use_scales and p.get(f"s_sigma_{stem}") else 1.0
+            s1 = float(p.get(f"s_tau1_{stem}",  1.0).value) if use_scales and p.get(f"s_tau1_{stem}")  else 1.0
+            s2 = float(p.get(f"s_tau2_{stem}",  1.0).value) if use_scales and p.get(f"s_tau2_{stem}")  else 1.0
+
+            if self.fit_global_shapes:
+                sigma0 = float(p['sigma'].value)
+                t10    = float(p['tau1'].value)
+                t20    = float(p['tau2'].value)
+                eta0   = float(p['eta'].value)
+            else:
+                sigma0 = t10 = t20 = eta0 = None
+
+            for kk in range(iso['start_idx'], iso['end_idx'] + 1):
+                q = self._pulses[kk]
+
+                A_sub  = A_iso * float(q['ratio'])
+                mu_sub = (1.0 + dg) * float(q['mu0']) + d0 + dm
+
+                if self.fit_global_shapes:
+                    sigma_eff = sigma0 * sS
+                    tau1_eff  = t10    * s1
+                    tau2_eff  = t20    * s2
+                    eta_eff   = eta0
+                else:
+                    sigma_eff = float(q['sigma']) * sS
+                    tau1_eff  = float(q['tau1'])  * s1
+                    tau2_eff  = float(q['tau2'])  * s2
+                    eta_eff   = float(q['eta'])
+
+                subpeak_lines.append(
+                    f"{name:>10}  E={q['E']:.1f} keV : "
+                    f"A={A_sub:.6g}, μ={mu_sub:.3f}, σ={sigma_eff:.3g}, "
+                    f"τ1={tau1_eff:.3g}, τ2={tau2_eff:.3g}, η={eta_eff:.3g}"
+                )
+
+
+        # ---- include in the report text ----
         hits = []
         for iso in self._isotopes:
             pDM = res.params.get(f"dm_{iso['safe']}")
-            if pDM and (abs(pDM.value - pDM.min) < 1e-9 or abs(pDM.value - pDM.max) < 1e-9):
+            if pDM and (abs(pDM.value - pDM.min) < 1e-12 or abs(pDM.value - pDM.max) < 1e-12):
                 hits.append(iso['name'])
-        notice = ("" if not hits else
-                f"\n[notice] These dm’s hit the bound ({self.shift_bound}): " + ", ".join(hits))
+        notice = "" if not hits else (
+            f"\n[notice] These dm’s hit the bound ({self.shift_bound}): " + ", ".join(hits)
+        )
 
         fit_results.setPlainText(
-            header + "\n" + stats + "\n\n" + "\n".join(iso_lines) + notice + "\n\n" +
+            header + "\n" + stats + "\n\n" +
+            "\n".join(iso_lines) + "\n" +             # your existing per-isotope lines
+            "\n".join(subpeak_lines) +                # NEW per-subpeak lines
+            notice + "\n\n" +
             fit_report(res, show_correl=True)
         )
 
+
+        # ---- CSV: per-subpeak components ----
+        subrows = []
+        now = datetime.now().isoformat(timespec="seconds")
+        use_scales = getattr(self, 'fit_iso_shape_scales', False)
+        p = res.params
+
+        for iso in self._isotopes:
+            stem = iso['safe']; name = iso['name']
+            A_iso = float(p[f"A_{stem}"].value)
+            dm    = float(p[f"dm_{stem}"].value) if (self.allow_shift and f"dm_{stem}" in p) else 0.0
+
+            sS = float(p.get(f"s_sigma_{stem}", 1.0).value) if use_scales and p.get(f"s_sigma_{stem}") else 1.0
+            s1 = float(p.get(f"s_tau1_{stem}",  1.0).value) if use_scales and p.get(f"s_tau1_{stem}")  else 1.0
+            s2 = float(p.get(f"s_tau2_{stem}",  1.0).value) if use_scales and p.get(f"s_tau2_{stem}")  else 1.0
+
+            # global or local baselines
+            if self.fit_global_shapes:
+                sigma0 = float(p['sigma'].value); t10 = float(p['tau1'].value)
+                t20 = float(p['tau2'].value);     eta0 = float(p['eta'].value)
+            # else: use each q's own shapes below
+
+            for kk in range(iso['start_idx'], iso['end_idx'] + 1):
+                q = self._pulses[kk]
+                A_sub = A_iso * float(q['ratio'])
+                mu_sub = (1.0 + dg) * float(q['mu0']) + d0 + dm
+
+                if self.fit_global_shapes:
+                    sigma_eff = sigma0 * sS; tau1_eff = t10 * s1; tau2_eff = t20 * s2; eta_eff = eta0
+                else:
+                    sigma_eff = float(q['sigma']) * sS
+                    tau1_eff  = float(q['tau1'])  * s1
+                    tau2_eff  = float(q['tau2'])  * s2
+                    eta_eff   = float(q['eta'])
+
+                subrows.append({
+                    "timestamp": now,
+                    "isotope": name,
+                    "E_keV": float(q['E']),
+                    "A_sub": float(A_sub),
+                    "mu": float(mu_sub),
+                    "sigma": float(sigma_eff),
+                    "tau1": float(tau1_eff),
+                    "tau2": float(tau2_eff),
+                    "eta": float(eta_eff),
+                    "chi2": float(getattr(res, "redchi", np.nan)),
+                    "R2": float(R2_plain),
+                })
+
+        subcsv = os.path.join(os.getcwd(), "fit_EMGMultiSigma_subpeaks.csv")
+        subfields = ["timestamp","isotope","E_keV","A_sub","mu","sigma","tau1","tau2","eta","chi2","R2"]
+        write_header = (not os.path.exists(subcsv)) or (os.path.getsize(subcsv) == 0)
+        with open(subcsv, "a", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=subfields)
+            if write_header:
+                w.writeheader()
+            w.writerows(subrows)
+
+                        
+        
         # ---------------- plotting ----------------
         xx  = np.linspace(x.min(), x.max(), 1400)
         p   = res.params
@@ -615,25 +810,42 @@ class AlphaMultiEMGSigmaFit:
             eta_v = float(p['eta'].value)
 
         # --- draw one dashed line per sub-peak ---
+        # --- draw one dashed line per sub-peak ---
+        use_scales = getattr(self, 'fit_iso_shape_scales', False)
         sub_lines = []
+
         for iso in self._isotopes:
             stem = iso['safe']; name = iso['name']
             A_iso = float(p[f"A_{stem}"].value)
             dm    = float(p[f"dm_{stem}"].value) if (self.allow_shift and f"dm_{stem}" in p) else 0.0
+
+            # scale factors (default 1 if not fitted)
+            sS = float(p.get(f"s_sigma_{stem}", 1.0).value) if use_scales and p.get(f"s_sigma_{stem}") else 1.0
+            s1 = float(p.get(f"s_tau1_{stem}",  1.0).value) if use_scales and p.get(f"s_tau1_{stem}")  else 1.0
+            s2 = float(p.get(f"s_tau2_{stem}",  1.0).value) if use_scales and p.get(f"s_tau2_{stem}")  else 1.0
 
             for kk in range(iso['start_idx'], iso['end_idx'] + 1):
                 q   = self._pulses[kk]
                 A   = A_iso * float(q['ratio'])
                 mu  = (1.0 + dg) * float(q['mu0']) + d0 + dm
 
+                # choose baselines (global if fitted, else from file)
                 if self.fit_global_shapes:
-                    yj = _peak_binned(xx, A, mu, sig_v, t1_v, t2_v, eta_v, bwv)
+                    sigma0, t10, t20, eta0 = sig_v, t1_v, t2_v, eta_v
                 else:
-                    yj = _peak_binned(xx, A, mu, q['sigma'], q['tau1'], q['tau2'], q['eta'], bwv)
+                    sigma0, t10, t20, eta0 = q['sigma'], q['tau1'], q['tau2'], q['eta']
+
+                # apply per-isotope scales
+                sigma = sigma0 * sS
+                t1    = t10    * s1
+                t2    = t20    * s2
+
+                yj = _peak_binned(xx, A, mu, sigma, t1, t2, eta0, bwv)
 
                 label = f"{name} {q['E']:.1f} keV"
                 (ln,) = axis.plot(xx, yj, lw=1.8, ls='--', alpha=0.9, label=label)
                 sub_lines.append(ln)
+
 
         # --- labels after all lines are drawn ---
         axis.relim(); axis.autoscale_view()

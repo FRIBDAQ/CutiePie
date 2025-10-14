@@ -429,6 +429,13 @@ class AlphaEMG32Fit:
                     res = new
             except Exception:
                 pass
+
+        R2_plain = getattr(res, "rsquared", None)
+        if R2_plain is None:
+            yhat = model.eval(res.params, x=x)
+            ss_res = float(np.sum((y - yhat)**2))
+            ss_tot = float(np.sum((y - y.mean())**2))
+            R2_plain = 1.0 - ss_res / (ss_tot + 1e-16)
         # Writing to a CSV file
         # --- Save CSV (main values only) --------------------------------------
         p = res.params  # shorthand
@@ -444,6 +451,7 @@ class AlphaEMG32Fit:
         fieldnames = [
             "timestamp",
             "chi-square",
+            "R2",
             "A1","mu1","sigma1","tau11","tau12","eta1",
             "A2","mu2","sigma2","tau21","tau22","eta2",
             "A3","mu3","sigma3","tau31","tau32","eta3",
@@ -451,6 +459,7 @@ class AlphaEMG32Fit:
         row = {
             "timestamp": timestamp,
             "chi-square": redchi,
+            "R2": R2_plain,
             "A1": _get("A1"),        "mu1": _get("mu1"),        "sigma1": _get("sigma1"),
             "tau11": _get("tau11"),    "tau12": _get("tau12"),      "eta1": _get("eta1"),
             "A2": _get("A2"),        "mu2": _get("mu2"),        "sigma2": _get("sigma2"),
