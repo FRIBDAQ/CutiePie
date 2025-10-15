@@ -283,7 +283,7 @@ config_algo_canny = {
 }
 '''
 # Fitting function registration
-fitfactory.register_builder('Gauss', fit_gaus_creator.GausFitBuilder(), config_fit_gaus)
+# fitfactory.register_builder('Gauss', fit_gaus_creator.GausFitBuilder(), config_fit_gaus)
 # fitfactory.register_builder('Exp', fit_exp_creator.ExpFitBuilder(), config_fit_exp)
 # fitfactory.register_builder('Pol1', fit_p1_creator.Pol1FitBuilder(), config_fit_p1)
 # fitfactory.register_builder('Pol2', fit_p2_creator.Pol2FitBuilder(), config_fit_p2)

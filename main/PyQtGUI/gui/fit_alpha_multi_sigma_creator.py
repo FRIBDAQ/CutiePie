@@ -236,7 +236,7 @@ class AlphaMultiEMGSigmaFit:
                  calib_a=7.1195126, calib_b=-7029.0,
                  calibration_file=None,
                 #  calib_a=5.1787509, calib_b=-5436.5,
-                 allow_shift=True, shift_bound=100.0,
+                 allow_shift=True, shift_bound=0.0,
                  fix_ratios=True, wmode_default=2,
                  fit_global_shapes=True,
                  fit_iso_shape_scales=True,      
@@ -256,14 +256,16 @@ class AlphaMultiEMGSigmaFit:
             self.calibration_file = calibration_file if isinstance(calibration_file, str) else None
 
 
-        self.calib_a       = float(calib_a)
-        self.calib_b       = float(calib_b)
         self.allow_shift   = bool(allow_shift)
         self.shift_bound   = float(shift_bound)
         self.fix_ratios    = bool(fix_ratios)
         self.wmode_default = int(wmode_default)
         self.fit_global_shapes = bool(fit_global_shapes)
         self.fit_iso_shape_scales = bool(fit_iso_shape_scales)
+
+        if self.fit_iso_shape_scales and not self.fit_global_shapes:
+            self.fit_iso_shape_scales = False  # silently coerce (or raise if you prefer)
+
         self.shape_bounds = shape_bounds or {
             "sigma": (1.0, 2000.0),          # ADC
             "tau1":  (1.0, 2000.0),          # ADC
@@ -308,30 +310,69 @@ class AlphaMultiEMGSigmaFit:
                 return None
             dx = float(np.median(np.diff(x))) if x.size > 1 else dx
 
-        # Pull bw/wmode from fitpar if present; else default to IRLS
+        # --- Parse bw, wmode, d0_abs, dg_abs, dm_abs (zeros allowed) ---
         fp = list(fitpar) if fitpar is not None else []
+
         bw    = dx
-        wmode = getattr(self, "wmode_default", 2)  # default = 2
+        wmode = getattr(self, "wmode_default", 2)
 
-        if len(fp) >= 2:
-            try:
-                cand_bw = float(fp[-2])
-                if np.isfinite(cand_bw) and cand_bw > 0:
-                    bw = cand_bw
-            except Exception:
-                pass
-            try:
-                cand_wm = int(round(float(fp[-1])))
-                if cand_wm in (0, 1, 2):
-                    wmode = cand_wm
-            except Exception:
-                pass
+        D0_DEF = 500.0                 # sensible defaults
+        DG_DEF = 2e-2
+        DM_DEF = self.shift_bound
+        d0_abs, dg_abs, dm_abs = D0_DEF, DG_DEF, DM_DEF
 
+        def _num_or(default, v):
+            try:
+                z = float(v)
+                return z if np.isfinite(z) else default
+            except Exception:
+                return default
+
+        # Expect tail: [..., bw, wmode, d0_abs, dg_abs, dm_abs]
+        if len(fp) >= 5:
+            bw     = _num_or(bw,    fp[-5])
+            wmode  = int(round(_num_or(wmode, fp[-4])))
+            d0_abs = abs(_num_or(d0_abs, fp[-3]))   # allow 0 (locks d0)
+            dg_abs = abs(_num_or(dg_abs, fp[-2]))   # allow 0 (locks dg)
+            dm_abs = abs(_num_or(dm_abs, fp[-1]))   # allow 0 (locks all dm_*)
+
+        # sanitize
         if not (isinstance(bw, float) and np.isfinite(bw) and bw > 0):
             bw = dx
         if wmode not in (0, 1, 2):
-            wmode = 2
+            wmode = getattr(self, "wmode_default", 2)
 
+        # use these for bounds/flags
+        vary_d0 = (d0_abs > 0)
+        vary_dg = (dg_abs > 0)
+
+        #######################################################
+        '''
+        # Defaults if user doesn't provide:
+        D0_DEF = 500.0      # |d0| ≤ 500 ADC (pick what makes sense for your setup)
+        DG_DEF = 2e-2       # |dg| ≤ 0.02 (±2% gain)
+        DM_DEF = self.shift_bound  # keep your existing per-isotope shift as fallback
+
+        d0_abs = D0_DEF
+        dg_abs = DG_DEF
+        dm_abs = DM_DEF
+        '''
+        # If user supplied extra 3 numbers after bw,wmode:
+        # [..., bw, wmode, d0_abs, dg_abs, dm_abs]
+        if len(fp) >= 5:
+            def _pos_or(default, v):
+                try:
+                    z = float(v)
+                    return z if np.isfinite(z) and z > 0 else default
+                except Exception:
+                    return default
+            d0_abs = _pos_or(D0_DEF,  fp[-3])
+            dg_abs = _pos_or(DG_DEF,  fp[-2])
+            dm_abs = _pos_or(DM_DEF,  fp[-1])
+        if dm_abs == 0.0:
+            self.allow_shift = False  # lock all dm_* parameters
+
+        ######################################################
         # Build parameters
         pars = Parameters()
 
@@ -351,10 +392,17 @@ class AlphaMultiEMGSigmaFit:
             lo, hi = self.shape_bounds["eta"]
             pars.add('eta',   value=eta_seed, min=lo, max=hi, vary=True)
 
-        pars.add('d0', value=0.0, min=-5000, max=+5000)      # global μ offset
-        pars.add('dg', value=0.0, min=-2e-2, max=+2e-2)      # tiny global gain (±0.5%)
+        vary_d0 = (d0_abs > 0)
+        vary_dg = (dg_abs > 0)
+        pars.add('d0', value=0.0,
+                min=(-float(d0_abs) if vary_d0 else 0.0),
+                max=(+float(d0_abs) if vary_d0 else 0.0),
+                vary=vary_d0)
+        pars.add('dg', value=0.0,
+                min=(-float(dg_abs) if vary_dg else 0.0),
+                max=(+float(dg_abs) if vary_dg else 0.0),
+                vary=vary_dg)
 
-        
         # background
         # pars.add('b0', value=max(np.percentile(y, 1), 0.0), min=0.0)
         # pars.add('b1', value=0.0)  # optional slope
@@ -379,9 +427,13 @@ class AlphaMultiEMGSigmaFit:
                 if np.count_nonzero(mwin) > 5:
                     xxw, yyw = x[mwin], y[mwin]
                     dm0 = float(xxw[np.argmax(yyw)] - mu0i)
-                dm_lo = -self.shift_bound; dm_hi = +self.shift_bound
-                pars.add(f"dm_{stem}", value=float(np.clip(dm0, dm_lo, dm_hi)),
-                        min=dm_lo, max=dm_hi, vary=True)
+                dm_lo = -float(dm_abs)
+                dm_hi = +float(dm_abs)
+                pars.add(
+                    f"dm_{stem}",
+                    value=float(np.clip(dm0, dm_lo, dm_hi)),
+                    min=dm_lo, max=dm_hi, vary=True
+                )
             
             # --- NEW: optional per-isotope scale factors for σ, τ1, τ2
             if self.fit_iso_shape_scales:
@@ -503,7 +555,7 @@ class AlphaMultiEMGSigmaFit:
                     if _should_abort and _should_abort():
                         fit_results.append("[abort] Stopped during IRLS.")
                         return None
-                        
+
                     rel = abs(new.chisqr - last.chisqr) / max(last.chisqr, 1.0)
                     last = new
                     if rel < IRLS_IMPROVE:
@@ -544,6 +596,9 @@ class AlphaMultiEMGSigmaFit:
             + fit_report(res, show_correl=True)
         )
         '''
+        if _iter_cb():
+            return None
+
         # ---------- Reporting ----------
         def _fmt_val_err(v, e, digs=6):
             try:
@@ -575,6 +630,24 @@ class AlphaMultiEMGSigmaFit:
 
         header = (f"Notes: bandwidth = {bw_str} ; weighting = {wtxt}\n"
                 f"Global shift d0 = {d0_str} ; Global gain dg = {dg_str}")
+
+        # --- Shapes source + mode header line ---
+        mode = ("global + per-isotope scales" if (self.fit_global_shapes and self.fit_iso_shape_scales)
+                else "global" if self.fit_global_shapes
+                else "frozen (file σ,τ₁,τ₂,η)")
+        shape_src = os.path.abspath(self.shape_file)
+        try:
+            mtime = datetime.fromtimestamp(os.path.getmtime(self.shape_file)).isoformat(timespec="seconds")
+            shape_head = f"[shapes] mode = {mode} ; source = {shape_src} ; mtime = {mtime}"
+        except Exception:
+            shape_head = f"[shapes] mode = {mode} ; source = {shape_src}"
+
+        # put shapes line before the existing header
+        header = shape_head + "\n" + header
+
+
+        header += (f"\nBounds: |d0|≤{d0_abs:g}, |dg|≤{dg_abs:g}, |dm_*|≤{dm_abs:g}")
+
 
         if self.fit_global_shapes:
             def fmt(pn):
@@ -717,9 +790,19 @@ class AlphaMultiEMGSigmaFit:
             pDM = res.params.get(f"dm_{iso['safe']}")
             if pDM and (abs(pDM.value - pDM.min) < 1e-12 or abs(pDM.value - pDM.max) < 1e-12):
                 hits.append(iso['name'])
-        notice = "" if not hits else (
-            f"\n[notice] These dm’s hit the bound ({self.shift_bound}): " + ", ".join(hits)
-        )
+
+        more = []
+        for nm in ('d0','dg'):
+            pG = res.params.get(nm)
+            if pG and (abs(pG.value - pG.min) < 1e-12 or abs(pG.value - pG.max) < 1e-12):
+                more.append(nm)
+
+        notice = ""
+        if hits or more:
+            who = f"dm_* at bounds: {', '.join(hits)}" if hits else ""
+            gbl = f"globals at bounds: {', '.join(more)}" if more else ""
+            join = " ; " if (who and gbl) else ""
+            notice = f"\n[notice] {who}{join}{gbl}"
 
         fit_results.setPlainText(
             header + "\n" + stats + "\n\n" +
@@ -776,10 +859,14 @@ class AlphaMultiEMGSigmaFit:
                     "eta": float(eta_eff),
                     "chi2": float(getattr(res, "redchi", np.nan)),
                     "R2": float(R2_plain),
+                    "d0_bound": d0_abs,
+                    "dg_bound": dg_abs,
+                    "dm_bound": dm_abs,
                 })
 
         subcsv = os.path.join(os.getcwd(), "fit_EMGMultiSigma_subpeaks.csv")
-        subfields = ["timestamp","isotope","E_keV","A_sub","mu","sigma","tau1","tau2","eta","chi2","R2"]
+        subfields = ["timestamp","isotope","E_keV","A_sub","mu","sigma","tau1","tau2","eta","chi2","R2",
+             "d0_bound","dg_bound","dm_bound"]
         write_header = (not os.path.exists(subcsv)) or (os.path.getsize(subcsv) == 0)
         with open(subcsv, "a", newline="") as f:
             w = csv.DictWriter(f, fieldnames=subfields)

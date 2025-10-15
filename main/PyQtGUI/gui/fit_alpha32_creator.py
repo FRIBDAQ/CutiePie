@@ -31,6 +31,11 @@ from scipy.special import erfcx, erfc
 
 # Keep import so the factory can discover this module
 import fit_factory  # noqa: F401
+try:
+    from PyQt5.QtWidgets import QApplication
+except Exception:
+    QApplication = None
+
 
 # 7-point Gauss–Legendre on [-1, 1]
 _GL7_T = np.array(
@@ -397,9 +402,22 @@ class AlphaEMG32Fit:
 
         fit_kws = dict(loss='soft_l1', f_scale=1.0)  # for method='least_squares'
 
+        # ---- Bashir's Abort callback ----
+        _should_abort = getattr(self, "_should_abort", None)
+
+        def _iter_cb(params=None, iter=None, resid=None, *args, **kwargs):
+            # let the GUI process clicks so Abort can be pressed
+            if QApplication is not None:
+                QApplication.processEvents()
+            # returning True tells lmfit to stop
+            return bool(_should_abort and _should_abort())
+        ###########################################################
+
         # First fit
         res = model.fit(y, params=pars, x=x, method='least_squares',
-                        weights=weights, fit_kws=fit_kws)
+                        weights=weights, fit_kws=fit_kws, max_nfev=2000,
+                        iter_cb=_iter_cb # Bashir added for aborting fit
+                        )
 
 
         # for nm in ('eta1','eta2','eta3'):
@@ -423,7 +441,9 @@ class AlphaEMG32Fit:
                     yhat = model.eval(res.params, x=x)
                     w = 1.0 / np.sqrt(np.clip(yhat, 1.0, None))
                     new = model.fit(y, params=res.params.copy(), x=x,
-                                    method='least_squares', weights=w, fit_kws=fit_kws)
+                                    method='least_squares', weights=w, fit_kws=fit_kws, max_nfev=1500,
+                                    iter_cb=_iter_cb # Bashir added for aborting fit
+                                    )
                     if abs(new.chisqr - res.chisqr)/max(res.chisqr,1) < 1e-3:
                         res = new; break
                     res = new
@@ -436,6 +456,10 @@ class AlphaEMG32Fit:
             ss_res = float(np.sum((y - yhat)**2))
             ss_tot = float(np.sum((y - y.mean())**2))
             R2_plain = 1.0 - ss_res / (ss_tot + 1e-16)
+
+        if _iter_cb():
+            return None
+
         # Writing to a CSV file
         # --- Save CSV (main values only) --------------------------------------
         p = res.params  # shorthand

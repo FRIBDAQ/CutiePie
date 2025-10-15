@@ -6005,11 +6005,11 @@ class MainWindow(QMainWindow):
                     fit = self.fit_factory.create(fit_funct, **config)
 
                     # Bashir added to poll abort flag
-                    setattr(fit, "_should_abort", lambda: self._abort_fit)
+                    setattr(fit, "_should_abort", lambda: getattr(self, "_abort_fit", False))
+                    # setattr(fit, "_should_abort", lambda: self._abort_fit)
 
 
                     # ---- Append/insert bw + wmode (model-aware indices) ----
-                    # right before you set bw/wmode
                     EMG_MODELS = {
                         "AlphaEMG1","AlphaEMG12","AlphaEMG2","AlphaEMG22",
                         "AlphaEMG3","AlphaEMG32","AlphaEMGMulti","AlphaEMGMultiSigma"
@@ -6024,14 +6024,32 @@ class MainWindow(QMainWindow):
                         except Exception:
                             bw = float(np.median(np.diff(xtmp))) if len(xtmp) > 1 else 1.0
 
-                        wmode = 2  # Poisson(model), IRLS default
-
                         if model_name in {"AlphaEMGMulti", "AlphaEMGMultiSigma"}:
-                            # these take bw,wmode at the END
+                            # compute bw as you already do...
+                            # wmode in p12
+                            try:
+                                wmode_ui = int(round(float(self.extraPopup.fit_p12.text())))
+                            except Exception:
+                                wmode_ui = 2
+                            if wmode_ui not in (0, 1, 2):
+                                wmode_ui = 2
+
+                            def _pos_or_zero(widget):
+                                try:
+                                    v = float(widget.text())
+                                    return v if np.isfinite(v) and v > 0 else 0.0
+                                except Exception:
+                                    return 0.0
+
+                            d0_abs_ui = _pos_or_zero(self.extraPopup.fit_p13)  # |d0|
+                            dg_abs_ui = _pos_or_zero(self.extraPopup.fit_p14)  # |dg|
+                            dm_abs_ui = _pos_or_zero(self.extraPopup.fit_p15)  # |dm*|
+
                             fitpar = (fitpar or [])
-                            fitpar.extend([bw, int(wmode)])
+                            fitpar.extend([bw, int(wmode_ui), d0_abs_ui, dg_abs_ui, dm_abs_ui])
 
                         elif model_name in {"AlphaEMG22"}:
+                            wmode = 2
                             bw_idx, wm_idx = 12, 13
                             need_len = wm_idx + 1
                             if len(fitpar) < need_len:
@@ -6040,6 +6058,7 @@ class MainWindow(QMainWindow):
                             fitpar[wm_idx] = int(wmode)
 
                         elif model_name in {"AlphaEMG32"}:
+                            wmode = 2
                             bw_idx, wm_idx = 18, 19
                             need_len = wm_idx + 1
                             if len(fitpar) < need_len:
@@ -6064,6 +6083,13 @@ class MainWindow(QMainWindow):
                     fitResultsText = QTextEdit()
                     print(f"Fitting {fit_funct} ...")
                     fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
+
+                    # Check if user aborted
+                    if fitln is None and self._abort_fit:
+                        fitResultsText.append("[abort] Fit stopped by user.")
+                        print("Fit aborted by user.")
+                        return
+
                     print("Fitting is done.")
 
 
@@ -6079,6 +6105,19 @@ class MainWindow(QMainWindow):
                             f"(source: {src})\n\n"
                         )
 
+                    # --- Report the shapes source + mode (like calibration) ---
+                    def _shape_mode(f):
+                        g = bool(getattr(f, "fit_global_shapes", False))
+                        i = bool(getattr(f, "fit_iso_shape_scales", False))
+                        if g and i:   return "global + per-isotope"
+                        if g:         return "global"
+                        if i:         return "per-isotope only (baseline from file)"
+                        return "frozen (file σ,τ₁,τ₂,η)"
+
+                    shape_src = config.get("shape_file", getattr(fit, "shape_file", None))
+                    fitResultsText.insertPlainText(
+                        f"[shapes] mode = {_shape_mode(fit)} ; source: {shape_src or 'unknown'}\n\n"
+                    )
 
                     self.setFitLineLabel(ax, fitln, fitResultsText, spectrumName)
 
@@ -6242,38 +6281,37 @@ class MainWindow(QMainWindow):
             self._cal = None
 
     def _prompt_shape_flags(self, default_global=True, default_iso_scales=False):
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Shape fitting options")
-
+        dlg = QDialog(self); dlg.setWindowTitle("Shape fitting options")
         lbl = QLabel("Choose how to treat peak shapes:")
+
         cb_global = QCheckBox("Fit global shape (σ, τ₁, τ₂, η)")
         cb_global.setChecked(bool(default_global))
 
-        cb_iso = QCheckBox("Fit iso shape scales (per-isotope σ/τ scale factors)")
-        cb_iso.setChecked(bool(default_iso_scales))
-        cb_iso.setEnabled(cb_global.isChecked())          # only meaningful if global is on
-        cb_global.toggled.connect(cb_iso.setEnabled)      # keep UI consistent
+        cb_iso = QCheckBox("Enable per-isotope scale multipliers (requires global)")
+        cb_iso.setChecked(bool(default_iso_scales and default_global))
+        cb_iso.setEnabled(cb_global.isChecked())
 
-        btn_ok = QPushButton("OK")
-        btn_cancel = QPushButton("Cancel")
-        btn_ok.clicked.connect(dlg.accept)
-        btn_cancel.clicked.connect(dlg.reject)
+        def on_global_toggled(on):
+            if not on:
+                cb_iso.setChecked(False)
+            cb_iso.setEnabled(on)
 
-        v = QVBoxLayout(dlg)
-        v.addWidget(lbl)
-        v.addWidget(cb_global)
-        v.addWidget(cb_iso)
-        h = QHBoxLayout(); h.addStretch(1); h.addWidget(btn_ok); h.addWidget(btn_cancel)
-        v.addLayout(h)
+        cb_global.toggled.connect(on_global_toggled)
+
+        btn_ok = QPushButton("OK"); btn_cancel = QPushButton("Cancel")
+        btn_ok.clicked.connect(dlg.accept); btn_cancel.clicked.connect(dlg.reject)
+
+        v = QVBoxLayout(dlg); v.addWidget(lbl); v.addWidget(cb_global); v.addWidget(cb_iso)
+        h = QHBoxLayout(); h.addStretch(1); h.addWidget(btn_ok); h.addWidget(btn_cancel); v.addLayout(h)
 
         if dlg.exec_() != QDialog.Accepted:
             return None
 
         return {
             "fit_global_shapes": cb_global.isChecked(),
-            "fit_iso_shape_scales": (cb_iso.isChecked() and cb_iso.isEnabled()),
+            "fit_iso_shape_scales": (cb_global.isChecked() and cb_iso.isChecked()),
         }
+
 
     ################################ Bashir added to loadpre-fitted parameters for alpha spectra ######
 

@@ -154,14 +154,16 @@ class SpecialFunctions(QWidget):
         self.delete_button = QPushButton("Delete", self)
         self.delete_button.setToolTip("Delete the listed fitted lines" )
 
+        
         ### Bashir added for alpha spectra ########################
-                #### Bashir added for alpha spectra ########################
         # models in the dropdown
-        self.fit_list.addItems(["AlphaEMG22", "AlphaEMG32"])
+        # self.fit_list.addItems(["AlphaEMG22", "AlphaEMG32"])
+        self.fit_list.addItems(["AlphaEMGMultiSigma"])
         self.fit_list.currentTextChanged.connect(self._on_model_changed)
         # set initial labeling
-        self._on_model_changed("AlphaEMG22")  # or "AlphaEMG32"
+        self._on_model_changed("AlphaEMGMultiSigma")
         ############################################################
+        
 
         self.fit_p0.setText("0")
         self.fit_p1.setText("0")
@@ -295,6 +297,16 @@ class SpecialFunctions(QWidget):
                 "ratio2 (A2/A1)","mu2","sigma2","tau21","tau22","eta2",
                 "ratio3 (A3/A1)","mu3","sigma3","tau31","tau32","eta3"
             ],
+
+            "AlphaEMGMultiSigma": [
+                "", "", "", "", "", "", "", "", "", "", "", "",   # p0..p11 hidden
+                "wmode",            # p12 (row 6, left)
+                "bound |d0|",       # p13 (row 6, right)
+                "bound |dg|",       # p14 (row 7, left)
+                "bound |dm*|",      # p15 (row 7, right)
+                "", "", "", "", ""  # p16..p19 hidden
+            ],
+
         }
 
         labels = [
@@ -312,15 +324,16 @@ class SpecialFunctions(QWidget):
 
         names = maps.get(name, [])
         # Update text and visibility
-        for i, lab in enumerate(labels):
-            use = i < len(names)
-            lab.setVisible(use); edits[i].setVisible(use)
-            if use:
+        for i, (lab, edit) in enumerate(zip(labels, edits)):
+            show = i < len(names) and bool(names[i])
+            lab.setVisible(show); edit.setVisible(show)
+            if show:
                 lab.setText(names[i])
-
         # Helpful tooltips for the eta’s:
         tt = "Slow-tail weight η in [0,1] (fixed by user)"
-        if name == "AlphaEMG22":
+        if name == "AlphaEMG12":
+            self.fit_p5_label.setToolTip(tt)    # eta
+        elif name == "AlphaEMG22":
             self._clear_fields([6, 12, 13, 14, 15])
             self.fit_p5_label.setToolTip(tt)    # eta1
             self.fit_p11_label.setToolTip(tt)   # eta2
@@ -329,3 +342,9 @@ class SpecialFunctions(QWidget):
             self.fit_p5_label.setToolTip(tt)    # eta1
             self.fit_p11_label.setToolTip(tt)   # eta2
             self.fit_p17_label.setToolTip(tt)   # eta3
+        elif name == "AlphaEMGMultiSigma":
+            self.fit_p12.setToolTip("0=unweighted, 1=Poisson(data), 2=Poisson(model, IRLS)")
+            self.fit_p13.setToolTip("Symmetric limit for |d0| (ADC)")
+            self.fit_p14.setToolTip("Symmetric limit for |dg| (gain)")
+            self.fit_p15.setToolTip("Symmetric limit for every dm_* (ADC)")
+
