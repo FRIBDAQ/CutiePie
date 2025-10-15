@@ -14,6 +14,9 @@ import CPyConverter as cpy
 ## Bashir imports ###
 import signal, ctypes
 import re
+import csv, json
+from types import SimpleNamespace
+
 
 
 # import importlib
@@ -175,6 +178,9 @@ class MainWindow(QMainWindow):
 
         self.factory = factory
         self.fit_factory = fit_factory
+
+
+        self._abort_fit = False # Bashir added for aborting fit
 
         self.setWindowTitle("CutiePie - (QtPy) - It's not a bug, it's a feature (cit.) Qt5 and PyQty5 used under open source terms.")
         #### Bashir added for lightgrey visualization #######
@@ -483,6 +489,7 @@ class MainWindow(QMainWindow):
 
         # extra popup
         self.extraPopup.fit_button.clicked.connect(self.fit)
+        self.extraPopup.abort_button.clicked.connect(self.on_abort_clicked)  # Bashir added Abort button
         self.extraPopup.all_fitIdx_button.clicked.connect(self.printFitLineLabels)
         self.extraPopup.delete_button.clicked.connect(self.deleteFit)
 
@@ -759,6 +766,20 @@ class MainWindow(QMainWindow):
         if self.currentPlot.isEnlarged:
             index = self.wTab.selected_plot_index_bak[self.wTab.currentIndex()]
         self.currentPlot.selected_plot_index = index
+
+        ##### Bashir added for energy calibration ####################
+        # --- Calibration capture (Ctrl + Left-click while the calibration dialog is open) ---
+        cal = getattr(self, "_cal", None)
+        if cal and getattr(cal, "active", False) and (event.inaxes is cal.ax):
+            ge = getattr(event, "guiEvent", None)
+            ctrl = bool(ge and (ge.modifiers() & Qt.ControlModifier))
+            if ctrl and event.button == 1 and (event.xdata is not None):
+                cal.add_point(event.xdata)
+                return  # swallow so it doesn’t trigger other actions
+
+
+##################################################################################################
+
 
         if event.dblclick:
             if self.currentPlot.toCreateGate or self.currentPlot.toCreateSumRegion :
@@ -1399,7 +1420,7 @@ class MainWindow(QMainWindow):
         tab = self.wTab.tabBar()
         tabRect = tab.rect()
 
-        sizeSubTab = QtCore.QPoint(int(tabRect.width()/self.wTab.count()), int(tabRect.height()/2))
+        sizeSubTab = QtCore.QPoint(tabRect.width()/self.wTab.count(), tabRect.height()/2)
         pos = QtCore.QPoint(sizeSubTab.x()*self.wTab.currentIndex(), sizeSubTab.y())
 
         menuPos = tab.mapToGlobal(pos)
@@ -5815,9 +5836,40 @@ class MainWindow(QMainWindow):
         return left, right
 
     #Main fit function, reads user defined intial parameters and calls appropriate fit model
+    def on_abort_clicked(self):
+        self._abort_fit = True
+        # disable the abort button so the user sees it's registered
+        try: self.extraPopup.abort_button.setEnabled(False)
+        except Exception: pass
+        # optional: show a message in the side output box
+        try: self.extraPopup.fit_results.append("[abort] Requested…")
+        except Exception: pass
+
+
     def fit(self):
+
         self.logger.info('fit')
-        fit_funct = self.extraPopup.fit_list.currentText()
+        # fit_funct = self.extraPopup.fit_list.currentText()
+
+        
+        fit_funct = self.extraPopup.fit_list.currentText().strip()
+        model_name = fit_funct
+        # force_prompt = bool(QApplication.keyboardModifiers() & Qt.ShiftModifier)
+        force_prompt = bool(True)
+
+        try:
+            config = self.prepare_fit_config(fit_funct, force_prompt=force_prompt)
+        except ValueError as e:
+            QMessageBox.warning(self, "Fit cancelled", str(e))
+            return
+        
+        # Bashir added to prepare Abort UI
+        self._abort_fit = False
+        self.extraPopup.fit_button.setEnabled(False)
+        self.extraPopup.abort_button.setEnabled(True)
+
+
+
         index = self.autoIndex()
         spectrumName = self.nameFromIndex(index)
         ax = self.getSpectrumInfo("axis", index=index)
@@ -5830,10 +5882,9 @@ class MainWindow(QMainWindow):
         maxxREST = self.getSpectrumInfoREST("maxx", index=index)
 
         #### Bashir added {} ###
-        config = self.fit_factory._configs.get(fit_funct) or {}
-        self.logger.debug('fit - config: %s',config)
+        # config = self.fit_factory._configs.get(fit_funct) or {}
 
-        fit = self.fit_factory.create(fit_funct, **config)
+        # fit = self.fit_factory.create(fit_funct, **config)
 
         try:
             if spectrumName != "":
@@ -5842,74 +5893,652 @@ class MainWindow(QMainWindow):
                     y = []
                     xtmp = self.createRange(binx, minxREST, maxxREST)
 
-                    if not self.extraPopup.fit_p0.text():
-                        self.extraPopup.fit_p0.setText("0")
-                    if not self.extraPopup.fit_p1.text():
-                        self.extraPopup.fit_p1.setText("0")
-                    if not self.extraPopup.fit_p2.text():
-                        self.extraPopup.fit_p2.setText("0")
-                    if not self.extraPopup.fit_p3.text():
-                        self.extraPopup.fit_p3.setText("0")
-                    if not self.extraPopup.fit_p4.text():
-                        self.extraPopup.fit_p4.setText("0")
-                    if not self.extraPopup.fit_p5.text():
-                        self.extraPopup.fit_p5.setText("0")
-                    if not self.extraPopup.fit_p6.text():
-                        self.extraPopup.fit_p6.setText("0")
-                    if not self.extraPopup.fit_p7.text():
-                        self.extraPopup.fit_p7.setText("0")
+                    # -------------------------------------------------------------------------------
+                    # Now backfill blanks with "0" for everything else
+                    for w in (self.extraPopup.fit_p0, self.extraPopup.fit_p1, self.extraPopup.fit_p2,
+                            self.extraPopup.fit_p3, self.extraPopup.fit_p4, self.extraPopup.fit_p5,
+                            self.extraPopup.fit_p6, self.extraPopup.fit_p7, self.extraPopup.fit_p8,
+                            self.extraPopup.fit_p9, self.extraPopup.fit_p10, self.extraPopup.fit_p11,
+                            self.extraPopup.fit_p12, self.extraPopup.fit_p13, self.extraPopup.fit_p14,
+                            self.extraPopup.fit_p15, self.extraPopup.fit_p16, self.extraPopup.fit_p17,
+                            self.extraPopup.fit_p18, self.extraPopup.fit_p19):
+                        if w is not None and not w.text():
+                            w.setText("0")
 
+                    # Build fitpar AFTER prefill
                     fitpar = [float(self.extraPopup.fit_p0.text()), float(self.extraPopup.fit_p1.text()),
-                              float(self.extraPopup.fit_p2.text()), float(self.extraPopup.fit_p3.text()),
-                              float(self.extraPopup.fit_p4.text()), float(self.extraPopup.fit_p5.text()),
-                              float(self.extraPopup.fit_p6.text()), float(self.extraPopup.fit_p7.text())]
-                    
+                            float(self.extraPopup.fit_p2.text()), float(self.extraPopup.fit_p3.text()),
+                            float(self.extraPopup.fit_p4.text()), float(self.extraPopup.fit_p5.text()),
+                            float(self.extraPopup.fit_p6.text()), float(self.extraPopup.fit_p7.text()),
+                            float(self.extraPopup.fit_p8.text()), float(self.extraPopup.fit_p9.text()),
+                            float(self.extraPopup.fit_p10.text()), float(self.extraPopup.fit_p11.text()),
+                            float(self.extraPopup.fit_p12.text()), float(self.extraPopup.fit_p13.text()),
+                            float(self.extraPopup.fit_p14.text()), float(self.extraPopup.fit_p15.text()),
+                            float(self.extraPopup.fit_p16.text()), float(self.extraPopup.fit_p17.text()),
+                            float(self.extraPopup.fit_p18.text()), float(self.extraPopup.fit_p19.text())]
+
+                    # AlphaEMG12 legacy remap (unchanged)
+                    if fit_funct == "AlphaEMG12":
+                        A, mu, sig, tau1, tau2, eta = fitpar[:6]
+                        if tau2 == 0.0: tau2 = tau1
+                        fitpar = [A, mu, sig, tau1, tau2, eta]
+
+                    # Subrange x,y
                     ytmp = (self.getSpectrumInfoREST("data", index=index)).tolist()
                     xmin, xmax = self.axisLimitsForFit(ax)
-
-                    # create new tmp list with subrange for fitting
                     for i in range(1, len(xtmp)):
-                        if (xtmp[i]>xmin and xtmp[i]<=xmax):
-                            # xtmp and ytmp offset by one bin compared to data because of ytmp obtained with tolist(), correct x:
-                            x.append(xtmp[i-1]+(xtmp[i]-xtmp[i-1])/2)
+                        if (xtmp[i] > xmin and xtmp[i] <= xmax):
+                            x.append(xtmp[i-1] + (xtmp[i] - xtmp[i-1]) / 2)
                             y.append(ytmp[i])
-                    x = np.array(x)
-                    y = np.array(y)
+                    x = np.array(x); y = np.array(y)
+                    #### Bashir added for calibration prompt ########################################
+                    # --- Ask user whether to run calibration ---
+                    run_cal = False
 
-                    # ---- BASHIR: append bin width + weighting for SkelFit/EMG1 only ----
-                    if fit_funct in ("Skeleton", "SkelFit", "AlphaEMG1", "AlphaEMG2", "AlphaEMG3"):
-                        # Prefer exact bin width from metadata; fall back to edges 'xtmp'
+                    # Read "ask" preference (default True). Shift key (force_prompt) always asks.
+                    ask_pref = True
+                    try:
+                        s = QSettings("YourLab", "AlphaGUI")
+                        ask_pref = s.value("calibration/ask", True, type=bool)
+                    except Exception:
+                        pass
+
+                    # if force_prompt or ask_pref:
+                    if fit_funct in {"AlphaEMGMulti", "AlphaEMGMultiSigma"} and (force_prompt or ask_pref):
+                        msg = QMessageBox(self)
+                        msg.setWindowTitle("Energy calibration")
+                        msg.setText("Run energy calibration before fitting?")
+                        # Buttons
+                        btn_yes    = msg.addButton("Yes",    QMessageBox.YesRole)
+                        btn_no     = msg.addButton("No",     QMessageBox.NoRole)
+                        btn_cancel = msg.addButton("Cancel", QMessageBox.RejectRole)
+                        # "Don't ask again" checkbox (remembering the choice only if user ticks it)
+                        dont_ask = QCheckBox("Don't ask me again")
+                        msg.setCheckBox(dont_ask)
+
+                        msg.exec_()
+                        clicked = msg.clickedButton()
+                        if clicked is btn_cancel:
+                            return  # abort fit cleanly
+                        run_cal = (clicked is btn_yes)
+
+                        # Persist the "don't ask again" preference
+                        try:
+                            if dont_ask.isChecked():
+                                s.setValue("calibration/ask", False)
+                        except Exception:
+                            pass
+                    else:
+                        # User had previously chosen "don't ask again" => skip the prompt
+                        run_cal = False
+
+                    
+                    cal = None
+                    if run_cal and fit_funct in {"AlphaEMGMulti", "AlphaEMGMultiSigma"}:
+                        cal = self._prompt_energy_calibration(ax, x, y, min_pts=2, max_pts=4, snap_halfwin=150)
+                        if cal is not None:
+                            config = dict(config)
+                            config["calib_a"] = float(cal["a"])
+                            config["calib_b"] = float(cal["b"])
+                            try:
+                                s.setValue("calibration/a", cal["a"])
+                                s.setValue("calibration/b", cal["b"])
+                                s.setValue("calibration/R2", cal["R2"])
+                            except Exception:
+                                pass
+
+                    # Ask just the two flags
+                    if fit_funct == "AlphaEMGMultiSigma":
+                        flags = self._prompt_shape_flags(
+                            default_global=config.get("fit_global_shapes", True),
+                            default_iso_scales=config.get("fit_iso_shape_scales", False),
+                        )
+                        if flags is not None:
+                            # enforce: iso scales only makes sense if global fitting is on
+                            if flags["fit_iso_shape_scales"] and not flags["fit_global_shapes"]:
+                                flags["fit_iso_shape_scales"] = False
+                            config.update(flags)
+
+                    ##################################################################################
+
+                    # now create the fitter with (possibly) updated calibration
+                    fit = self.fit_factory.create(fit_funct, **config)
+
+                    # Bashir added to poll abort flag
+                    setattr(fit, "_should_abort", lambda: getattr(self, "_abort_fit", False))
+                    # setattr(fit, "_should_abort", lambda: self._abort_fit)
+
+
+                    # ---- Append/insert bw + wmode (model-aware indices) ----
+                    EMG_MODELS = {
+                        "AlphaEMG1","AlphaEMG12","AlphaEMG2","AlphaEMG22",
+                        "AlphaEMG3","AlphaEMG32","AlphaEMGMulti","AlphaEMGMultiSigma"
+                    }
+
+                    if model_name in EMG_MODELS:
+                        # safe bin width
                         try:
                             bw = float(maxxREST - minxREST) / float(binx)
                             if not np.isfinite(bw) or bw <= 0:
                                 raise ValueError
                         except Exception:
-                            # xtmp are bin edges (len ~ binx+1); robust fallback
                             bw = float(np.median(np.diff(xtmp))) if len(xtmp) > 1 else 1.0
 
-                        wmode = 2  # 0=none, 1=Poisson(data), 2=Poisson(model IRLS)
+                        if model_name in {"AlphaEMGMulti", "AlphaEMGMultiSigma"}:
+                            # compute bw as you already do...
+                            # wmode in p12
+                            try:
+                                wmode_ui = int(round(float(self.extraPopup.fit_p12.text())))
+                            except Exception:
+                                wmode_ui = 2
+                            if wmode_ui not in (0, 1, 2):
+                                wmode_ui = 2
 
-                        fitpar = fitpar + [bw, int(wmode)]
-                        self.logger.debug('fit - appended bw=%.6g, wmode=%d', bw, wmode)
-                    # -------------------------------------------------------------------
+                            def _pos_or_zero(widget):
+                                try:
+                                    v = float(widget.text())
+                                    return v if np.isfinite(v) and v > 0 else 0.0
+                                except Exception:
+                                    return 0.0
 
+                            d0_abs_ui = _pos_or_zero(self.extraPopup.fit_p13)  # |d0|
+                            dg_abs_ui = _pos_or_zero(self.extraPopup.fit_p14)  # |dg|
+                            dm_abs_ui = _pos_or_zero(self.extraPopup.fit_p15)  # |dm*|
+
+                            fitpar = (fitpar or [])
+                            fitpar.extend([bw, int(wmode_ui), d0_abs_ui, dg_abs_ui, dm_abs_ui])
+
+                        elif model_name in {"AlphaEMG22"}:
+                            wmode = 2
+                            bw_idx, wm_idx = 12, 13
+                            need_len = wm_idx + 1
+                            if len(fitpar) < need_len:
+                                fitpar += [0.0] * (need_len - len(fitpar))
+                            fitpar[bw_idx] = bw
+                            fitpar[wm_idx] = int(wmode)
+
+                        elif model_name in {"AlphaEMG32"}:
+                            wmode = 2
+                            bw_idx, wm_idx = 18, 19
+                            need_len = wm_idx + 1
+                            if len(fitpar) < need_len:
+                                fitpar += [0.0] * (need_len - len(fitpar))
+                            fitpar[bw_idx] = bw
+                            fitpar[wm_idx] = int(wmode)
+
+                        else:
+                            wmode = 1
+                            # AlphaEMG1 / 12 / 2 / 3 use the NEW 6-field layout
+                            # [A, mu, sigma, tau1, bw, wmode]
+                            # (For 12 you already remapped to 6 fields above)
+                            need_len = 6
+                            if len(fitpar) < need_len:
+                                fitpar += [0.0] * (need_len - len(fitpar))
+                            fitpar[4] = bw
+                            fitpar[5] = int(wmode)
+
+                    # ----------------------------------------------------------------
+
+                    # --- Run fit (works for AlphaEMG22 and others) ---
                     fitResultsText = QTextEdit()
-                    # if fit_funct == "Skeleton":
-                        # fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
-                        # self.setFitLineLabel(ax, fitln, fitResultsText, spectrumName)
-                    # else:
+                    print(f"Fitting {fit_funct} ...")
                     fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
+
+                    # Check if user aborted
+                    if fitln is None and self._abort_fit:
+                        fitResultsText.append("[abort] Fit stopped by user.")
+                        print("Fit aborted by user.")
+                        return
+
+                    print("Fitting is done.")
+
+
+                    if cal is not None:
+                        fitResultsText.insertPlainText(
+                            f"[calibration] μ = {cal['a']:.8g} * E + {cal['b']:.8g}  "
+                            f"(R²={cal['R2']:.6f}, N={len(cal['E'])})\n\n"
+                        )
+                    elif "calib_a" in config and "calib_b" in config:
+                        src = config.get("calibration_file", "saved defaults")
+                        fitResultsText.insertPlainText(
+                            f"[calibration] μ = {config['calib_a']:.8g} * E + {config['calib_b']:.8g}  "
+                            f"(source: {src})\n\n"
+                        )
+
+                    # --- Report the shapes source + mode (like calibration) ---
+                    def _shape_mode(f):
+                        g = bool(getattr(f, "fit_global_shapes", False))
+                        i = bool(getattr(f, "fit_iso_shape_scales", False))
+                        if g and i:   return "global + per-isotope"
+                        if g:         return "global"
+                        if i:         return "per-isotope only (baseline from file)"
+                        return "frozen (file σ,τ₁,τ₂,η)"
+
+                    shape_src = config.get("shape_file", getattr(fit, "shape_file", None))
+                    fitResultsText.insertPlainText(
+                        f"[shapes] mode = {_shape_mode(fit)} ; source: {shape_src or 'unknown'}\n\n"
+                    )
+
                     self.setFitLineLabel(ax, fitln, fitResultsText, spectrumName)
+
+                    # Save μ back to QSettings (so next run pre-fills even if user edited)
+                    if model_name == "AlphaEMG22":
+                        try:
+                            s = QSettings("YourLab", "AlphaGUI")
+                            s.setValue("AlphaEMG22/mu1", float(self.extraPopup.fit_p1.text()))
+                            s.setValue("AlphaEMG22/mu2", float(self.extraPopup.fit_p7.text()))
+                        except Exception:
+                            pass
+
+                    # Report popup/log
+                    txt = fitResultsText.toPlainText()
+                    print("\n----- FIT RESULTS -----\n" + txt)
+                    self.logger.info("Fit results for %s [%s]:\n%s", spectrumName, fit_funct, txt)
+                    fitResultsText.setReadOnly(True)
+                    fitResultsText.setWindowTitle(f"Fit results — {fit_funct} : {spectrumName}")
+                    fitResultsText.resize(900, 700)
+                    fitResultsText.show()
+                    self._lastFitResultsText = fitResultsText
+
                 else:
+                    # <-- this else now correctly pairs with "if dim == 1"
                     QMessageBox.about(self, "Warning", "Sorry 2D fitting is not implemented yet")
             else:
-                QMessageBox.about(self, "Warning", "Histogram not existing. Please load an histogram...")
-
+                QMessageBox.about(self, "Warning", "Histogram not existing. Please load a histogram...")
             self.currentPlot.canvas.draw()
-
         except NameError as err:
             print(err)
             pass
+
+        # Bashir added to restore UI for abort    
+        finally:
+            # ALWAYS restore UI
+            self.extraPopup.abort_button.setEnabled(False)
+            self.extraPopup.fit_button.setEnabled(True)
+
+    # --- Energy calibration helper -------------------------------------------------
+    def _prompt_energy_calibration(self, ax, x, y, min_pts=2, max_pts=4, snap_halfwin=150):
+        """
+        Modal dialog. While open:
+        - Ctrl+Left-click on `ax` to add a point (we'll snap to local max near x).
+        - Use Undo/Cancel/Done buttons.
+        Returns dict {a,b,R2,E,mu} or None.
+        """
+        # make the dialog
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Energy calibration")
+        info = QLabel(
+            f"Ctrl + Left-click on the spectrum to pick μ.\n"
+            f"Enter energy when prompted. Pick {min_pts}–{max_pts} points.\n"
+            "Use Undo to remove last point; Done to finish."
+        )
+        status = QLabel("0 points")
+
+        btn_undo = QPushButton("Undo")
+        btn_done = QPushButton("Done")
+        btn_cancel = QPushButton("Cancel")
+        btn_done.setEnabled(False)
+
+        hl = QHBoxLayout(); hl.addWidget(btn_undo); hl.addWidget(btn_done); hl.addWidget(btn_cancel)
+        lay = QVBoxLayout(dlg); lay.addWidget(info); lay.addWidget(status); lay.addLayout(hl)
+
+        # state
+        self._cal = SimpleNamespace(
+            active=True, ax=ax, x=np.asarray(x), y=np.asarray(y),
+            min_pts=int(min_pts), max_pts=int(max_pts), halfwin=float(snap_halfwin),
+            MU=[], E=[], artists=[], dlg=dlg, status=status
+        )
+
+        def _snap_mu(x0):
+            x = self._cal.x; y = self._cal.y
+            m = (x >= x0 - self._cal.halfwin) & (x <= x0 + self._cal.halfwin)
+            if np.any(m):
+                idx = np.argmax(y[m])
+                mu = x[m][idx]; yy = y[m][idx]
+            else:
+                mu = float(x0); yy = float(np.interp(mu, x, y))
+            return mu, yy
+
+        def _update_status():
+            n = len(self._cal.MU)
+            self._cal.status.setText(
+                f"{n} point(s): " + ", ".join(f"μ={mu:.1f}@{E:.2f}keV"
+                                            for mu, E in zip(self._cal.MU, self._cal.E))
+            )
+            btn_done.setEnabled(n >= self._cal.min_pts)   # <= lights up at 2, stays on for 3 or 4
+
+
+        def _add_point(xdata):
+            if len(self._cal.MU) >= self._cal.max_pts:
+                QMessageBox.information(dlg, "Max points", f"Already have {self._cal.max_pts} points.")
+                return
+            mu, yy = _snap_mu(xdata)
+            val, ok = QInputDialog.getDouble(dlg, "Energy (keV)", "Energy:", 0.0, -1e9, 1e9, 6)
+            if not ok:
+                return
+            self._cal.MU.append(float(mu)); self._cal.E.append(float(val))
+            m1, = ax.plot([mu], [yy], marker='o', ms=6)
+            m2 = ax.axvline(mu, ls=':', lw=1.0)
+            self._cal.artists.append((m1, m2))
+            ax.figure.canvas.draw_idle()
+            _update_status()
+        self._cal.add_point = _add_point
+
+        def _undo():
+            if not self._cal.MU: return
+            self._cal.MU.pop(); self._cal.E.pop()
+            for a in self._cal.artists.pop():
+                try: a.remove()
+                except: pass
+            ax.figure.canvas.draw_idle()
+            _update_status()
+
+        def _finish():
+            n = len(self._cal.MU)
+            if not (self._cal.min_pts <= n <= self._cal.max_pts):
+                QMessageBox.information(dlg, "Need more points",
+                                        f"Pick between {self._cal.min_pts} and {self._cal.max_pts} points.")
+                return
+
+            MU = np.asarray(self._cal.MU, float); E = np.asarray(self._cal.E, float)
+            A = np.vstack([E, np.ones_like(E)]).T
+            a, b = np.linalg.lstsq(A, MU, rcond=None)[0]
+            mu_hat = a*E + b
+            ss_res = float(np.sum((MU - mu_hat)**2))
+            ss_tot = float(np.sum((MU - MU.mean())**2)) if MU.size else 1.0
+            R2 = 1.0 - ss_res/max(ss_tot, 1e-16)
+            self._cal.result = dict(a=float(a), b=float(b), R2=float(R2),
+                                    E=E.tolist(), mu=MU.tolist())
+            dlg.accept()
+
+        def _cancel():
+            self._cal.result = None
+            dlg.reject()
+
+        btn_undo.clicked.connect(_undo)
+        btn_done.clicked.connect(_finish)
+        btn_cancel.clicked.connect(_cancel)
+
+        try:
+            # show modal; while open we intercept Ctrl+clicks in on_press (see patch below)p
+
+            # show non-modal so the figure still gets clicks
+            dlg.setWindowModality(Qt.NonModal)
+            dlg.show()
+
+            loop = QEventLoop()
+            dlg.finished.connect(loop.quit)   # finish on Done/Cancel
+            loop.exec_()
+            return getattr(self._cal, "result", None)
+
+        finally:
+            # clean up markers and state
+            for arts in list(self._cal.artists):
+                for a in arts:
+                    try: a.remove()
+                    except: pass
+            ax.figure.canvas.draw_idle()
+            self._cal = None
+
+    def _prompt_shape_flags(self, default_global=True, default_iso_scales=False):
+        dlg = QDialog(self); dlg.setWindowTitle("Shape fitting options")
+        lbl = QLabel("Choose how to treat peak shapes:")
+
+        cb_global = QCheckBox("Fit global shape (σ, τ₁, τ₂, η)")
+        cb_global.setChecked(bool(default_global))
+
+        cb_iso = QCheckBox("Enable per-isotope scale multipliers (requires global)")
+        cb_iso.setChecked(bool(default_iso_scales and default_global))
+        cb_iso.setEnabled(cb_global.isChecked())
+
+        def on_global_toggled(on):
+            if not on:
+                cb_iso.setChecked(False)
+            cb_iso.setEnabled(on)
+
+        cb_global.toggled.connect(on_global_toggled)
+
+        btn_ok = QPushButton("OK"); btn_cancel = QPushButton("Cancel")
+        btn_ok.clicked.connect(dlg.accept); btn_cancel.clicked.connect(dlg.reject)
+
+        v = QVBoxLayout(dlg); v.addWidget(lbl); v.addWidget(cb_global); v.addWidget(cb_iso)
+        h = QHBoxLayout(); h.addStretch(1); h.addWidget(btn_ok); h.addWidget(btn_cancel); v.addLayout(h)
+
+        if dlg.exec_() != QDialog.Accepted:
+            return None
+
+        return {
+            "fit_global_shapes": cb_global.isChecked(),
+            "fit_iso_shape_scales": (cb_global.isChecked() and cb_iso.isChecked()),
+        }
+
+
+    ################################ Bashir added to loadpre-fitted parameters for alpha spectra ######
+
+    def _choose_shape_file(self, settings_key: str) -> str:
+        s = QSettings("YourLab", "AlphaGUI")
+        last = s.value(settings_key, "", type=str) or os.getcwd()
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Choose shape file", last,
+            "Text/CSV files (*.txt *.csv);;All files (*)"
+        )
+        if path:
+            s.setValue(settings_key, path)
+        return path or ""
+
+    def _choose_calibration_file(self, settings_key: str) -> str:
+        s = QSettings("YourLab", "AlphaGUI")
+        last = s.value(settings_key, "", type=str) or os.getcwd()
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Calibration file", last,
+            "Text/CSV/JSON (*.txt *.csv *.json);;All files (*)"
+        )
+        if path:
+            s.setValue(settings_key, path)
+        return path or ""
+
+
+    def load_calibration_any(self, path):
+        """
+        Accepts any of:
+        - JSON: {"a": 6.89, "b": -4943.24} or {"calib_a":..., "calib_b":...}
+        - INI-like: a=6.89\nb=-4943.24   (order free, spaces ok)
+        - CSV/whitespace: 6.89, -4943.24  or  6.89 -4943.24
+        - First two floats anywhere in file.
+        Returns (a, b) as floats.
+        """
+        with open(path, "r") as f:
+            txt = f.read()
+
+        # Try JSON
+        try:
+            obj = json.loads(txt)
+            for key_a, key_b in (("a", "b"), ("calib_a", "calib_b")):
+                if key_a in obj and key_b in obj:
+                    return float(obj[key_a]), float(obj[key_b])
+        except Exception:
+            pass
+
+        # Try key=value
+        a = b = None
+        for m in re.finditer(r'^\s*([ab]|calib_a|calib_b)\s*=\s*([+-]?\d+(\.\d+)?([eE][+-]?\d+)?)\s*$', txt, re.M):
+            k = m.group(1).lower()
+            v = float(m.group(2))
+            if k in ("a", "calib_a"): a = v
+            elif k in ("b", "calib_b"): b = v
+        if a is not None and b is not None:
+            return a, b
+
+        # Try two numbers on a line / anywhere
+        nums = re.findall(r'[+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?', txt)
+        if len(nums) >= 2:
+            return float(nums[0]), float(nums[1])
+
+        raise ValueError(f"Could not parse calibration from: {path}")
+
+    def prepare_fit_config(self, fit_funct: str, force_prompt: bool = False) -> dict:
+        config = dict(self.fit_factory._configs.get(fit_funct) or {})
+
+        if fit_funct in {"AlphaEMGMulti", "AlphaEMGMultiSigma"}:
+            # ---------- SHAPE FILE (unchanged) ----------
+            key_shape = f"{fit_funct}/shape_file"
+            s = QSettings("YourLab", "AlphaGUI")
+
+            shape_path = config.get("shape_file", "")
+            if force_prompt:
+                shape_path = ""
+            if not (isinstance(shape_path, str) and os.path.isfile(shape_path)):
+                shape_path = self._choose_shape_file(key_shape)
+                if not shape_path:
+                    raise ValueError("No shape file selected.")
+                if not os.path.isfile(shape_path):
+                    raise ValueError(f"Shape file not found:\n{shape_path}")
+                config["shape_file"] = shape_path
+                s.setValue(key_shape, shape_path)
+
+            # ---------- CALIBRATION FILE (fixed) ----------
+            per_model_key = f"{fit_funct}/calibration_file"
+
+            # Prefer explicit config → per-model key → global key
+            cal_path = (
+                config.get("calibration_file")
+                or s.value(per_model_key, "", type=str)
+                or s.value("calibration/file", "", type=str)
+                or ""
+            )
+
+            have_numbers_already = ("calib_a" in config and "calib_b" in config)
+
+            # Prompt if Shift held OR no usable file AND we don't already have numbers
+            need_prompt = (
+                force_prompt
+                or (not os.path.isfile(cal_path) and not have_numbers_already)
+            )
+            if need_prompt:
+                cal_path = self._choose_calibration_file(per_model_key)
+
+            # If we have a file now, parse it; otherwise keep existing numbers (if any) or bail
+            if cal_path and os.path.isfile(cal_path):
+                try:
+                    a, b = self.load_calibration_any(cal_path)
+                    config["calib_a"] = float(a)
+                    config["calib_b"] = float(b)
+                    config["calibration_file"] = cal_path
+                    # persist both per-model and global for convenience
+                    s.setValue(per_model_key, cal_path)
+                    s.setValue("calibration/file", cal_path)
+                    s.setValue("calibration/a", a)
+                    s.setValue("calibration/b", b)
+                except Exception as e:
+                    QMessageBox.warning(
+                        self, "Calibration",
+                        f"Could not parse calibration from:\n{cal_path}\n\n{e}\n\nUsing defaults."
+                    )
+                    # if no existing numbers, abort
+                    if not have_numbers_already:
+                        raise ValueError("No valid calibration available.")
+            else:
+                # User canceled and we don't already have numbers → abort
+                if not have_numbers_already:
+                    raise ValueError("No calibration file selected.")
+
+            # Persist updated config
+            self.fit_factory._configs[fit_funct] = config
+
+        return config
+
+    
+    '''
+    def prepare_fit_config(self, fit_funct: str, force_prompt: bool = False) -> dict:
+        config = dict(self.fit_factory._configs.get(fit_funct) or {})
+
+        if fit_funct in {"AlphaEMGMulti", "AlphaEMGMultiSigma"}:
+            # ----- SHAPE FILE (existing flow) -----
+            key_shape = f"{fit_funct}/shape_file"
+            shape_path = config.get("shape_file", "")
+            if force_prompt:
+                shape_path = ""
+            if not (isinstance(shape_path, str) and os.path.isfile(shape_path)):
+                shape_path = self._choose_shape_file(key_shape)
+                if not shape_path:
+                    raise ValueError("No shape file selected.")
+                if not os.path.isfile(shape_path):
+                    raise ValueError(f"Shape file not found:\n{shape_path}")
+                config["shape_file"] = shape_path
+
+            # ----- CALIBRATION FILE (new) -----
+            # prefer persisted path; fall back to config; allow Shift to force chooser
+            s = QSettings("YourLab", "AlphaGUI")
+
+            # prefer config, then persisted setting
+            cal_path = (config.get("calibration_file") 
+                        or s.value("calibration/file", "", type=str) 
+                        or "")
+
+            need_prompt = (force_prompt
+                        or (not isinstance(cal_path, str))
+                        or (not os.path.isfile(cal_path)))
+
+            if need_prompt:
+                key_cal = f"{fit_funct}/calibration_file"
+                cal_path = self._choose_calibration_file(key_cal)
+
+            if cal_path and os.path.isfile(cal_path):
+                try:
+                    a, b = self.load_calibration_any(cal_path)
+                    config["calib_a"] = float(a)
+                    config["calib_b"] = float(b)
+                    config["calibration_file"] = cal_path
+                    s.setValue("calibration/file", cal_path)
+                    s.setValue("calibration/a", a)
+                    s.setValue("calibration/b", b)
+                except Exception as e:
+                    QMessageBox.warning(
+                        self, "Calibration",
+                        f"Could not parse calibration from:\n{cal_path}\n\n{e}\n\nUsing defaults."
+                    )
+
+
+            # persist the updated config back into the factory
+            self.fit_factory._configs[fit_funct] = config
+
+        return config
+
+    '''
+ ################################# Bashir added for ploting the fitting calibration results ######
+    # --- ADD: helper to lazily create/show the dialog ---
+    def _ensure_fit_params_dialog(self):
+        if not hasattr(self, "_fit_params_dialog") or self._fit_params_dialog is None:
+            self._fit_params_dialog = FitParamsDialog(self)
+        return self._fit_params_dialog
+
+    # --- ADD: parse A, mu, sigma, tau from the fit text (robust to different label styles) ---
+    def _extract_basic_params_from_text(self, txt):
+        # Accept both "name: value" and "name = value"
+        # Also map synonyms found in your multi-peak reports (sig1→sigma, t11→tau, etc.)
+        pat = re.compile(r"^\s*([A-Za-z0-9_]+)\s*[:=]\s*([-+0-9.eE]+)", re.M)
+        raw = {m.group(1): m.group(2) for m in pat.finditer(txt)}
+
+        def pick(keys, cast=float):
+            for k in keys:
+                if k in raw:
+                    try:
+                        return cast(raw[k])
+                    except Exception:
+                        pass
+            return None
+
+        A     = pick(["A","A1"])
+        mu    = pick(["mu","mu1"])
+        sigma = pick(["sigma","sig","sig1","s1"])
+        tau   = pick(["tau","tau1","t1","t11"])  # prefer the fastest tail
+
+        # If missing any critical, return None so caller can ignore
+        if mu is None or A is None or sigma is None or tau is None:
+            return None
+        return {"A": A, "mu": mu, "sigma": sigma, "tau": tau}
+
+    #########################################################################################
 
 
     # Set fit outputs title based on fit line label, and set fit_results text
@@ -6683,3 +7312,268 @@ class centeredNorm(colors.Normalize):
             halfrange = np.max(np.abs(data - vcenter))
         super().__init__(vmin=vcenter - halfrange, vmax=vcenter + halfrange, clip=clip)
 
+
+# Bashir --- ADD: simple dialog to collect fit points and plot ---
+class FitParamsDialog(QDialog):
+    """
+    Holds rows of {mu, A, sigma, tau, model, name}, with:
+      - Name: editable text for current point
+      - Append / Load CSV / Plot
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Collected Fit Parameters")
+        self.resize(800, 520)
+
+        self.data = []        # list of dicts
+        self.pending = None   # dict to be appended when user clicks "Append"
+
+        layout = QVBoxLayout(self)
+
+        self.hint = QLabel("Last fit: (nothing yet)")
+        layout.addWidget(self.hint)
+
+        # --- Name (label) editor for the pending point ---
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Name:"))
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("enter a label for this point (e.g., peak window / ROI)")
+        row.addWidget(self.name_edit)
+        layout.addLayout(row)
+
+        # --- Table ---
+        self.table = QTableWidget(0, 7)
+        self.table.setHorizontalHeaderLabels(["mu", "A", "sigma", "tau1", "tau2", "model", "name"])
+        self.table.setSortingEnabled(True)
+        layout.addWidget(self.table)
+
+        # --- Buttons ---
+        btns = QHBoxLayout()
+        self.btn_append = QPushButton("Append current")
+        self.btn_load   = QPushButton("Load CSV…")
+        self.btn_save   = QPushButton("Save CSV…")       
+        self.btn_plot   = QPushButton("Plot")
+        btns.addWidget(self.btn_append)
+        btns.addWidget(self.btn_load)
+        btns.addWidget(self.btn_save)                    
+        btns.addWidget(self.btn_plot)
+
+        self.btn_append.clicked.connect(self.on_append)
+        self.btn_load.clicked.connect(self.on_load)
+        self.btn_save.clicked.connect(self.on_save)      
+        self.btn_plot.clicked.connect(self.on_plot)
+        layout.addLayout(btns)
+
+
+    def set_pending(self, point_dict, suggested_name=None):
+        """Supply the most recent fit’s point (not automatically stored)."""
+        self.pending = point_dict or None
+        if self.pending:
+            self.hint.setText(
+                f"Last fit → mu={self.pending.get('mu'):.6g}, "
+                f"A={self.pending.get('A'):.6g}, "
+                f"sigma={self.pending.get('sigma'):.6g}, "
+                f"tau={self.pending.get('tau'):.6g} "
+                f"({self.pending.get('model')} · {self.pending.get('spectrum','')})"
+            )
+            # prefer caller’s suggestion; fall back to pending.name/spectrum
+            default_name = (suggested_name
+                            or self.pending.get('name')
+                            or self.pending.get('spectrum', ''))
+            self.name_edit.setText(default_name)
+        else:
+            self.hint.setText("Last fit: (nothing yet)")
+            self.name_edit.clear()
+
+    def _append_row(self, p):
+        """
+        Append one row to the table from a point-dict `p`.
+        Expected keys: 'mu','A','sigma',('tau1' or 'tau'),('tau2' or 'tau'),'model','name'
+        Falls back to single-tail 'tau' if tau1/tau2 are missing.
+        """
+        import math
+
+        # Ensure the table has the 7 expected columns (mu, A, sigma, tau1, tau2, model, name)
+        if self.table.columnCount() < 7:
+            self.table.setColumnCount(7)
+            self.table.setHorizontalHeaderLabels(
+                ["mu", "A", "sigma", "tau1", "tau2", "model", "name"]
+            )
+
+        was_sorting = self.table.isSortingEnabled()
+        if was_sorting:
+            self.table.setSortingEnabled(False)
+
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+
+        # ---- helpers ----
+        def _coerce_float(v):
+            try:
+                f = float(v)
+                return f if math.isfinite(f) else None
+            except Exception:
+                return None
+
+        def _fmt_num(v):
+            f = _coerce_float(v)
+            return f"{f:.6g}" if f is not None else ""
+
+        def _add_cell(col, text, editable=False, align_right=True):
+            it = QTableWidgetItem(text)
+            # Right-align numeric columns for readability
+            if align_right:
+                it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            if not editable:
+                it.setFlags(it.flags() & ~Qt.ItemIsEditable)
+            self.table.setItem(row, col, it)
+            return it
+
+        # ---- normalize taus (support single-tail dicts that only carry 'tau') ----
+        t1 = p.get("tau1", p.get("tau", None))
+        t2 = p.get("tau2", p.get("tau", None))
+
+        # ---- fill cells ----
+        _add_cell(0, _fmt_num(p.get("mu", None)))
+        _add_cell(1, _fmt_num(p.get("A", None)))
+        _add_cell(2, _fmt_num(p.get("sigma", None)))
+        _add_cell(3, _fmt_num(t1))
+        _add_cell(4, _fmt_num(t2))
+        _add_cell(5, str(p.get("model", "")), align_right=False)
+
+        name_text = p.get("name", "")
+        name_item = _add_cell(6, name_text, editable=True, align_right=False)
+
+        # Optionally stash raw numeric values for future use (e.g., export)
+        # in case the display text was formatted:
+        # (Qt's sort uses display text; for true numeric sort, you'd subclass QTableWidgetItem.)
+        self.table.item(row, 0).setData(Qt.UserRole, _coerce_float(p.get("mu", None)))
+        self.table.item(row, 1).setData(Qt.UserRole, _coerce_float(p.get("A", None)))
+        self.table.item(row, 2).setData(Qt.UserRole, _coerce_float(p.get("sigma", None)))
+        self.table.item(row, 3).setData(Qt.UserRole, _coerce_float(t1))
+        self.table.item(row, 4).setData(Qt.UserRole, _coerce_float(t2))
+
+        if was_sorting:
+            self.table.setSortingEnabled(True)
+
+    def on_append(self):
+        if not self.pending:
+            QMessageBox.information(self, "Append", "No current fit to append.")
+            return
+        p = self.pending.copy()
+        label = self.name_edit.text().strip()
+        if not label:
+            # fallback if user left it blank
+            label = p.get('name') or p.get('spectrum', '') or "untitled"
+        p['name'] = label
+        self.data.append(p)
+        self._append_row(p)
+        self.pending = None
+        self.hint.setText("Last fit: (appended)")
+        self.name_edit.clear()
+
+    def on_load(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Load CSV", "", "CSV files (*.csv)")
+        if not path: return
+        try:
+            import csv
+            was_sorting = self.table.isSortingEnabled()
+            if was_sorting:
+                self.table.setSortingEnabled(False)
+
+            self.table.setRowCount(0)
+            self.data = []
+
+            with open(path, newline='') as f:
+                rdr = csv.DictReader(f)
+                for r in rdr:
+                    name = r.get('name', r.get('spectrum', ''))
+                    p = {
+                        'mu': float(r.get('mu', 'nan')),
+                        'A': float(r.get('A', 'nan')),
+                        'sigma': float(r.get('sigma', 'nan')),
+                        'tau1': float(r.get('tau1', 'nan')),
+                        'tau2': float(r.get('tau2', 'nan')),
+                        'model': r.get('model', 'AlphaEMG12'),
+                        'name': name,
+                    }
+                    self.data.append(p)
+                    self._append_row(p)
+
+            if was_sorting:
+                self.table.setSortingEnabled(True)
+        except Exception as e:
+            QMessageBox.warning(self, "Load CSV", f"Failed to load CSV:\n{e}")
+
+
+    def on_plot(self):
+        if not self.data:
+            QMessageBox.information(self, "Plot", "No data to plot. Append or load first.")
+            return
+
+        # keep only rows with required fields and finite numbers
+        def _finite(p, k):
+            try: return np.isfinite(float(p.get(k, np.nan)))
+            except Exception: return False
+        pts = [p for p in self.data
+               if all(k in p for k in ('mu','A','sigma')) and
+                  (_finite(p,'mu') and _finite(p,'A') and _finite(p,'sigma'))]
+        # tolerate single-tail rows by copying tau → tau1=tau2=tau
+        for p in pts:
+            if 'tau1' not in p and 'tau' in p: p['tau1'] = p['tau']
+            if 'tau2' not in p and 'tau' in p: p['tau2'] = p['tau']
+        pts = [p for p in pts if _finite(p,'tau1') and _finite(p,'tau2')]
+        pts = sorted(pts, key=lambda d: float(d['mu']))
+
+        mu   = np.array([float(d['mu'])    for d in pts])
+        Aval = np.array([float(d['A'])     for d in pts])
+        sig  = np.array([float(d['sigma']) for d in pts])
+        tau1 = np.array([float(d['tau1'])  for d in pts])
+        tau2 = np.array([float(d['tau2'])  for d in pts])
+
+        # Reuse a single window if already open
+        if not hasattr(self, "_plot_fig") or self._plot_fig is None:
+            self._plot_fig, self._plot_axs = plt.subplots(4, 1, sharex=True, figsize=(8, 8))
+            try:
+                self._plot_fig.canvas.manager.set_window_title("Fit parameters vs μ (energy)")
+            except Exception:
+                pass
+        fig, axs = self._plot_fig, self._plot_axs
+        # Clear and redraw
+        for ax in axs: ax.cla()
+        axs[0].plot(mu, Aval, marker='o'); axs[0].set_ylabel("A")
+        axs[1].plot(mu, sig,  marker='o'); axs[1].set_ylabel("σ")
+        axs[2].plot(mu, tau1, marker='o', label="τ₁"); axs[2].set_ylabel("τ")
+        axs[2].plot(mu, tau2, marker='o', label="τ₂"); axs[2].legend(loc="best")
+        # Optional combined view of τ ratio or Δτ for diagnostics
+        axs[3].plot(mu, tau2 - tau1, marker='o'); axs[3].set_ylabel("τ₂ - τ₁")
+        axs[3].set_xlabel("μ (energy)")
+        fig.tight_layout()
+        plt.show(block=False)
+
+
+    def on_save(self):
+        if not self.data:
+            QMessageBox.information(self, "Save CSV", "No data to save.")
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Save CSV", "", "CSV files (*.csv)")
+        if not path:
+            return
+        try:
+            import csv
+            with open(path, "w", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=["mu","A","sigma","tau1","tau2","model","name"])
+                w.writeheader()
+                for d in self.data:
+                    w.writerow({
+                        "mu": d.get("mu",""),
+                        "A": d.get("A",""),
+                        "sigma": d.get("sigma",""),
+                        "tau1": d.get("tau1",""),
+                        "tau2": d.get("tau2",""),
+                        "model": d.get("model",""),
+                        "name": d.get("name",""),
+                    })
+            QMessageBox.information(self, "Save CSV", f"Saved to:\n{path}")
+        except Exception as e:
+            QMessageBox.warning(self, "Save CSV", f"Could not save:\n{e}")

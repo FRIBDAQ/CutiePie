@@ -81,6 +81,13 @@ import fit_skel_creator
 import fit_alpha1_creator
 import fit_alpha2_creator
 import fit_alpha3_creator
+import fit_alpha12_creator
+import fit_alpha22_creator
+import fit_alpha22_vanila
+import fit_alpha32_creator
+import fit_alpha_multi_creator
+import fit_alpha_multi_sigma_creator
+import fit_alpha_linear_creator  # for linear version
 # already implemented examples
 import fit_gaus_creator
 import fit_exp_creator
@@ -178,8 +185,63 @@ config_fit_alph3 = {
     'param_3': 10
 }
 
+config_fit_alph12 = {
+    'param_1': 1,
+    'param_2': 1,
+    'param_3': 10,
+    'eta_vary': True,
+    'eta_value': 0.01
+}
 
+config_fit_alph22 = {
+    'param_1': 1,
+    'param_2': 1,
+    'param_3': 10,
 
+}
+
+config_fit_alph22_vanilla = {
+    'param_1': 1,
+    'param_2': 1,
+    'param_3': 10,
+
+}
+
+config_fit_alph32 = {
+    'param_1': 1,
+    'param_2': 1,
+    'param_3': 10,
+    'eta_vary': False,
+    'eta_value': 0.01
+}
+
+config_fit_alphmulti = {
+    # "shape_file": "/path/to/shapes.txt",
+    # "calib_a": 6.81714733542319,
+    # "calib_b": -3388.0,          # <- tweak this if you want the global shift
+    # "allow_shift": False,         # or True if you want per-isotope dm_x wiggle
+    # "shift_bound": 300.0,
+    # "fix_ratios": True,
+    # "wmode_default": 2,  
+}
+
+config_fit_alph_linear =  {
+        # 'shape_file': os.path.join(os.getcwd(), "shapes_updated.txt"),
+        # 'calib_a': 6.81714733542319,
+        # 'calib_b': -4702.0,
+        'wmode_default': 1,
+        'allow_baseline': False,
+    }
+
+config_fit_alph_sigma_multi = {
+    # "shape_file": "/path/to/shapes.txt",
+    # "calib_a": 6.81714733542319,
+    # "calib_b": -3388.0,          # <- tweak this if you want the global shift
+    # "allow_shift": False,         # or True if you want per-isotope dm_x wiggle
+    # "shift_bound": 300.0,
+    # "fix_ratios": True,
+    # "wmode_default": 2,  
+}
 #######################################
 ##  ML
 #######################################
@@ -221,15 +283,22 @@ config_algo_canny = {
 }
 '''
 # Fitting function registration
-fitfactory.register_builder('Gauss', fit_gaus_creator.GausFitBuilder(), config_fit_gaus)
-fitfactory.register_builder('Exp', fit_exp_creator.ExpFitBuilder(), config_fit_exp)
-fitfactory.register_builder('Pol1', fit_p1_creator.Pol1FitBuilder(), config_fit_p1)
-fitfactory.register_builder('Pol2', fit_p2_creator.Pol2FitBuilder(), config_fit_p2)
-fitfactory.register_builder('G+Pol1', fit_gp1_creator.GPol1FitBuilder(), config_fit_gp1)
-fitfactory.register_builder('G+Pol2', fit_gp2_creator.GPol2FitBuilder(), config_fit_gp2)
+# fitfactory.register_builder('Gauss', fit_gaus_creator.GausFitBuilder(), config_fit_gaus)
+# fitfactory.register_builder('Exp', fit_exp_creator.ExpFitBuilder(), config_fit_exp)
+# fitfactory.register_builder('Pol1', fit_p1_creator.Pol1FitBuilder(), config_fit_p1)
+# fitfactory.register_builder('Pol2', fit_p2_creator.Pol2FitBuilder(), config_fit_p2)
+# fitfactory.register_builder('G+Pol1', fit_gp1_creator.GPol1FitBuilder(), config_fit_gp1)
+# fitfactory.register_builder('G+Pol2', fit_gp2_creator.GPol2FitBuilder(), config_fit_gp2)
 fitfactory.register_builder('AlphaEMG1', fit_alpha1_creator.AlphaEMG1FitBuilder(), config_fit_alph1)
 fitfactory.register_builder('AlphaEMG2', fit_alpha2_creator.AlphaEMG2FitBuilder(), config_fit_alph2)
 fitfactory.register_builder('AlphaEMG3', fit_alpha3_creator.AlphaEMG3FitBuilder(), config_fit_alph3)
+fitfactory.register_builder('AlphaEMG12', fit_alpha12_creator.AlphaEMG12FitBuilder(), config_fit_alph12)
+fitfactory.register_builder('AlphaEMG22', fit_alpha22_creator.AlphaEMG22FitBuilder(), config_fit_alph22)
+# fitfactory.register_builder('AlphaEMG22Vanilla', fit_alpha22_vanila.AlphaEMG22FitVanillaBuilder(), config_fit_alph22_vanilla)
+fitfactory.register_builder('AlphaEMG32', fit_alpha32_creator.AlphaEMG32FitBuilder(), config_fit_alph32)
+# fitfactory.register_builder('AlphaEMGMulti', fit_alpha_multi_creator.AlphaMultiEMGFitBuilder(), config_fit_alphmulti)
+fitfactory.register_builder('AlphaEMGMultiSigma', fit_alpha_multi_sigma_creator.AlphaMultiEMGSigmaFitBuilder(), config_fit_alph_sigma_multi)
+# fitfactory.register_builder('AlphaEMGLinear', fit_alpha_linear_creator.AlphaEMGLinearFitBuilder(), config_fit_alph_linear)
 # fitfactory.register_builder('Skeleton', fit_skel_creator.SkelFitBuilder(), config_fit_skel)
 
 # ML Algorithm registration
