@@ -90,7 +90,7 @@ def _emg_one_tail_stable(x, A, mu, sigma, tau):
     # z >= 0 : use g * erfcx(z)
     # z <  0 : use exp( (σ/τ)^2/2 - (x-μ)/τ ) * erfc(u)
     # with u = ( (σ/τ) - (x-μ)/σ ) / sqrt(2)
-    u = (_INV_SQRT2) * ((sigma / tau) - ((x - mu) * inv_sigma))
+    u = (_INV_SQRT2) * ((sigma / tau) + ((x - mu) * inv_sigma))
 
     out = np.empty_like(x)
 
@@ -100,7 +100,7 @@ def _emg_one_tail_stable(x, A, mu, sigma, tau):
         out[m] = pref * g * erfcx(u[m])
 
     if np.any(~m):
-        expfac = np.exp(0.5 * (sigma / tau)**2 - (x[~m] - mu) / tau)
+        expfac = np.exp(0.5 * (sigma / tau)**2 + (x[~m] - mu) / tau)
         out[~m] = pref * expfac * erfc(u[~m])
 
     # Replace any residual non-finites by 0 (far-out tails)
@@ -249,8 +249,8 @@ class AlphaEMG22Fit:
         # ----------------
         pars = Parameters()
         pars.add('A1', value=max(A1_0, 1.0), min=0)
-        # default_ratio = 848.0 / 131.0
-        default_ratio = 85.0 / 13.0
+        default_ratio = 1.0
+        # default_ratio = 85.0 / 13.0
         ratio_ui = float(A2_ui) if np.isfinite(A2_ui) else np.nan
         use_ratio = np.isfinite(ratio_ui) and (ratio_ui > 0.0)
         ratio = ratio_ui if use_ratio else default_ratio

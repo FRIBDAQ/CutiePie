@@ -299,11 +299,14 @@ class SpecialFunctions(QWidget):
             ],
 
             "AlphaEMGMultiSigma": [
-                "", "", "", "", "", "", "", "", "", "", "", "",   # p0..p11 hidden
-                "wmode",            # p12 (row 6, left)
-                "bound |d0|",       # p13 (row 6, right)
-                "bound |dg|",       # p14 (row 7, left)
-                "bound |dm*|",      # p15 (row 7, right)
+                "", "", "", "", "", "", "", "", "",  # p0..p8 hidden  (9 empties)
+                "sigma_bound",      # p9
+                "tau1_bound",       # p10
+                "tau2_bound",       # p11
+                "wmode",            # p12
+                "bound |d0|",       # p13
+                "bound |dg|",       # p14
+                "bound |dm*|",      # p15
                 "", "", "", "", ""  # p16..p19 hidden
             ],
 
@@ -343,8 +346,22 @@ class SpecialFunctions(QWidget):
             self.fit_p11_label.setToolTip(tt)   # eta2
             self.fit_p17_label.setToolTip(tt)   # eta3
         elif name == "AlphaEMGMultiSigma":
+            # show the right fields (p9..p15) without wiping user input
+            # tooltips
+            self.fit_p9.setToolTip("Symmetric limit for sigma (ADC)")
+            self.fit_p10.setToolTip("Symmetric limit for tau1 (ADC)")
+            self.fit_p11.setToolTip("Symmetric limit for tau2 (ADC)")
             self.fit_p12.setToolTip("0=unweighted, 1=Poisson(data), 2=Poisson(model, IRLS)")
             self.fit_p13.setToolTip("Symmetric limit for |d0| (ADC)")
             self.fit_p14.setToolTip("Symmetric limit for |dg| (gain)")
             self.fit_p15.setToolTip("Symmetric limit for every dm_* (ADC)")
+
+            # ensure wmode is shown with a sane default
+            if not self.fit_p12.text().strip():
+                self.fit_p12.setText("2")  # IRLS default
+
+            # treat "0" bounds as "use file defaults" → show empty instead of 0
+            for w in (self.fit_p9, self.fit_p10, self.fit_p11, self.fit_p13, self.fit_p14, self.fit_p15):
+                if w.text().strip() == "0":
+                    w.clear()
 

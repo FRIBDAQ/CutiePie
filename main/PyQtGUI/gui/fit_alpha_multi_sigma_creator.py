@@ -85,14 +85,14 @@ def _emg_one_tail_stable(x, A, mu, sigma, tau):
     tau   = max(float(tau),   1e-9)
     pref = 0.5 * A / tau
     inv_sigma = 1.0 / sigma
-    u = (_INV_SQRT2) * ((sigma / tau) - ((x - mu) * inv_sigma))
+    u = (_INV_SQRT2) * ((sigma / tau) + ((x - mu) * inv_sigma))
     out = np.empty_like(x)
     m = (u >= 0.0)
     if np.any(m):
         g = np.exp(-0.5 * ((x[m] - mu) * inv_sigma)**2)
         out[m] = pref * g * erfcx(u[m])
     if np.any(~m):
-        expfac = np.exp(0.5 * (sigma / tau)**2 - (x[~m] - mu) / tau)
+        expfac = np.exp(0.5 * (sigma / tau)**2 + (x[~m] - mu) / tau)
         out[~m] = pref * expfac * erfc(u[~m])
     return np.where(np.isfinite(out), out, 0.0)
 
@@ -269,12 +269,12 @@ class AlphaMultiEMGSigmaFit:
         self.shape_bounds = shape_bounds or {
             "sigma": (1.0, 2000.0),          # ADC
             "tau1":  (1.0, 2000.0),          # ADC
-            "tau2":  (1.0, 4000.0),          # ADC
+            "tau2":  (1.0, 2000.0),          # ADC
             "eta":   (0.0, 1.0),
         }
 
         self.iso_scale_bounds = iso_scale_bounds or {             # <--- NEW
-            "s_sigma": (0.7, 1.4),
+            "s_sigma": (0.5, 1.5),
             "s_tau1":  (0.5, 1.5),
             "s_tau2":  (0.5, 1.5),
         }
@@ -310,67 +310,81 @@ class AlphaMultiEMGSigmaFit:
                 return None
             dx = float(np.median(np.diff(x))) if x.size > 1 else dx
 
-        # --- Parse bw, wmode, d0_abs, dg_abs, dm_abs (zeros allowed) ---
+        # --- Parse bw, wmode, and bounds from GUI tail; blank/0 => defaults ---
         fp = list(fitpar) if fitpar is not None else []
+        dx_med = float(dx)
 
-        bw    = dx
-        wmode = getattr(self, "wmode_default", 2)
-
-        D0_DEF = 500.0                 # sensible defaults
+        D0_DEF = 1000.0
         DG_DEF = 2e-2
         DM_DEF = self.shift_bound
-        d0_abs, dg_abs, dm_abs = D0_DEF, DG_DEF, DM_DEF
 
-        def _num_or(default, v):
+        def _to_float(v):
             try:
                 z = float(v)
-                return z if np.isfinite(z) else default
+                return z if np.isfinite(z) else None
             except Exception:
-                return default
+                return None
 
-        # Expect tail: [..., bw, wmode, d0_abs, dg_abs, dm_abs]
-        if len(fp) >= 5:
-            bw     = _num_or(bw,    fp[-5])
-            wmode  = int(round(_num_or(wmode, fp[-4])))
-            d0_abs = abs(_num_or(d0_abs, fp[-3]))   # allow 0 (locks d0)
-            dg_abs = abs(_num_or(dg_abs, fp[-2]))   # allow 0 (locks dg)
-            dm_abs = abs(_num_or(dm_abs, fp[-1]))   # allow 0 (locks all dm_*)
+        def _abs_or_default(v, default):
+            z = _to_float(v)
+            # blank/None/NaN or exactly 0.0 => use default
+            if z is None or z == 0.0:
+                return float(default)
+            return abs(float(z))
 
-        # sanitize
-        if not (isinstance(bw, float) and np.isfinite(bw) and bw > 0):
-            bw = dx
-        if wmode not in (0, 1, 2):
-            wmode = getattr(self, "wmode_default", 2)
+        # defaults
+        bw    = dx_med
+        wmode = int(getattr(self, "wmode_default", 2))
+        # use current shape upper-bounds as defaults
+        sig_def = self.shape_bounds["sigma"][1]
+        t1_def  = self.shape_bounds["tau1"][1]
+        t2_def  = self.shape_bounds["tau2"][1]
 
-        # use these for bounds/flags
-        vary_d0 = (d0_abs > 0)
-        vary_dg = (dg_abs > 0)
+        # user tail payload: [bw, wmode, sigma_bound, tau1_bound, tau2_bound, d0_abs, dg_abs, dm_abs]
+        tail = fp[-8:] if len(fp) >= 8 else []
 
-        #######################################################
-        '''
-        # Defaults if user doesn't provide:
-        D0_DEF = 500.0      # |d0| ≤ 500 ADC (pick what makes sense for your setup)
-        DG_DEF = 2e-2       # |dg| ≤ 0.02 (±2% gain)
-        DM_DEF = self.shift_bound  # keep your existing per-isotope shift as fallback
+        if tail:
+            # bw / wmode
+            bw_in = _to_float(tail[0]);   bw    = bw_in if (bw_in and bw_in > 0) else bw
+            wm_in = _to_float(tail[1]);   wmode = int(round(wm_in)) if (wm_in is not None and wm_in in (0.0,1.0,2.0)) else wmode
 
-        d0_abs = D0_DEF
-        dg_abs = DG_DEF
-        dm_abs = DM_DEF
-        '''
-        # If user supplied extra 3 numbers after bw,wmode:
-        # [..., bw, wmode, d0_abs, dg_abs, dm_abs]
-        if len(fp) >= 5:
-            def _pos_or(default, v):
-                try:
-                    z = float(v)
-                    return z if np.isfinite(z) and z > 0 else default
-                except Exception:
-                    return default
-            d0_abs = _pos_or(D0_DEF,  fp[-3])
-            dg_abs = _pos_or(DG_DEF,  fp[-2])
-            dm_abs = _pos_or(DM_DEF,  fp[-1])
-        if dm_abs == 0.0:
-            self.allow_shift = False  # lock all dm_* parameters
+            # bounds: blank or 0 => keep defaults
+            sigma_bound = _abs_or_default(tail[2], sig_def)
+            tau1_bound  = _abs_or_default(tail[3], t1_def)
+            tau2_bound  = _abs_or_default(tail[4], t2_def)
+
+            # globals: blank or 0 => default magnitudes
+            d0_abs = _abs_or_default(tail[5], D0_DEF)
+            dg_abs = _abs_or_default(tail[6], DG_DEF)
+
+            # dm: blank => keep DM_DEF; exactly 0 => lock shifts
+            dm_in = _to_float(tail[7])
+            dm_abs = 0.0 if dm_in == 0.0 else (DM_DEF if dm_in is None else float(dm_in))
+        else:
+            sigma_bound, tau1_bound, tau2_bound = sig_def, t1_def, t2_def
+            d0_abs, dg_abs, dm_abs = D0_DEF, DG_DEF, DM_DEF
+
+        # final sanitize
+        bw    = bw if (np.isfinite(bw) and bw > 0) else dx_med
+        wmode = wmode if wmode in (0, 1, 2) else int(getattr(self, "wmode_default", 2))
+
+        # apply caps only on uppers; keep existing lowers
+        def _cap(key, ub):
+            if ub > 0.0:
+                lo, _ = self.shape_bounds.get(key, (1.0, 2000.0))
+                self.shape_bounds[key] = (max(1.0, float(lo)), float(ub))
+
+        _cap("sigma", sigma_bound)
+        _cap("tau1",  tau1_bound)
+        _cap("tau2",  tau2_bound)
+
+        # dm=0 => lock per-isotope shifts
+        self.allow_shift = bool(self.allow_shift and dm_abs != 0.0)
+
+        # always vary d0/dg later when adding Parameters:
+        # pars.add('d0', value=0.0, min=-d0_abs, max=+d0_abs, vary=True)
+        # pars.add('dg', value=0.0, min=-dg_abs, max=+dg_abs, vary=True)
+
 
         ######################################################
         # Build parameters
@@ -392,16 +406,16 @@ class AlphaMultiEMGSigmaFit:
             lo, hi = self.shape_bounds["eta"]
             pars.add('eta',   value=eta_seed, min=lo, max=hi, vary=True)
 
-        vary_d0 = (d0_abs > 0)
-        vary_dg = (dg_abs > 0)
+        # vary_d0 = (d0_abs > 0)
+        # vary_dg = (dg_abs > 0)
         pars.add('d0', value=0.0,
-                min=(-float(d0_abs) if vary_d0 else 0.0),
-                max=(+float(d0_abs) if vary_d0 else 0.0),
-                vary=vary_d0)
+                min=(-float(d0_abs)),
+                max=(+float(d0_abs)),
+                vary=True)
         pars.add('dg', value=0.0,
-                min=(-float(dg_abs) if vary_dg else 0.0),
-                max=(+float(dg_abs) if vary_dg else 0.0),
-                vary=vary_dg)
+                min=(-float(dg_abs)),
+                max=(+float(dg_abs)),
+                vary=True)
 
         # background
         # pars.add('b0', value=max(np.percentile(y, 1), 0.0), min=0.0)

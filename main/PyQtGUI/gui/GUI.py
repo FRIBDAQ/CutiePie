@@ -6041,12 +6041,16 @@ class MainWindow(QMainWindow):
                                 except Exception:
                                     return 0.0
 
+                            sigma_ui = _pos_or_zero(self.extraPopup.fit_p9)  # σ
+                            tau1_bound_ui = _pos_or_zero(self.extraPopup.fit_p10)  # τ₁ bound
+                            tau2_bound_ui = _pos_or_zero(self.extraPopup.fit_p11)  # τ₂ bound
+     
                             d0_abs_ui = _pos_or_zero(self.extraPopup.fit_p13)  # |d0|
                             dg_abs_ui = _pos_or_zero(self.extraPopup.fit_p14)  # |dg|
                             dm_abs_ui = _pos_or_zero(self.extraPopup.fit_p15)  # |dm*|
 
                             fitpar = (fitpar or [])
-                            fitpar.extend([bw, int(wmode_ui), d0_abs_ui, dg_abs_ui, dm_abs_ui])
+                            fitpar.extend([bw, int(wmode_ui), sigma_ui, tau1_bound_ui, tau2_bound_ui, d0_abs_ui, dg_abs_ui, dm_abs_ui])
 
                         elif model_name in {"AlphaEMG22"}:
                             wmode = 2
@@ -6081,7 +6085,8 @@ class MainWindow(QMainWindow):
 
                     # --- Run fit (works for AlphaEMG22 and others) ---
                     fitResultsText = QTextEdit()
-                    print(f"Fitting {fit_funct} ...")
+                    print(f"... Fitting {fit_funct} ...")
+
                     fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
 
                     # Check if user aborted
