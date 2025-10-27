@@ -135,6 +135,7 @@ SETTING_EXECUTABLE = "exec"
 DEBUG = False
 DEBOUNCE_DUR = 0.25
 t = None
+FIT_PREFIX = "fit-_-"  # if you keep it as class attr, reference with self.FIT_PREFIX
 
 # 0) Class definition
 class MainWindow(QMainWindow):
@@ -5875,6 +5876,29 @@ class MainWindow(QMainWindow):
         ax = self.getSpectrumInfo("axis", index=index)
         self.logger.debug('fit - spectrumName, fit_funct, index: %s, %s, %s', spectrumName, fit_funct, index)
 
+        ##### Delete existing fit lines before drawing a new fit
+        '''
+        labels = self.listFitLineLabels(ax)
+        # populate UI (optional)
+        self.extraPopup.delete_fitIdx_list.setText(" ".join(labels) if labels else "")
+        # ALWAYS sweep gid=='fit' artifacts, even if no labels are present
+        self.deleteFit()
+        # after deleteFit()
+        leg = ax.get_legend()
+        if leg:
+            try: leg.remove()
+            except Exception: pass
+
+        try:
+            ax.figure.canvas.draw_idle()
+        except Exception:
+            pass
+        '''
+        self._clear_all_fit_artists_in_figure(self.currentPlot.figure)
+        # snapshot BEFORE drawing the new fit
+        before_ids = self._snap_ax_ids(ax)
+        ######################################################################
+
 
         dim = self.getSpectrumInfoREST("dim", index=index)
         binx = self.getSpectrumInfoREST("binx", index=index)
@@ -5893,35 +5917,33 @@ class MainWindow(QMainWindow):
                     y = []
                     xtmp = self.createRange(binx, minxREST, maxxREST)
 
+                
                     # -------------------------------------------------------------------------------
-                    # Now backfill blanks with "0" for everything else
-                    for w in (self.extraPopup.fit_p0, self.extraPopup.fit_p1, self.extraPopup.fit_p2,
-                            self.extraPopup.fit_p3, self.extraPopup.fit_p4, self.extraPopup.fit_p5,
-                            self.extraPopup.fit_p6, self.extraPopup.fit_p7, self.extraPopup.fit_p8,
-                            self.extraPopup.fit_p9, self.extraPopup.fit_p10, self.extraPopup.fit_p11,
-                            self.extraPopup.fit_p12, self.extraPopup.fit_p13, self.extraPopup.fit_p14,
-                            self.extraPopup.fit_p15, self.extraPopup.fit_p16, self.extraPopup.fit_p17,
-                            self.extraPopup.fit_p18, self.extraPopup.fit_p19):
-                        if w is not None and not w.text():
-                            w.setText("0")
+                    widgets = (
+                        self.extraPopup.fit_p0, self.extraPopup.fit_p1, self.extraPopup.fit_p2,
+                        self.extraPopup.fit_p3, self.extraPopup.fit_p4, self.extraPopup.fit_p5,
+                        self.extraPopup.fit_p6, self.extraPopup.fit_p7, self.extraPopup.fit_p8,
+                        self.extraPopup.fit_p9, self.extraPopup.fit_p10, self.extraPopup.fit_p11,
+                        self.extraPopup.fit_p12, self.extraPopup.fit_p13, self.extraPopup.fit_p14,
+                        self.extraPopup.fit_p15, self.extraPopup.fit_p16, self.extraPopup.fit_p17,
+                        self.extraPopup.fit_p18, self.extraPopup.fit_p19
+                    )
 
-                    # Build fitpar AFTER prefill
-                    fitpar = [float(self.extraPopup.fit_p0.text()), float(self.extraPopup.fit_p1.text()),
-                            float(self.extraPopup.fit_p2.text()), float(self.extraPopup.fit_p3.text()),
-                            float(self.extraPopup.fit_p4.text()), float(self.extraPopup.fit_p5.text()),
-                            float(self.extraPopup.fit_p6.text()), float(self.extraPopup.fit_p7.text()),
-                            float(self.extraPopup.fit_p8.text()), float(self.extraPopup.fit_p9.text()),
-                            float(self.extraPopup.fit_p10.text()), float(self.extraPopup.fit_p11.text()),
-                            float(self.extraPopup.fit_p12.text()), float(self.extraPopup.fit_p13.text()),
-                            float(self.extraPopup.fit_p14.text()), float(self.extraPopup.fit_p15.text()),
-                            float(self.extraPopup.fit_p16.text()), float(self.extraPopup.fit_p17.text()),
-                            float(self.extraPopup.fit_p18.text()), float(self.extraPopup.fit_p19.text())]
+                    fitpar = []
+                    for w in widgets:
+                        t = w.text().strip() if (w is not None) else ""
+                        try:
+                            fitpar.append(float(t) if t != "" else None)
+                        except Exception:
+                            fitpar.append(None)
 
+                    '''
                     # AlphaEMG12 legacy remap (unchanged)
                     if fit_funct == "AlphaEMG12":
                         A, mu, sig, tau1, tau2, eta = fitpar[:6]
                         if tau2 == 0.0: tau2 = tau1
                         fitpar = [A, mu, sig, tau1, tau2, eta]
+                    '''
 
                     # Subrange x,y
                     ytmp = (self.getSpectrumInfoREST("data", index=index)).tolist()
@@ -6024,63 +6046,61 @@ class MainWindow(QMainWindow):
                         except Exception:
                             bw = float(np.median(np.diff(xtmp))) if len(xtmp) > 1 else 1.0
 
-                        if model_name in {"AlphaEMGMulti", "AlphaEMGMultiSigma"}:
-                            # compute bw as you already do...
-                            # wmode in p12
-                            try:
-                                wmode_ui = int(round(float(self.extraPopup.fit_p12.text())))
-                            except Exception:
-                                wmode_ui = 2
-                            if wmode_ui not in (0, 1, 2):
-                                wmode_ui = 2
 
-                            def _pos_or_zero(widget):
-                                try:
-                                    v = float(widget.text())
-                                    return v if np.isfinite(v) and v > 0 else 0.0
-                                except Exception:
-                                    return 0.0
+                    if model_name in {"AlphaEMGMulti", "AlphaEMGMultiSigma"}:
+                        # compute bw as you already do...
+                        # bw = ...
 
-                            sigma_ui = _pos_or_zero(self.extraPopup.fit_p9)  # σ
-                            tau1_bound_ui = _pos_or_zero(self.extraPopup.fit_p10)  # τ₁ bound
-                            tau2_bound_ui = _pos_or_zero(self.extraPopup.fit_p11)  # τ₂ bound
-     
-                            d0_abs_ui = _pos_or_zero(self.extraPopup.fit_p13)  # |d0|
-                            dg_abs_ui = _pos_or_zero(self.extraPopup.fit_p14)  # |dg|
-                            dm_abs_ui = _pos_or_zero(self.extraPopup.fit_p15)  # |dm*|
+                        # take wmode from the normalized fitpar, not the widget
+                        wmode_ui = fitpar[12] if len(fitpar) > 12 else None
 
-                            fitpar = (fitpar or [])
-                            fitpar.extend([bw, int(wmode_ui), sigma_ui, tau1_bound_ui, tau2_bound_ui, d0_abs_ui, dg_abs_ui, dm_abs_ui])
+                        # use the already-normalized values for bounds and globals
+                        tail = [
+                            bw,
+                            wmode_ui,
+                            fitpar[9],   # sigma upper bound (None if blank)
+                            fitpar[10],  # tau1 upper bound
+                            fitpar[11],  # tau2 upper bound
+                            fitpar[13],  # |d0|  (None => default; 0 => lock)
+                            fitpar[14],  # |dg|  (None => default; 0 => lock)
+                            fitpar[15],  # |dm*| (None => default; 0 => disable shifts)
+                        ]
+                        fitpar.extend(tail)
 
-                        elif model_name in {"AlphaEMG22"}:
-                            wmode = 2
-                            bw_idx, wm_idx = 12, 13
-                            need_len = wm_idx + 1
-                            if len(fitpar) < need_len:
-                                fitpar += [0.0] * (need_len - len(fitpar))
-                            fitpar[bw_idx] = bw
-                            fitpar[wm_idx] = int(wmode)
+                    elif model_name in {"AlphaEMG22"}:
+                        wmode = 1
+                        bw_idx, wm_idx = 12, 13
+                        need_len = wm_idx + 1
+                        if len(fitpar) < need_len:
+                            fitpar += [None] * (need_len - len(fitpar))   # <-- no zeros
+                        fitpar[bw_idx] = bw
+                        fitpar[wm_idx] = wmode
 
-                        elif model_name in {"AlphaEMG32"}:
-                            wmode = 2
-                            bw_idx, wm_idx = 18, 19
-                            need_len = wm_idx + 1
-                            if len(fitpar) < need_len:
-                                fitpar += [0.0] * (need_len - len(fitpar))
-                            fitpar[bw_idx] = bw
-                            fitpar[wm_idx] = int(wmode)
+                    elif model_name in {"AlphaEMG32"}:
+                        wmode = 1
+                        bw_idx, wm_idx = 18, 19
+                        need_len = wm_idx + 1
+                        if len(fitpar) < need_len:
+                            fitpar += [None] * (need_len - len(fitpar))   # <-- no zeros
+                        fitpar[bw_idx] = bw
+                        fitpar[wm_idx] = wmode
 
-                        else:
-                            wmode = 1
-                            # AlphaEMG1 / 12 / 2 / 3 use the NEW 6-field layout
-                            # [A, mu, sigma, tau1, bw, wmode]
-                            # (For 12 you already remapped to 6 fields above)
-                            need_len = 6
-                            if len(fitpar) < need_len:
-                                fitpar += [0.0] * (need_len - len(fitpar))
-                            fitpar[4] = bw
-                            fitpar[5] = int(wmode)
+                    elif model_name in {"AlphaEMG12"}:
+                        # >>> Treat AlphaEMG12 like 22/32: programmatically set bw + wmode=2
+                        wmode = 2
+                        need_len = 6                 # [A, mu, sigma, tau1, bw, wmode]
+                        if len(fitpar) < need_len:
+                            fitpar += [None] * (need_len - len(fitpar))
+                        fitpar[4] = bw
+                        fitpar[5] = wmode
 
+                    else:
+                        # AlphaEMG1 / 12 / 2 / 3:
+                        need_len = 6
+                        if len(fitpar) < need_len:
+                            fitpar += [None] * (need_len - len(fitpar))   # <-- no zeros
+                        fitpar[4] = bw
+                        fitpar[5] = 1
                     # ----------------------------------------------------------------
 
                     # --- Run fit (works for AlphaEMG22 and others) ---
@@ -6097,6 +6117,7 @@ class MainWindow(QMainWindow):
 
                     print("Fitting is done.")
 
+                    # tag everything that was just created (main line, dashed sub-peaks, isotope-name texts, etc.)
 
                     if cal is not None:
                         fitResultsText.insertPlainText(
@@ -6125,6 +6146,7 @@ class MainWindow(QMainWindow):
                     )
 
                     self.setFitLineLabel(ax, fitln, fitResultsText, spectrumName)
+                    self._tag_new_fit_artists(ax, before_ids)
 
                     # Save μ back to QSettings (so next run pre-fills even if user edited)
                     if model_name == "AlphaEMG22":
@@ -6452,64 +6474,80 @@ class MainWindow(QMainWindow):
 
         return config
 
-    
-    '''
-    def prepare_fit_config(self, fit_funct: str, force_prompt: bool = False) -> dict:
-        config = dict(self.fit_factory._configs.get(fit_funct) or {})
+    ################################ Bashir added to clear fit figures ######
+    def _snap_ax_ids(self, ax):
+        ids = set()
+        for l in getattr(ax, "lines", []): ids.add(id(l))
+        for c in getattr(ax, "collections", []): ids.add(id(c))
+        for t in getattr(ax, "texts", []): ids.add(id(t))
+        for p in getattr(ax, "patches", []): ids.add(id(p))
+        for a in getattr(ax, "artists", []): ids.add(id(a))
+        return ids
 
-        if fit_funct in {"AlphaEMGMulti", "AlphaEMGMultiSigma"}:
-            # ----- SHAPE FILE (existing flow) -----
-            key_shape = f"{fit_funct}/shape_file"
-            shape_path = config.get("shape_file", "")
-            if force_prompt:
-                shape_path = ""
-            if not (isinstance(shape_path, str) and os.path.isfile(shape_path)):
-                shape_path = self._choose_shape_file(key_shape)
-                if not shape_path:
-                    raise ValueError("No shape file selected.")
-                if not os.path.isfile(shape_path):
-                    raise ValueError(f"Shape file not found:\n{shape_path}")
-                config["shape_file"] = shape_path
+    def _tag_new_fit_artists(self, ax, before_ids, fit_idx=None):
+        # tag everything newly drawn by the fit so deleteFit() can remove it later
+        def _tag(a):
+            if hasattr(a, "set_gid"): a.set_gid("fit")
+            if fit_idx is not None and hasattr(a, "set_label"):
+                lab = getattr(a, "get_label", lambda: "")() or ""
+                if not lab or lab == "_nolegend_":
+                    a.set_label(f"{FIT_PREFIX}{fit_idx}-art")
+        for l in getattr(ax, "lines", []):
+            if id(l) not in before_ids: _tag(l)
+        for c in getattr(ax, "collections", []):
+            if id(c) not in before_ids: _tag(c)
+        for t in getattr(ax, "texts", []):
+            if id(t) not in before_ids: _tag(t)
+        for p in getattr(ax, "patches", []):
+            if id(p) not in before_ids: _tag(p)
+        for a in getattr(ax, "artists", []):
+            if id(a) not in before_ids: _tag(a)
 
-            # ----- CALIBRATION FILE (new) -----
-            # prefer persisted path; fall back to config; allow Shift to force chooser
-            s = QSettings("YourLab", "AlphaGUI")
+    def _clear_all_fit_artists_in_figure(self, fig):
+        total_removed = 0
+        for ax in list(fig.axes):
+            # reuse your existing delete logic per-axes
+            try:
+                # populate UI list (optional)
+                labels = self.listFitLineLabels(ax)
+                if hasattr(self.extraPopup, "delete_fitIdx_list"):
+                    self.extraPopup.delete_fitIdx_list.setText(" ".join(labels) if labels else "")
+            except Exception:
+                pass
 
-            # prefer config, then persisted setting
-            cal_path = (config.get("calibration_file") 
-                        or s.value("calibration/file", "", type=str) 
-                        or "")
+            # sweep gid=='fit' (and label-prefixed) artifacts on this axes
+            removed = 0
+            for coll in (getattr(ax, "lines", []),
+                        getattr(ax, "collections", []),
+                        getattr(ax, "texts", []),
+                        getattr(ax, "patches", []),
+                        getattr(ax, "artists", []),
+                        getattr(ax, "images", [])):            # include images just in case
+                for a in list(coll):
+                    lab = getattr(a, "get_label", lambda: "")() or ""
+                    gid = getattr(a, "get_gid",   lambda: None)()
+                    if gid == "fit" or (isinstance(lab, str) and lab.startswith(getattr(self, "FIT_PREFIX", "fit-_-"))):
+                        try:
+                            a.remove()
+                            removed += 1
+                        except Exception:
+                            pass
 
-            need_prompt = (force_prompt
-                        or (not isinstance(cal_path, str))
-                        or (not os.path.isfile(cal_path)))
+            # nuke legend on this axes too
+            leg = ax.get_legend()
+            if leg:
+                try: leg.remove()
+                except Exception: pass
 
-            if need_prompt:
-                key_cal = f"{fit_funct}/calibration_file"
-                cal_path = self._choose_calibration_file(key_cal)
+            total_removed += removed
 
-            if cal_path and os.path.isfile(cal_path):
-                try:
-                    a, b = self.load_calibration_any(cal_path)
-                    config["calib_a"] = float(a)
-                    config["calib_b"] = float(b)
-                    config["calibration_file"] = cal_path
-                    s.setValue("calibration/file", cal_path)
-                    s.setValue("calibration/a", a)
-                    s.setValue("calibration/b", b)
-                except Exception as e:
-                    QMessageBox.warning(
-                        self, "Calibration",
-                        f"Could not parse calibration from:\n{cal_path}\n\n{e}\n\nUsing defaults."
-                    )
+        # light redraw
+        try:
+            fig.canvas.draw_idle()
+        except Exception:
+            pass
+        self.logger.debug("clear_all_fit_artists_in_figure: removed %d artists", total_removed)
 
-
-            # persist the updated config back into the factory
-            self.fit_factory._configs[fit_funct] = config
-
-        return config
-
-    '''
  ################################# Bashir added for ploting the fitting calibration results ######
     # --- ADD: helper to lazily create/show the dialog ---
     def _ensure_fit_params_dialog(self):

@@ -150,6 +150,34 @@ def _sum2_binned(x,
                         tau22, eta2 # 10, 11
                         )
 
+def _as_float(x):
+    """Return float(x) or np.nan if x is None/blank/non-numeric."""
+    try:
+        if x is None:
+            return np.nan
+        if isinstance(x, str):
+            s = x.strip()
+            if not s or s.lower() in {"none", "nan"}:
+                return np.nan
+            return float(s)
+        return float(x)
+    except Exception:
+        return np.nan
+
+def pick(ui, auto, *, zero_means_blank=True):
+    v = _as_float(ui)
+    if not np.isfinite(v):
+        return float(auto)
+    if zero_means_blank and v == 0.0:
+        return float(auto)
+    return float(v)
+
+def parse_wmode(v, default=2):
+    try:
+        k = int(round(float(v)))
+        return k if k in (0, 1, 2) else int(default)
+    except Exception:
+        return int(default)
 
 class AlphaEMG22Fit:
     def __init__(self, param_1=1, param_2=2, param_3=10):
@@ -176,19 +204,6 @@ class AlphaEMG22Fit:
          A2_ui, mu2_ui, s2_ui, t21_ui, t22_ui, eta2_ui,
          bw_ui, wmode_ui) = vals[:14]
 
-        def pick(ui, auto):
-            try:
-                v = float(ui)
-                return v if np.isfinite(v) and v != 0.0 else float(auto)
-            except Exception:
-                return float(auto)
-
-        def parse_wmode(v):
-            try:
-                k = int(round(float(v)))
-                return k if k in (0, 1, 2) else 2
-            except Exception:
-                return 2
 
         # Data-driven auto seeds
         dx     = float(np.median(np.diff(x))) if x.size > 1 else 1.0
@@ -224,7 +239,8 @@ class AlphaEMG22Fit:
         A_tot  = float(np.trapz(np.clip(y, 0, None), x))
 
         # if A1_ui was not provided, refresh A1_0 from windowed area
-        if not np.isfinite(A1_ui) or float(A1_ui) == 0.0:
+        A1_val = _as_float(A1_ui)
+        if not np.isfinite(A1_val) or A1_val == 0.0:
             A1_0 = max(A_tot / 2.0, 1.0)
 
         s1_0  = max(pick(s1_ui, sigma0), dx / 4.0)
@@ -239,9 +255,11 @@ class AlphaEMG22Fit:
         t22_0 = max(pick(t22_ui, t21_0 + max(dx / 10.0, 0.05 * sigma0)), dx / 10.0)
         eta2_0 = np.clip(pick(eta2_ui, 0.0), 0.0, 1.0)
 
-        bw    = float(bw_ui) if np.isfinite(bw_ui) and float(bw_ui) != 0 else dx
-        wmode = parse_wmode(wmode_ui)
+        # bw    = float(bw_ui) if np.isfinite(bw_ui) and float(bw_ui) != 0 else dx
+        _bw = _as_float(bw_ui)
+        bw  = float(_bw) if np.isfinite(_bw) and _bw != 0.0 else dx
 
+        wmode = parse_wmode(wmode_ui)
 
 
         # ----------------
@@ -249,13 +267,18 @@ class AlphaEMG22Fit:
         # ----------------
         pars = Parameters()
         pars.add('A1', value=max(A1_0, 1.0), min=0)
-        default_ratio = 1.0
-        # default_ratio = 85.0 / 13.0
-        ratio_ui = float(A2_ui) if np.isfinite(A2_ui) else np.nan
-        use_ratio = np.isfinite(ratio_ui) and (ratio_ui > 0.0)
-        ratio = ratio_ui if use_ratio else default_ratio
-        pars.add('ratio', value=ratio, vary=False)
-        pars.add('A2', expr='ratio*A1')
+
+        # Treat A2 as a ratio *only if* user entered a positive number in A2_ui.
+        # Otherwise, make A2 a free parameter (independent of A1).
+        A2_val   = _as_float(A2_ui)
+        use_ratio = np.isfinite(A2_val) and (A2_val > 0.0)
+
+        if use_ratio:
+            pars.add('ratio', value=float(A2_val), vary=False)
+            pars.add('A2', expr='ratio*A1')
+        else:
+            A2_0 = pick(A2_ui, A_tot / 2.0)
+            pars.add('A2', value=max(A2_0, 1.0), min=0)
 
         # centers: keep mu2 as expression; vary mu1 and dmu only
         pars.add('mu1', value=float(mu1_0))
@@ -263,7 +286,12 @@ class AlphaEMG22Fit:
         sep_max = 7.0          # pick something generous for your setup
         # dmu0    = np.clip(mu2_0 - mu1_0, -sep_max, sep_max)
         # pars.add('dmu', value=dmu0, min=sep_min, max=sep_max)
-        pars.add('dmu', value=mu2_ui-mu1_ui, min=mu2_ui-mu1_ui-sep_max, max=mu2_ui-mu1_ui+sep_max)
+        # pars.add('dmu', value=mu2_ui-mu1_ui, min=mu2_ui-mu1_ui-sep_max, max=mu2_ui-mu1_ui+sep_max)
+        mu1_val = pick(mu1_ui, mu1_0, zero_means_blank=False)
+        mu2_val = pick(mu2_ui, mu2_0, zero_means_blank=False)
+        dmu0    = mu2_val - mu1_val
+        pars.add('dmu', value=dmu0, min=dmu0 - sep_max, max=dmu0 + sep_max)
+
         pars.add('mu2', expr='mu1 + dmu')
 
         mu_wiggle = 2000.0
@@ -327,9 +355,12 @@ class AlphaEMG22Fit:
         # η’s:
         
         # FIXED (user-provided)
-        def _inside01(v): 
-            v = 0.5 if (not np.isfinite(v)) else v
-            return float(np.clip(v, 0.0, 1.0))
+        def _inside01(v):
+            f = _as_float(v)           # convert UI -> float or np.nan
+            if not np.isfinite(f):     # only call isfinite on a float/np.nan
+                f = 0.5                # default if blank/non-numeric
+            return float(np.clip(f, 0.0, 1.0))
+
 
         '''
         pars.add('eta1', value=_inside01(eta1_0), min=0.0, max=1.0, vary=True)
@@ -557,7 +588,13 @@ class AlphaEMG22Fit:
         fitln_total.components = [fitln_p1, fitln_p2]
         fitln_total.component_data = {'x': xx, 'y1': y1, 'y2': y2, 'ytot': ytot}
 
-        fitln_total._ratio = res.params['ratio'].value  # or res.params['A2'].value / res.params['A1'].value
+        # fitln_total._ratio = res.params['ratio'].value  # or res.params['A2'].value / res.params['A1'].value
+        # Safe ratio (works with or without a fixed 'ratio' param)
+        fitln_total._ratio = float(p['A2'].value) / max(float(p['A1'].value), 1e-12)
+
+
+        # fitln_total.set_gid("fit")   # <<< so your delete sweep catches it
+
 
         return fitln_total
 

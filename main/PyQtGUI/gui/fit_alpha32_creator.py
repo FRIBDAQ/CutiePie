@@ -136,16 +136,53 @@ Pu-239:
 '''
 
 def _sum3_binned(x,
-                 A1, mu1, s1, t11, t12, eta1,
-                 A2, mu2, s2, t21, t22, eta2,
-                 A3, mu3, s3, t31, t32, eta3,
+                 A1, mu1, sigma1, tau11, tau12, eta1,
+                 A2, mu2, sigma2, tau21, tau22, eta2,
+                 A3, mu3, sigma3, tau31, tau32, eta3,
                  bw):
+    # Map sigma* -> s*, tau** keep same meaning
     return _bin_integral(
         _sum3, x, bw,
-        A1, mu1, s1, t11, t12, eta1,
-        A2, mu2, s2, t21, t22, eta2,
-        A3, mu3, s3, t31, t32, eta3
+        A1, mu1, sigma1, tau11, tau12, eta1,
+        A2, mu2, sigma2, tau21, tau22, eta2,
+        A3, mu3, sigma3, tau31, tau32, eta3
     )
+
+
+def _as_float(x):
+    """Return float(x) or np.nan if x is None/blank/non-numeric."""
+    try:
+        if x is None:
+            return np.nan
+        if isinstance(x, str):
+            s = x.strip()
+            if not s or s.lower() in {"none", "nan"}:
+                return np.nan
+            return float(s)
+        return float(x)
+    except Exception:
+        return np.nan
+
+def pick(ui, auto, *, zero_means_blank=True):
+    f = _as_float(ui)
+    if not np.isfinite(f):
+        return float(auto)
+    if zero_means_blank and f == 0.0:
+        return float(auto)
+    return float(f)
+
+def parse_wmode(v, default=2):
+    f = _as_float(v)
+    if not np.isfinite(f):
+        return int(default)
+    k = int(round(f))
+    return k if k in (0, 1, 2) else int(default)
+
+def _inside01(v):
+    f = _as_float(v)
+    if not np.isfinite(f):
+        f = 0.5
+    return float(np.clip(f, 0.0, 1.0))
 
 
 class AlphaEMG32Fit:
@@ -177,20 +214,6 @@ class AlphaEMG32Fit:
          A3_ui, mu3_ui, s3_ui, t31_ui, t32_ui, eta3_ui,
          bw_ui, wmode_ui) = vals[:20]
 
-        def pick(ui, auto):
-            try:
-                v = float(ui)
-                return v if np.isfinite(v) and v != 0.0 else float(auto)
-            except Exception:
-                return float(auto)
-
-        def parse_wmode(v):
-            try:
-                k = int(round(float(v)))
-                return k if k in (0, 1, 2) else 2
-            except Exception:
-                return 2
-
         # Data-driven auto seeds
         dx     = float(np.median(np.diff(x))) if x.size > 1 else 1.0
         span   = float(x.max() - x.min()) or 1.0
@@ -202,7 +225,15 @@ class AlphaEMG32Fit:
         mu_auto = float(x[idx_max])
 
         # Seeds (UI wins if provided)
-        A1_0  = pick(A1_ui, A_tot / 3.0)
+        A1_0  = pick(A1_ui, A_tot / 3.0)   # <- always define A1_0 first
+        mu1_0 = pick(mu1_ui, mu_auto)
+
+        # If the user effectively didn't provide A1, refresh with a safe default
+        A1_val = _as_float(A1_ui)
+        if not np.isfinite(A1_val) or A1_val == 0.0:
+            A1_0 = max(A_tot / 3.0, 1.0)
+
+
         mu1_0 = pick(mu1_ui, mu_auto)
 
         # provisional μ2, μ3 estimates to size the window
@@ -227,10 +258,11 @@ class AlphaEMG32Fit:
         tau0   = 0.5 * sigma0
         A_tot  = float(np.trapz(np.clip(y, 0, None), x))
 
+        '''
         # Adjust A1 if not provided
         if not np.isfinite(A1_ui) or float(A1_ui) == 0.0:
             A1_0 = max(A_tot / 3.0, 1.0)
-
+        '''
         # Peak-1
         s1_0   = max(pick(s1_ui, sigma0), dx / 4.0)
         t11_0  = max(pick(t11_ui, tau0), dx / 10.0)
@@ -251,7 +283,10 @@ class AlphaEMG32Fit:
         t32_0  = max(pick(t32_ui, t31_0 + max(dx / 10.0, 0.05 * sigma0)), dx / 10.0)
         eta3_0 = np.clip(pick(eta3_ui, 0.0), 0.0, 1.0)
 
-        bw    = float(bw_ui) if np.isfinite(bw_ui) and float(bw_ui) != 0 else dx
+        # bw    = float(bw_ui) if np.isfinite(bw_ui) and float(bw_ui) != 0 else dx
+
+        _bw = _as_float(bw_ui)
+        bw  = float(_bw) if np.isfinite(_bw) and _bw != 0.0 else dx
         wmode = parse_wmode(wmode_ui)
 
         # ----------------
@@ -260,40 +295,46 @@ class AlphaEMG32Fit:
         pars = Parameters()
 
         # Amplitudes: A2, A3 are *not* Params; use fixed ratios to A1
-        '''
-        PU12, PU17, PU71 = 12.0, 17.0, 71.0
-        default_ratio2 = PU17 / PU12   # ~1.4166667
-        default_ratio3 = PU71 / PU12   # ~5.9166667
-        '''
-        default_ratio2 = 1.0
-        default_ratio3 = 1.0
-        
+
         pars.add('A1', value=max(A1_0, 1.0), min=0)
 
-        ratio2_ui = float(A2_ui) if np.isfinite(A2_ui) else np.nan
-        ratio3_ui = float(A3_ui) if np.isfinite(A3_ui) else np.nan
-        ratio2 = ratio2_ui if (np.isfinite(ratio2_ui) and ratio2_ui > 0.0) else default_ratio2
-        ratio3 = ratio3_ui if (np.isfinite(ratio3_ui) and ratio3_ui > 0.0) else default_ratio3
+        A2_val = _as_float(A2_ui)
+        A3_val = _as_float(A3_ui)
 
-        pars.add('ratio2', value=ratio2, vary=False)
-        pars.add('ratio3', value=ratio3, vary=False)
+        use_ratio2 = np.isfinite(A2_val) and (A2_val > 0.0)
+        use_ratio3 = np.isfinite(A3_val) and (A3_val > 0.0)
 
-        pars.add('A2', expr='ratio2*A1')
-        pars.add('A3', expr='ratio3*A1')
+        if use_ratio2:
+            pars.add('ratio2', value=float(A2_val), vary=False)
+            pars.add('A2', expr='ratio2*A1')
+        else:
+            A2_0 = pick(A2_ui, A_tot / 3.0)
+            pars.add('A2', value=max(A2_0, 1.0), min=0)
+
+        if use_ratio3:
+            pars.add('ratio3', value=float(A3_val), vary=False)
+            pars.add('A3', expr='ratio3*A1')
+        else:
+            A3_0 = pick(A3_ui, A_tot / 3.0)
+            pars.add('A3', value=max(A3_0, 1.0), min=0)
+
 
 
         # Centers: mu2 = mu1 + dmu12 ; mu3 = mu2 + dmu23
+        mu1_val = pick(mu1_ui, mu1_0, zero_means_blank=False)
+        mu2_val = pick(mu2_ui, mu1_0 + step_est, zero_means_blank=False)
+        mu3_val = pick(mu3_ui, mu2_val + step_est, zero_means_blank=False)
+
+        dmu12_0 = mu2_val - mu1_val
+        dmu23_0 = mu3_val - mu2_val
+
         pars.add('mu1', value=float(mu1_0))
-        sep_min = max(dx, 0.5 * sigma0)
         sep_max = 7.0
-        dmu12_0 = mu2_ui - mu1_ui
-        dmu23_0 = mu3_ui - mu2_ui
-        pars.add('dmu12', value=dmu12_0, min=dmu12_0-sep_max, max=dmu12_0+sep_max)
-        pars.add('dmu23', value=dmu23_0, min=dmu23_0-sep_max, max=dmu23_0+sep_max)
-        # pars.add('dmu12', value=dmu12_0, min=sep_min, max=sep_max)
-        # pars.add('dmu23', value=dmu23_0, min=sep_min, max=sep_max)
+        pars.add('dmu12', value=dmu12_0, min=dmu12_0 - sep_max, max=dmu12_0 + sep_max)
+        pars.add('dmu23', value=dmu23_0, min=dmu23_0 - sep_max, max=dmu23_0 + sep_max)
         pars.add('mu2', expr='mu1 + dmu12')
         pars.add('mu3', expr='mu2 + dmu23')
+
 
         mu_wiggle = 2000.0
         pars['mu1'].set(vary=True, min=mu1_0 - mu_wiggle, max=mu1_0 + mu_wiggle)
@@ -311,11 +352,6 @@ class AlphaEMG32Fit:
         pars.add('sigma2', expr='sigma1 + ds12')
         pars.add('ds23', min=-wiggle_s, max=+wiggle_s)
         pars.add('sigma3', expr='sigma2 + ds23')
-
-        # Tails: share fast + delta across peaks (like your 22 variant)
-        t_min  = max(dx/10.0, 1e-6)
-        t_max  = 10.0 * sigma0
-        floor  = max(dx/20.0, 0.02 * sigma0)
 
         
         # Shared multipliers (fast tail and slow gap)
@@ -361,25 +397,23 @@ class AlphaEMG32Fit:
         pars.add('tau32', value=t32_0, min=max(t31_0 + floor, t_min), max=t_max)
         ''' 
 
-        
-        # Etas (free but constrained away from 0/1 for stability)
-        def _inside01(v):
-            v = 0.5 if (not np.isfinite(v)) else v
-            return float(np.clip(v, 0.0, 1.0))
 
         '''
         pars.add('eta1', value=_inside01(eta1_0), min=1e-6, max=1-1e-6, vary=True)
         pars.add('eta2', value=_inside01(eta2_0), min=1e-6, max=1-1e-6, vary=True)
         pars.add('eta3', value=_inside01(eta3_0), min=1e-6, max=1-1e-6, vary=True)
         '''
-        pars.add('eta1', value=_inside01(eta1_0), vary=False)
-        pars.add('eta2', value=_inside01(eta2_0), vary=False)
-        pars.add('eta3', value=_inside01(eta3_0), vary=False)
+        pars.add('eta1', value=_inside01(eta1_ui), vary=False)
+        pars.add('eta2', value=_inside01(eta2_ui), vary=False)
+        pars.add('eta3', value=_inside01(eta3_ui), vary=False)
+
         # Fixed bin width
         pars.add('bw', value=max(bw, 0.0), vary=False, min=0.0)
 
         # Model
-        model = Model(_sum3_binned_ratios, independent_vars=['x'])
+        # model = Model(_sum3_binned_ratios, independent_vars=['x'])
+        model = Model(_sum3_binned, independent_vars=['x'])
+
 
         # Preflight: ensure finite; broaden if needed
         for _ in range(6):
@@ -567,9 +601,10 @@ class AlphaEMG32Fit:
 
         # Amplitudes from A1 and fixed ratios
         A1 = p['A1'].value
-        A2 = p['ratio2'].value * A1
-        A3 = p['ratio3'].value * A1
+        A2 = p['A2'].value
+        A3 = p['A3'].value
         bw = p['bw'].value
+
 
         # Individual peak contributions (with the same bin integration)
         y1 = _bin_integral(_emg_two_tail_stable, xx, bw,
@@ -587,8 +622,12 @@ class AlphaEMG32Fit:
         axis.plot(xx, y3, '--', lw=2.5, label='peak 3')
         axis.legend()
 
-        line_tot._ratio2 = res.params['ratio2'].value
-        line_tot._ratio3 = res.params['ratio3'].value
+        # Safe ratios for inspection/UI, regardless of whether ratio params existed
+        ratio2 = (p['A2'].value / max(p['A1'].value, 1e-12))
+        ratio3 = (p['A3'].value / max(p['A1'].value, 1e-12))
+        line_tot._ratio2 = ratio2
+        line_tot._ratio3 = ratio3
+
 
         return line_tot
 
