@@ -96,6 +96,38 @@ def _alphaemg1_binned(x, A, mu, sigma, tau1, tau2, eta, bw):
     """
     return _bin_integral(_emg_tail_mixture, x, bw, A, mu, sigma, tau1, tau2, eta)
 
+# Helper to parse user inputs
+def _as_float(x):
+    """Return float(x) or np.nan if x is None/blank/non-numeric."""
+    try:
+        if x is None:
+            return np.nan
+        if isinstance(x, str):
+            s = x.strip()
+            if not s or s.lower() in {"none", "nan"}:
+                return np.nan
+            return float(s)
+        return float(x)
+    except Exception:
+        return np.nan
+
+def parse_wmode(v):
+    v = _as_float(v)
+    if np.isfinite(v):
+        k = int(round(v))
+        return k if k in (0, 1, 2) else 1
+    return 1  # default Poisson(data)
+
+def pick(ui, auto):
+    v = _as_float(ui)
+    return float(v) if np.isfinite(v) and v != 0 else float(auto)
+
+def _get(name):
+    try:
+        return float(p[name].value)
+    except Exception:
+        return np.nan
+
 class AlphaEMG12Fit:
     def __init__(self, param_1=1, param_2=2, param_3=10,
                  eta_vary=True, eta_value=0):
@@ -125,27 +157,21 @@ class AlphaEMG12Fit:
 
         # --- Parse fitpar (backward-compatible) ---
         fp = list(fitpar) if fitpar is not None else []
+
+        # sanitize everything we might read from the UI
+        vals = list(map(_as_float, fp))  # tolerate "" etc.
+
         A_ui = mu_ui = sig_ui = tau1_ui = tau2_ui = eta_ui = np.nan
         bw_ui = wmode_ui = np.nan
 
-        if len(fp) >= 4:
-            A_ui, mu_ui, sig_ui, tau1_ui = fp[:4]
+        if len(vals) >= 4:
+            A_ui, mu_ui, sig_ui, tau1_ui = vals[:4]
 
-        if len(fp) >= 10:
-            # OLD layout
-            tau2_ui, eta_ui = fp[4], fp[5]
-            bw_ui, wmode_ui = fp[8], fp[9]
-        elif len(fp) >= 6:
-            # NEW compact layout
-            bw_ui, wmode_ui = fp[4], fp[5]
-        # else: MIN layout → tau2, eta remain NaN; bw/wmode NaN (handled below)
-
-        def parse_wmode(val):
-            try:
-                k = int(round(float(val)))
-                return k if k in (0, 1, 2) else 1
-            except Exception:
-                return 1  # default Poisson(data)
+        if len(vals) >= 10:          # OLD layout
+            tau2_ui, eta_ui = vals[4], vals[5]
+            bw_ui, wmode_ui = vals[8], vals[9]
+        elif len(vals) >= 6:         # NEW layout
+            bw_ui, wmode_ui = vals[4], vals[5]
 
         # Data-driven seeds
         dx     = float(np.median(np.diff(x))) if x.size > 1 else 1.0
@@ -153,67 +179,53 @@ class AlphaEMG12Fit:
         mu0    = float(x[np.argmax(y)]) if np.all(np.isfinite(y)) else float((x.min()+x.max())/2.0)
         sigma0 = max(dx, span/50.0)
         tau10  = 0.5 * sigma0
-        tau20  = 1.0 * sigma0  # a slower tail as a reasonable default
+        tau20  = 1.0 * sigma0
         A0     = float(np.trapz(np.clip(y, 0, None), x))
-        eta0   = 0.0  # default to single-tail unless user asks
+        eta0   = 0.0
 
-        bw     = float(bw_ui) if np.isfinite(bw_ui) and float(bw_ui) != 0 else dx
-        wmode  = parse_wmode(wmode_ui)
-
-        def pick(ui, auto):
-            return float(ui) if np.isfinite(ui) and ui != 0 else float(auto)
+        bw    = pick(bw_ui, dx)              # blank → median dx
+        wmode = parse_wmode(wmode_ui)        # blank → 1
 
         # Build parameters
         pars = Parameters()
         pars.add('A',     value=max(pick(A_ui, A0), 1.0), min=0)
 
-        # tighten mu to improve identifiability around the peak
         mu_lo = mu0 - 3.0 * sigma0
         mu_hi = mu0 + 3.0 * sigma0
         pars.add('mu',    value=pick(mu_ui, mu0),
-                          min=float(max(x.min(), mu_lo)),
-                          max=float(min(x.max(), mu_hi)))
+                        min=float(max(x.min(), mu_lo)),
+                        max=float(min(x.max(), mu_hi)))
 
         pars.add('sigma', value=max(pick(sig_ui,  sigma0), dx/4.0), min=dx/4.0, max=span)
         pars.add('tau1',  value=max(pick(tau1_ui, tau10), dx/10.0), min=dx/10.0, max=10.0*sigma0)
 
- 
-        # --- tau2 / eta seeds ---
-        t2_seed  = pick(tau2_ui, tau20)
-
-        # DEFAULTS you asked for:
-        # - if user didn't set anything: eta starts at 0 and VARIES
-        # - only fix eta when the builder says so (eta_vary == False)
+        # tau2 / eta seeds (blank-safe)
+        t2_seed = pick(tau2_ui, tau20)
 
         if self.eta_vary:
-            # user may have typed an initial eta; use it as seed but still vary
-            eta_seed = float(eta_ui) if np.isfinite(eta_ui) else 0
+            eta_seed = _as_float(eta_ui)
+            if not np.isfinite(eta_seed): eta_seed = eta0
             eta_seed = float(np.clip(eta_seed, 0.0, 1.0))
             pars.add('eta', value=eta_seed, min=0.0, max=1.0, vary=True)
             freeze_dtau = False
             freeze_tau1 = False
         else:
-            # builder requests fixed eta (e.g., lock to 0 or any value)
-            eta_seed = float(eta_ui) if np.isfinite(eta_ui) else float(self.eta_value)
+            eta_seed = _as_float(eta_ui)
+            if not np.isfinite(eta_seed): eta_seed = float(self.eta_value)
             eta_seed = float(np.clip(eta_seed, 0.0, 1.0))
             pars.add('eta', value=eta_seed, min=0.0, max=1.0, vary=False)
-            # identifiability guards only when eta is fixed
-            freeze_dtau = (eta_seed <= 1e-8)          # eta==0 -> slow tail unused
-            freeze_tau1 = (eta_seed >= 1.0 - 1e-8)    # eta==1 -> fast tail unused
+            freeze_dtau = (eta_seed <= 1e-8)
+            freeze_tau1 = (eta_seed >= 1.0 - 1e-8)
 
-        # Enforce tau2 > tau1 via positive offset dtau
         dtau_min = max(dx/10.0, 0.05*sigma0)
         dtau0    = max(t2_seed - pars['tau1'].value, dtau_min)
         pars.add('dtau', value=dtau0, min=dtau_min, max=20.0*sigma0, vary=not freeze_dtau)
         pars.add('tau2', expr='tau1 + dtau')
-
         if freeze_tau1:
             pars['tau1'].set(vary=False)
 
-
-
-        # Fixed bin width for the model
-        pars.add('bw', value=max(bw, 0.0), vary=False, min=0.0)
+        # Fixed bin width
+        pars.add('bw', value=max(float(bw), 0.0), vary=False, min=0.0)
 
         # Model
         model = Model(_alphaemg1_binned, independent_vars=['x'])
@@ -284,26 +296,15 @@ class AlphaEMG12Fit:
         # --- Save CSV (main values only) --------------------------------------
         p = res.params  # shorthand
 
-        def _get(name):
-            try:
-                return float(p[name].value)
-            except Exception:
-                return np.nan
-
         redchi = float(getattr(res, "redchi", np.nan)) 
         timestamp = datetime.now().isoformat(timespec="seconds") # e.g. '2024-06-30T14:23:05'
-        fieldnames = [
-            "timestamp",
-            "chi-square",
-            "R2",
-            "A","mu","sigma","tau11","tau12","eta"
-        ]
+        fieldnames = ["timestamp","chi-square","R2","A","mu","sigma","tau1","tau2","eta"]
         row = {
             "timestamp": timestamp,
             "chi-square": redchi,
             "R2": R2_plain,
-            "A": _get("A"),        "mu": _get("mu1"),        "sigma": _get("sigma"),
-            "tau11": _get("tau11"),    "tau12": _get("tau12"),      "eta": _get("eta")
+            "A": _get("A"), "mu": _get("mu"), "sigma": _get("sigma"),
+            "tau1": _get("tau1"), "tau2": _get("tau2"), "eta": _get("eta"),
         }
 
         csv_path = os.path.join(os.getcwd(), "fit_EMG12_results.csv")
@@ -353,6 +354,7 @@ class AlphaEMG12Fit:
         xx = np.linspace(x.min(), x.max(), 2000)
         yy = model.eval(res.params, x=xx)
         (fitln,) = axis.plot(xx, yy, lw=2)
+        # fitln.set_gid("fit")   # <<< so your delete sweep catches it
         return fitln
 
 class AlphaEMG12FitBuilder:
