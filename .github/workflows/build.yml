@@ -24,7 +24,7 @@ jobs:
         run: autoreconf -if
       - name: Creating build directory
         working-directory: ./main
-        run: mkdir main/oot
+        run: mkdir oot
       - name: Configuring
         working-directory: ./main/oot
         shell: bash
