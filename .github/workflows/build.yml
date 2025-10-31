@@ -1,0 +1,47 @@
+name: Build (and packaging)
+
+on:
+  workflow_call:
+    inputs:
+      os-version:
+        required: true
+        type: string
+      packaging:
+        required: true
+        type: boolean
+
+jobs:
+  build-and-packaging:
+    name: Build (and packaging)
+    runs-on: ubuntu-latest
+    container:
+      image: fribdaq/frib-${{ inputs.os-version }}-ci
+      options: --cpus 2
+    steps:
+      - uses: actions/checkout@v4
+      - name: autoreconf
+        working-directory: ./main
+        run: autoreconf -if
+      - name: Creating build directory
+        working-directory: ./main
+        run: mkdir main/oot
+      - name: Configuring
+        working-directory: ./main/oot
+        shell: bash
+        run: |
+          ../configure --prefix=/usr/opt/cutiepie/$GITHUB_REF_NAME
+      - name: Make
+        working-directory: ./main/oot
+        shell: bash
+        run: |
+          make -j2 clean && make -j2 all && make -j2 install
+      - name: Packaging for binary distribution
+        if: ${{ inputs.packaging == true }}
+        working-directory: /usr/opt/cutiepie
+        run: tar -czf cutiepie-$GITHUB_REF_NAME-${{ inputs.os-version }}.tar.gz $GITHUB_REF_NAME
+      - name: Upload binary distribution package
+        if: ${{ inputs.packaging == true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.os-version }} binary distribution
+          path: /usr/opt/cutiepie/cutiepie-${{ github.ref_name }}-${{ inputs.os-version }}.tar.gz
