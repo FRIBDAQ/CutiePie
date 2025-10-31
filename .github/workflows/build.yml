@@ -22,6 +22,11 @@ jobs:
       - name: autoreconf
         working-directory: ./main
         run: autoreconf -if
+      - name: Configure libtcl++
+        working-directory: ./main
+        shell: bash
+        run: |
+          ./tcl++incorp
       - name: Creating build directory
         working-directory: ./main
         run: mkdir oot
