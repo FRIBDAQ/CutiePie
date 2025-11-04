@@ -1,6 +1,6 @@
 # Process this file with autoconf to produce a configure script.
 
-AC_INIT(CutiePie, v1.5-007, daqhelp@frib.msu.edu)
+AC_INIT(CutiePie, v1.5-013, daqhelp@frib.msu.edu)
 
 #AC_CONFIG_SRCDIR(SpecTcl/MySpecTclApp.cpp)
 AC_CONFIG_AUX_DIR(config)
@@ -40,6 +40,14 @@ AM_PROG_LEX
 AC_PROG_YACC
 AC_PROG_GCC_TRADITIONAL
 AC_PROG_LIBTOOL
+
+# Set parallel build for incorps:
+
+AC_ARG_WITH([incorp-build-cores],
+	AC_HELP_STRING([--with-incorp-build-cores=N], [Number of cores used to build incorporated packages (default=1)]),
+	[incorp_cores=$withval],
+	[incorp_cores=1])
+AC_MSG_NOTICE([Building incorporated packages with ${incorp_cores} cores])
 
 # PYthon C/C++ extension environment build flags:
 
@@ -92,7 +100,7 @@ AC_CHECK_FILE([${srcdir}/libtclplus/configure.ac],
 	[AC_MSG_NOTICE([Using previously incorporated tcl++ from the source tree at ${srcdir}/libtclplus])],
 	[AC_MSG_NOTICE([Need to build local tagged copy of tcl++])
 	${srcdir}/tcl++incorp])
-(cd ${srcdir}/libtclplus; ./configure --prefix=${prefix}; make clean install)
+(cd ${srcdir}/libtclplus; ./configure --prefix=${prefix}; make clean ; make -j ${incorp_cores} ; make install)
 result=$?
 AS_VAR_IF([result], [0], [], AC_MSG_ERROR([Failed to build and install tcl++ with result: ${result}]))
 AC_SUBST(TCLPLUS_CFLAGS, [-I${prefix}/include])
