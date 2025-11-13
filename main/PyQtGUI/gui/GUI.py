@@ -379,7 +379,7 @@ class MainWindow(QMainWindow):
         # populate combo and set default (index 0 → 1 sec)
         self.wConf.autoUpdate2.clear()
         self.wConf.autoUpdate2.addItems(self.autoUpdateIntervalsUser)
-        self.wConf.autoUpdate2.setCurrentIndex(0)
+        self.wConf.autoUpdate2.setCurrentIndex(8)
 
         # make existing code that calls .value()/.setValue() still work
         self.wConf.autoUpdate2.value = self.wConf.autoUpdate2.currentIndex
@@ -2646,8 +2646,8 @@ class MainWindow(QMainWindow):
                 self.currentPlot.selected_plot_index = None
                 self.currentPlot.next_plot_index = -1
 
-            # self.addPlot()
-            # self.updatePlot()
+            self.addPlot()
+            self.updatePlot()
             self.currentPlot.isLoaded = False
         except TypeError:
             self.logger.debug('loadGeo - TypeError exception', exc_info=True)
