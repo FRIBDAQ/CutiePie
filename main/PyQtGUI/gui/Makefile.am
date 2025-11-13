@@ -1,11 +1,11 @@
-bin_PROGRAMS = _CutiePie
+bin_PROGRAMS = _CutiePie.bin
 
 include_HEADERS = CPyHelper.h
 
-_CutiePie_SOURCES = gui.cpp 
-# _CutiePie_CXXFLAGS = @PYTHON_CXXFLAGS@ 
-_CutiePie_CXXFLAGS = @PYTHON_CXXFLAGS@ -DINSTALLED_IN='"@prefix@"' 
-_CutiePie_LDFLAGS = @PYTHON_LDFLAGS@
+_CutiePie_bin_SOURCES = gui.cpp 
+# _CutiePie_bin_CXXFLAGS = @PYTHON_CXXFLAGS@ 
+_CutiePie_bin_CXXFLAGS = @PYTHON_CXXFLAGS@ -DINSTALLED_IN='"@prefix@"' 
+_CutiePie_bin_LDFLAGS = @PYTHON_LDFLAGS@
 
 install-exec-hook:
 	$(mkinstalldirs) @prefix@/share/d3web

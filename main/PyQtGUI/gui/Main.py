@@ -3,6 +3,8 @@ import io
 import re
 import sys, os, platform
 
+#print(f"\n----- Using Main.py from: {os.path.abspath(__file__)} -----\n")
+
 # Bashir: --- drop any inherited file descriptors >=3 (prevents holding REST/Mirror after parent exit) ---
 import os
 try:
@@ -18,54 +20,52 @@ except Exception:
 
 cwd = os.getcwd()
 
+# Check if the USERDIR environment variable is set.
+if "USERDIR" in os.environ:
+    sys.path.append(os.environ["USERDIR"])
+    print("The .py user-based files are in ",os.environ["USERDIR"])
+# Check if the user-based files are in the current working directory.
+elif os.path.exists(os.path.join(cwd, "fit_skel_creator.py")) and os.path.exists(os.path.join(cwd, "algo_skel_creator.py")):
+    print("The .py user-based files are in the current working directory.")
+    sys.path.append(cwd)
+    
 #  Sadly it seems that environment variables sent in via setenv
 # in the standalone script don't actually get propagate into the
 # script so we can't add the ../lib dir to the PYTHONPATH there.
 # We figure out where we're installed and add that to the path."
 
-mydir = os.path.dirname(__file__)
-sys.path.append(mydir)
-libdir = mydir + '/../lib'
-sys.path.append(libdir)
-scriptdir = mydir + '/../Script'   # SpecTcl install
-sys.path.append(scriptdir)
+#mydir = os.path.dirname(__file__)
+#sys.path.append(mydir)
+#libdir = mydir + '/../lib'
+#sys.path.append(libdir)
+#scriptdir = mydir + '/../Script'   # SpecTcl install
+#sys.path.append(scriptdir)
 
 import CPyConverter as cpy
 
 #  If we are in windows, we need to allow DLL's to be loaded
 #  from our script dir so:
 #
-system = platform.platform()
-if system.startswith("Windows"):
-    os.add_dll_directory(mydir)       # The DLL's are here.
+#system = platform.platform()
+#if system.startswith("Windows"):
+#    os.add_dll_directory(mydir)       # The DLL's are here.
 
 # Our dlls might be here as well.
 
 # use preprocessor macro __file__ to get the installation directory
 # caveat : expects a particular format of installation directory (N.NN-NNN)
-instPath = ""
-fileDir = os.path.dirname(os.path.abspath(__file__))
-subDirList = fileDir.split("/")
-for subDir in subDirList:
-    if subDir != "":
-        instPath += "/"+subDir
-        if re.search(r'\d+\.\d{2}-\d{3}', subDir ):
-            # specVersion = subDir
-            break
-
-
-# Check if the USERDIR environment variable is set.
-if "USERDIR" in os.environ:
-    sys.path.append(os.environ["USERDIR"])
-    print("The .py user-based files are in ",os.environ["USERDIR"])
-# Check if the user-based files are in the current working directory.
-elif os.path.exists(os.path.join(cwd, "fit_alpha1_creator.py")) and os.path.exists(os.path.join(cwd, "fit_alpha2_creator.py")) \
-and os.path.exists(os.path.join(cwd, "algo_skel_creator.py")):
-    print("The .py user-based files are in the current working directory.")
-    sys.path.append(cwd)
+#instPath = ""
+#fileDir = os.path.dirname(os.path.abspath(__file__))
+#subDirList = fileDir.split("/")
+#for subDir in subDirList:
+#    if subDir != "":
+#        instPath += "/"+subDir
+#        if re.search(r'\d+\.\d{2}-\d{3}', subDir ):
+#            # specVersion = subDir
+#            break
 
 #Script is append after USERDIR or cwd so if those are defined the priority is to them not to Script
-sys.path.append(instPath + "/Script")
+#sys.path.append(instPath + "/Script")
 
 from PyQt5 import QtCore
 from PyQt5.QtWidgets import *
@@ -283,12 +283,12 @@ config_algo_canny = {
 }
 '''
 # Fitting function registration
-# fitfactory.register_builder('Gauss', fit_gaus_creator.GausFitBuilder(), config_fit_gaus)
-# fitfactory.register_builder('Exp', fit_exp_creator.ExpFitBuilder(), config_fit_exp)
-# fitfactory.register_builder('Pol1', fit_p1_creator.Pol1FitBuilder(), config_fit_p1)
-# fitfactory.register_builder('Pol2', fit_p2_creator.Pol2FitBuilder(), config_fit_p2)
-# fitfactory.register_builder('G+Pol1', fit_gp1_creator.GPol1FitBuilder(), config_fit_gp1)
-# fitfactory.register_builder('G+Pol2', fit_gp2_creator.GPol2FitBuilder(), config_fit_gp2)
+fitfactory.register_builder('Gauss', fit_gaus_creator.GausFitBuilder(), config_fit_gaus)
+fitfactory.register_builder('Exp', fit_exp_creator.ExpFitBuilder(), config_fit_exp)
+fitfactory.register_builder('Pol1', fit_p1_creator.Pol1FitBuilder(), config_fit_p1)
+fitfactory.register_builder('Pol2', fit_p2_creator.Pol2FitBuilder(), config_fit_p2)
+fitfactory.register_builder('G+Pol1', fit_gp1_creator.GPol1FitBuilder(), config_fit_gp1)
+fitfactory.register_builder('G+Pol2', fit_gp2_creator.GPol2FitBuilder(), config_fit_gp2)
 # fitfactory.register_builder('AlphaEMG1', fit_alpha1_creator.AlphaEMG1FitBuilder(), config_fit_alph1)
 # fitfactory.register_builder('AlphaEMG2', fit_alpha2_creator.AlphaEMG2FitBuilder(), config_fit_alph2)
 # fitfactory.register_builder('AlphaEMG3', fit_alpha3_creator.AlphaEMG3FitBuilder(), config_fit_alph3)
@@ -299,7 +299,7 @@ fitfactory.register_builder('AlphaEMG32', fit_alpha32_creator.AlphaEMG32FitBuild
 # fitfactory.register_builder('AlphaEMGMulti', fit_alpha_multi_creator.AlphaMultiEMGFitBuilder(), config_fit_alphmulti)
 fitfactory.register_builder('AlphaEMGMultiSigma', fit_alpha_multi_sigma_creator.AlphaMultiEMGSigmaFitBuilder(), config_fit_alph_sigma_multi)
 # fitfactory.register_builder('AlphaEMGLinear', fit_alpha_linear_creator.AlphaEMGLinearFitBuilder(), config_fit_alph_linear)
-# fitfactory.register_builder('Skeleton', fit_skel_creator.SkelFitBuilder(), config_fit_skel)
+fitfactory.register_builder('Skeleton', fit_skel_creator.SkelFitBuilder(), config_fit_skel)
 
 # ML Algorithm registration
 algofactory.register_builder('Skeleton', algo_skel_creator.SkelAlgoBuilder(), config_algo_skel)

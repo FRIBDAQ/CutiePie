@@ -325,8 +325,10 @@ AC_OUTPUT(Makefile
 	  PyQtGUI/src/Makefile
 	  PyQtGUI/sip/Makefile
 	  PyQtGUI/gui/Makefile
+	  PyQtGUI/gui/_CutiePie
 	  PyQtGUI/test/Makefile
 	  PyQtGUI/standalone/Makefile
+	  PyQtGUI/standalone/CutiePie
 	  mirrorclient/Makefile
 	  )
           
