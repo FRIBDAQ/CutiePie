@@ -1,0 +1,4 @@
+#!/bin/bash
+
+PYTHONPATH=@prefix@/Script:@prefix@/lib @prefix@/bin/CutiePie.bin
+

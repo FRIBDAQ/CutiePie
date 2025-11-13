@@ -1,16 +1,17 @@
-bin_PROGRAMS = _CutiePie
+bin_PROGRAMS = _CutiePie.bin
 
 include_HEADERS = CPyHelper.h
 
-_CutiePie_SOURCES = gui.cpp 
-# _CutiePie_CXXFLAGS = @PYTHON_CXXFLAGS@ 
-_CutiePie_CXXFLAGS = @PYTHON_CXXFLAGS@ -DINSTALLED_IN='"@prefix@"' 
-_CutiePie_LDFLAGS = @PYTHON_LDFLAGS@
+_CutiePie_bin_SOURCES = gui.cpp 
+# _CutiePie_bin_CXXFLAGS = @PYTHON_CXXFLAGS@ 
+_CutiePie_bin_CXXFLAGS = @PYTHON_CXXFLAGS@ -DINSTALLED_IN='"@prefix@"' 
+_CutiePie_bin_LDFLAGS = @PYTHON_LDFLAGS@
 
 install-exec-hook:
 	$(mkinstalldirs) @prefix@/share/d3web
 	$(mkinstalldirs) @prefix@/Skel @prefix@/VMUSBSkel @prefix@/DDASSkel
 	$(mkinstalldirs) @prefix@/Script
+	$(INSTALL_PROGRAM) _CutiePie @prefix@/bin
 	$(INSTALL_DATA) @srcdir@/d3.js/d3.v6.min.js @prefix@/share/d3web
 	$(INSTALL_DATA) @srcdir@/d3.js/plotly-1.57.1.js @prefix@/share/d3web
 	$(INSTALL_DATA) @srcdir@/d3.js/style.css @prefix@/share/d3web
