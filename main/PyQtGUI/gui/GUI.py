@@ -6307,7 +6307,7 @@ class MainWindow(QMainWindow):
             ax.figure.canvas.draw_idle()
             self._cal = None
 
-    def _prompt_shape_flags(self, default_global=True, default_iso_scales=False):
+    def _prompt_shape_flags(self, default_global=True, default_iso_scales=False, default_chain=True):
         dlg = QDialog(self); dlg.setWindowTitle("Shape fitting options")
         lbl = QLabel("Choose how to treat peak shapes:")
 
@@ -6317,6 +6317,9 @@ class MainWindow(QMainWindow):
         cb_iso = QCheckBox("Enable per-isotope scale multipliers (requires global)")
         cb_iso.setChecked(bool(default_iso_scales and default_global))
         cb_iso.setEnabled(cb_global.isChecked())
+
+        cb_chain = QCheckBox("Normalize intensities within decay chain")
+        cb_chain.setChecked(default_chain)
 
         def on_global_toggled(on):
             if not on:
@@ -6328,8 +6331,18 @@ class MainWindow(QMainWindow):
         btn_ok = QPushButton("OK"); btn_cancel = QPushButton("Cancel")
         btn_ok.clicked.connect(dlg.accept); btn_cancel.clicked.connect(dlg.reject)
 
-        v = QVBoxLayout(dlg); v.addWidget(lbl); v.addWidget(cb_global); v.addWidget(cb_iso)
-        h = QHBoxLayout(); h.addStretch(1); h.addWidget(btn_ok); h.addWidget(btn_cancel); v.addLayout(h)
+        v = QVBoxLayout(dlg)
+        v.addWidget(lbl)
+        v.addWidget(cb_global)
+        v.addWidget(cb_iso)
+        v.addWidget(cb_chain) 
+
+        h = QHBoxLayout()
+        h.addStretch(1)
+        h.addWidget(btn_ok)
+        h.addWidget(btn_cancel)
+        v.addLayout(h)
+
 
         if dlg.exec_() != QDialog.Accepted:
             return None
@@ -6337,6 +6350,7 @@ class MainWindow(QMainWindow):
         return {
             "fit_global_shapes": cb_global.isChecked(),
             "fit_iso_shape_scales": (cb_global.isChecked() and cb_iso.isChecked()),
+             "normalize_chains": cb_chain.isChecked()
         }
 
 
