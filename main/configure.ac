@@ -1,6 +1,6 @@
 # Process this file with autoconf to produce a configure script.
 
-AC_INIT(CutiePie, v1.5-014, daqhelp@frib.msu.edu)
+AC_INIT(CutiePie, v1.5-016, daqhelp@frib.msu.edu)
 
 #AC_CONFIG_SRCDIR(SpecTcl/MySpecTclApp.cpp)
 AC_CONFIG_AUX_DIR(config)
