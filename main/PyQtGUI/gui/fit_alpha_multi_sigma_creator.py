@@ -20,6 +20,9 @@ import numpy as np
 from lmfit import Model, Parameters, fit_report
 from scipy.special import erfcx, erfc
 
+import matplotlib.pyplot as plt
+
+
 # Keep import so the factory can discover this module
 import fit_factory  # noqa: F401
 
@@ -46,6 +49,10 @@ _INV_SQRT2 = 1.0 / np.sqrt(2.0)
 
 IRLS_MAX_ITERS = 6
 IRLS_IMPROVE   = 1e-3
+
+
+MAX_LEGEND_ITEMS = 10  # max number of isotopes shown in legend (plus 'fit total')
+
 
 def _bin_integral(fun, x, bw, *args):
     bw = float(bw)
@@ -101,6 +108,7 @@ def _parse_percent(p):
         v = 0.0
     return max(v, 0.0) / 100.0
 
+'''
 def _load_shapes(shape_file, a, b):
     """
     TXT rows:
@@ -156,6 +164,8 @@ def _load_shapes(shape_file, a, b):
     while i < len(rows):
         iso_name = rows[i]['iso']
         safe     = _safe_name(iso_name)
+
+        # define contiguous block for this isotope
         if rows[i]['flag'] == '*':
             start = end = i
         else:
@@ -165,22 +175,186 @@ def _load_shapes(shape_file, a, b):
                 j += 1
             end = j
 
-        isotopes.append(dict(name=iso_name, safe=safe, start_idx=len(pulses), end_idx=None))
+        isotopes.append(dict(
+            name=iso_name,
+            safe=safe,
+            start_idx=len(pulses),
+            end_idx=None
+        ))
 
-        first_pct = rows[start]['pct'] if rows[start]['pct'] > 0 else 1.0
-        for k in range(start, end + 1):
+        # --- NEW: normalize percent within this isotope block ---
+        raw_pcts = [max(rows[k]['pct'], 0.0) for k in range(start, end + 1)]
+        s = sum(raw_pcts)
+        if s > 0.0:
+            ratios = [p / s for p in raw_pcts]
+        else:
+            # fall back to equal weights if all pct are zero / missing
+            n = end - start + 1
+            ratios = [1.0 / n] * n
+
+        for k, ratio in zip(range(start, end + 1), ratios):
             r = rows[k]
-            ratio = 1.0 if (start == end) else ((r['pct'] / first_pct) if first_pct > 0 else 1.0)
             pulses.append(dict(
-                iso_idx=len(isotopes) - 1, name=iso_name, safe=safe,
-                E=r['E'], mu0=r['mu0'], pct=r['pct'], ratio=ratio,
-                sigma=r['sigma'], tau1=r['tau1'], tau2=r['tau2'], eta=r['eta'],
+                iso_idx=len(isotopes) - 1,
+                name=iso_name,
+                safe=safe,
+                E=r['E'],
+                mu0=r['mu0'],
+                pct=r['pct'],       # raw intensity from file (0–1)
+                ratio=ratio,        # normalized within this isotope
+                sigma=r['sigma'],
+                tau1=r['tau1'],
+                tau2=r['tau2'],
+                eta=r['eta'],
             ))
 
         isotopes[-1]['end_idx'] = len(pulses) - 1
         i = end + 1
 
     return isotopes, pulses
+'''
+
+def _load_shapes(shape_file, a, b, normalize_chains):
+    """
+    TXT/CSV rows:
+      isotope, half_life, energy_keV, alpha_intensity, sigma, tau1, tau2, eta, flag, chain
+    flag in {'s','e','-','*'}; '*' => single line isotope
+    Empty isotope or chain cell inherits previous non-empty value.
+    Lines like ',,,,,,,,' ignored.
+    """
+    rows = []
+    with open(shape_file, 'r', newline='') as f:
+        rdr = csv.reader(f, skipinitialspace=True)
+        last_iso = ""
+        last_chain = ""
+        for raw in rdr:
+            if not raw or all(not str(x).strip() for x in raw):  # blank
+                continue
+            if str(raw[0]).strip().startswith("#"):              # comment
+                continue
+
+            raw = [str(x).strip() for x in raw]
+            if len(raw) < 10:
+                raw += [""] * (10 - len(raw))
+
+            iso = raw[0] or last_iso
+            if not iso:
+                continue
+            last_iso = iso
+
+            # new: chain column (10th)
+            chain = raw[9] or last_chain
+            last_chain = chain
+
+            try:
+                E = float(raw[2])
+            except Exception:
+                continue  # malformed / separator line
+
+            pct = _parse_percent(raw[3])          # raw intensity (0–1), scale not important
+            try:
+                sigma = float(raw[4])
+                tau1  = float(raw[5])
+                tau2  = float(raw[6])
+            except Exception:
+                continue
+
+            try:
+                eta = float(raw[7]) if raw[7] != "" else 0.2
+            except Exception:
+                eta = 0.2
+
+            flag = (raw[8].lower()[:1] if raw[8] else '-')
+            if flag not in ('s', 'e', '-', '*'):
+                flag = '-'
+
+            mu0 = a * E + b
+            rows.append(dict(
+                iso   = iso,
+                chain = chain or None,
+                E     = E,
+                pct   = pct,
+                flag  = flag,
+                sigma = sigma,
+                tau1  = tau1,
+                tau2  = tau2,
+                eta   = eta,
+                mu0   = mu0,
+            ))
+
+    # --- chain sums for intra-chain normalization ---
+    chain_sums = {}
+    if normalize_chains:
+        for r in rows:
+            ch = r['chain']
+            if not ch:
+                continue
+            chain_sums[ch] = chain_sums.get(ch, 0.0) + max(r['pct'], 0.0)
+
+    # Group contiguous rows by isotope (respect '*' singletons)
+    isotopes, pulses = [], []
+    i = 0
+    while i < len(rows):
+        iso_name = rows[i]['iso']
+        safe     = _safe_name(iso_name)
+
+        if rows[i]['flag'] == '*':
+            start = end = i
+        else:
+            start = i
+            j = i
+            while j + 1 < len(rows) and rows[j+1]['iso'] == iso_name and rows[j+1]['flag'] != 's':
+                j += 1
+            end = j
+
+        isotopes.append(dict(
+            name      = iso_name,
+            safe      = safe,
+            start_idx = len(pulses),
+            end_idx   = None
+        ))
+
+        # local copy of these rows
+        block = rows[start:end+1]
+
+        # per-isotope fallback normalization (if chain missing)
+        iso_pcts = [max(r['pct'], 0.0) for r in block]
+        iso_sum  = sum(iso_pcts)
+
+        # chain name (all rows in this block should share it, if present)
+        chain = block[0]['chain']
+        chain_sum = chain_sums.get(chain, 0.0) if (normalize_chains and chain) else 0.0
+
+        for r, p_iso in zip(block, iso_pcts):
+            if chain_sum > 0.0:
+                # intra-chain normalization
+                ratio = p_iso / chain_sum
+            elif iso_sum > 0.0:
+                # per-isotope normalization
+                ratio = p_iso / iso_sum
+            else:
+                ratio = 1.0 / len(block)
+
+            pulses.append(dict(
+                iso_idx = len(isotopes) - 1,
+                name    = iso_name,
+                safe    = safe,
+                chain   = chain,
+                E       = r['E'],
+                mu0     = r['mu0'],
+                pct     = r['pct'],      # raw intensity
+                ratio   = ratio,         # normalized within chain if possible
+                sigma   = r['sigma'],
+                tau1    = r['tau1'],
+                tau2    = r['tau2'],
+                eta     = r['eta'],
+            ))
+
+        isotopes[-1]['end_idx'] = len(pulses) - 1
+        i = end + 1
+
+    return isotopes, pulses
+
 
 # ---- Helpers that remove duplication -------------------------------------------
 def _fmt_val_err(v, e, digs=6):
@@ -230,17 +404,31 @@ def _get(params, key, default=0.0):
         return float(default)
 
 # Given (params, iso, q, globals, scales) → effective (A, mu, sigma, tau1, tau2, eta)
-def _effective_subpeak(params, iso_name, iso_stem, q, allow_shift, use_global):
-    A_iso = _get(params, f"A_{iso_stem}", 0.0)
-    if A_iso <= 0.0:
+def _effective_subpeak(params, iso_name, iso_stem, q,
+                       allow_shift, use_global, use_chain_amp=False):
+    """
+    Given (params, iso, subpeak q, ...) return effective EMG parameters.
+
+    If use_chain_amp is True and q['chain'] is not empty, the top-level
+    amplitude parameter is Achain_<chain>, otherwise A_<isotope>.
+    """
+    # --- choose top-level amplitude parameter ---
+    if use_chain_amp and q.get("chain"):
+        chain_stem = _safe_name(q["chain"])
+        A_top = _get(params, f"Achain_{chain_stem}", 0.0)
+    else:
+        A_top = _get(params, f"A_{iso_stem}", 0.0)
+
+    if A_top <= 0.0:
         return None
 
+    # shifts
     dm = _get(params, f"dm_{iso_stem}", 0.0) if allow_shift else 0.0
-    d0 = _get(params, 'd0', 0.0)
-    dg = _get(params, 'dg', 0.0)
+    d0 = _get(params, "d0", 0.0)
+    dg = _get(params, "dg", 0.0)
 
-    mu = (1.0 + dg) * float(q['mu0']) + d0 + dm
-    A  = A_iso * float(q['ratio'])
+    mu = (1.0 + dg) * float(q["mu0"]) + d0 + dm
+    A  = A_top * float(q["ratio"])
 
     # per-isotope scales (default 1)
     sS = _get(params, f"s_sigma_{iso_stem}", 1.0)
@@ -248,18 +436,22 @@ def _effective_subpeak(params, iso_name, iso_stem, q, allow_shift, use_global):
     s2 = _get(params, f"s_tau2_{iso_stem}",  1.0)
 
     if use_global:
-        sigma0 = _get(params, 'sigma')
-        t10    = _get(params, 'tau1')
-        t20    = _get(params, 'tau2')
-        eta    = _get(params, 'eta')
+        sigma0 = _get(params, "sigma")
+        t10    = _get(params, "tau1")
+        t20    = _get(params, "tau2")
+        eta    = _get(params, "eta")
         sigma, t1, t2 = sigma0 * sS, t10 * s1, t20 * s2
     else:
-        eta   = float(q['eta'])
-        sigma = float(q['sigma']) * sS
-        t1    = float(q['tau1'])  * s1
-        t2    = float(q['tau2'])  * s2
+        eta   = float(q["eta"])
+        sigma = float(q["sigma"]) * sS
+        t1    = float(q["tau1"])  * s1
+        t2    = float(q["tau2"])  * s2
 
-    return dict(isotope=iso_name, A=A, mu=mu, sigma=sigma, tau1=t1, tau2=t2, eta=eta, E=q['E'])
+    return dict(
+        isotope=iso_name,
+        A=A, mu=mu, sigma=sigma, tau1=t1, tau2=t2, eta=eta,
+        E=q["E"],
+    )
 
 # ---- The fitter -----------------------------------------------------------------
 class AlphaMultiEMGSigmaFit:
@@ -272,9 +464,11 @@ class AlphaMultiEMGSigmaFit:
                  fit_global_shapes=True,
                  fit_iso_shape_scales=True,
                  iso_scale_bounds=None,
-                 shape_bounds=None):
+                 shape_bounds=None,
+                 normalize_chains=True):
 
         self.shape_file = shape_file
+        self.normalize_chains = bool(normalize_chains)
 
         if isinstance(calibration_file, (tuple, list)) and len(calibration_file) == 2:
             self.calib_a, self.calib_b = map(float, calibration_file)
@@ -310,7 +504,7 @@ class AlphaMultiEMGSigmaFit:
 
     # ---- public API used by GUI ----
     def start(self, x, y, xmin, xmax, fitpar, axis, fit_results):
-        self._isotopes, self._pulses = _load_shapes(self.shape_file, self.calib_a, self.calib_b)
+        self._isotopes, self._pulses = _load_shapes(self.shape_file, self.calib_a, self.calib_b, self.normalize_chains)
 
         # Clean & window
         mfin = np.isfinite(x) & np.isfinite(y)
@@ -369,47 +563,109 @@ class AlphaMultiEMGSigmaFit:
         self.allow_shift = bool(self.allow_shift and dm_abs != 0.0)
 
         # ---------------- Parameters ----------------
+        # ---------------- Parameters ----------------
         pars = Parameters()
 
         # Global shapes (if enabled), robust seeds from file medians
         if self.fit_global_shapes:
             med = lambda k: float(np.median([p[k] for p in self._pulses]))
-            pars.add('sigma', value=med('sigma') or 200.0, **dict(min=self.shape_bounds["sigma"][0], max=self.shape_bounds["sigma"][1], vary=True))
-            pars.add('tau1',  value=med('tau1')  or 80.0, **dict(min=self.shape_bounds["tau1"][0],  max=self.shape_bounds["tau1"][1],  vary=True))
-            pars.add('tau2',  value=med('tau2')  or 300.0,**dict(min=self.shape_bounds["tau2"][0],  max=self.shape_bounds["tau2"][1],  vary=True))
-            pars.add('eta',   value=med('eta')   or 0.7,  **dict(min=self.shape_bounds["eta"][0],   max=self.shape_bounds["eta"][1],   vary=True))
+            pars.add('sigma', value=med('sigma') or 200.0,
+                     min=self.shape_bounds["sigma"][0],
+                     max=self.shape_bounds["sigma"][1], vary=True)
+            pars.add('tau1',  value=med('tau1')  or 80.0,
+                     min=self.shape_bounds["tau1"][0],
+                     max=self.shape_bounds["tau1"][1],  vary=True)
+            pars.add('tau2',  value=med('tau2')  or 300.0,
+                     min=self.shape_bounds["tau2"][0],
+                     max=self.shape_bounds["tau2"][1],  vary=True)
+            pars.add('eta',   value=med('eta')   or 0.7,
+                     min=self.shape_bounds["eta"][0],
+                     max=self.shape_bounds["eta"][1],   vary=True)
 
         # d0, dg
-        pars.add('d0', value=0.0, vary=(d0_abs > 0.0), min=-d0_abs, max=+d0_abs)
-        pars.add('dg', value=0.0, vary=(dg_abs > 0.0), min=-dg_abs, max=+dg_abs)
+        pars.add('d0', value=0.0, vary=(d0_abs > 0.0),
+                 min=-d0_abs, max=+d0_abs)
+        pars.add('dg', value=0.0, vary=(dg_abs > 0.0),
+                 min=-dg_abs, max=+dg_abs)
 
-        # Per-isotope A and dm (+ optional per-isotope scales)
+        # ---- iso → chain map and chain → [iso indices] groups ----
+        n_iso = len(self._isotopes)
+        iso_chain = [None] * n_iso
+        for k in range(n_iso):
+            ch = None
+            for q in self._pulses:
+                if q["iso_idx"] == k:
+                    ch = q.get("chain") or None
+                    break
+            iso_chain[k] = ch
+
+        chain_groups = {}
+        for k, ch in enumerate(iso_chain):
+            if ch:
+                key = ch
+            else:
+                # no chain: treat isotope as its own "chain"
+                key = self._isotopes[k]["name"]
+            chain_groups.setdefault(key, []).append(k)
+
+        # ---- Per-isotope dm and per-isotope scales; store A seeds per iso ----
+        iso_Aseed = [1.0] * n_iso
         for k, iso in enumerate(self._isotopes):
             stem = iso['safe']
             mu0s  = [q['mu0']  for q in self._pulses if q['iso_idx'] == k]
             sig0s = [q['sigma'] for q in self._pulses if q['iso_idx'] == k]
             mu0i  = float(np.median(mu0s))
             sig0  = float(np.median(sig0s)) if sig0s else dx_med
-            W     = max(8.0*sig0, 400.0)
+            W     = max(8.0 * sig0, 400.0)
             mwin  = (x >= mu0i - W) & (x <= mu0i + W)
             Aseed = float(np.trapz(np.clip(y[mwin], 0, None), x[mwin])) if np.any(mwin) else 1.0
-
-            pars.add(f"A_{stem}", value=max(Aseed, 1.0), min=0.0)
+            iso_Aseed[k] = max(Aseed, 1.0)
 
             if self.allow_shift:
                 dm0 = 0.0
                 if np.count_nonzero(mwin) > 5:
                     xxw, yyw = x[mwin], y[mwin]
                     dm0 = float(xxw[np.argmax(yyw)] - mu0i)
-                pars.add(f"dm_{stem}", value=float(np.clip(dm0, -dm_abs, +dm_abs)),
+                pars.add(f"dm_{stem}",
+                         value=float(np.clip(dm0, -dm_abs, +dm_abs)),
                          min=-dm_abs, max=+dm_abs, vary=True)
 
             if self.fit_iso_shape_scales:
-                pars.add(f"s_sigma_{stem}", value=1.0, min=self.iso_scale_bounds["s_sigma"][0], max=self.iso_scale_bounds["s_sigma"][1], vary=True)
-                pars.add(f"s_tau1_{stem}",  value=1.0, min=self.iso_scale_bounds["s_tau1"][0],  max=self.iso_scale_bounds["s_tau1"][1],  vary=True)
-                pars.add(f"s_tau2_{stem}",  value=1.0, min=self.iso_scale_bounds["s_tau2"][0],  max=self.iso_scale_bounds["s_tau2"][1],  vary=True)
+                pars.add(f"s_sigma_{stem}",
+                         value=1.0,
+                         min=self.iso_scale_bounds["s_sigma"][0],
+                         max=self.iso_scale_bounds["s_sigma"][1],
+                         vary=True)
+                pars.add(f"s_tau1_{stem}",
+                         value=1.0,
+                         min=self.iso_scale_bounds["s_tau1"][0],
+                         max=self.iso_scale_bounds["s_tau1"][1],
+                         vary=True)
+                pars.add(f"s_tau2_{stem}",
+                         value=1.0,
+                         min=self.iso_scale_bounds["s_tau2"][0],
+                         max=self.iso_scale_bounds["s_tau2"][1],
+                         vary=True)
 
-        pars.add('bw', value=max(float(bw), 0.0), vary=False, min=0.0)
+        # ---- Top-level amplitudes: per-chain or per-isotope ----
+        if self.normalize_chains:
+            # one A per chain
+            for chain_name, idx_list in chain_groups.items():
+                safe_chain = _safe_name(chain_name)
+                Aseed_chain = sum(iso_Aseed[k] for k in idx_list)
+                pars.add(f"Achain_{safe_chain}",
+                         value=Aseed_chain or 1.0,
+                         min=0.0)
+        else:
+            # original behavior: one A per isotope
+            for k, iso in enumerate(self._isotopes):
+                stem = iso['safe']
+                pars.add(f"A_{stem}",
+                         value=iso_Aseed[k] or 1.0,
+                         min=0.0)
+
+        pars.add('bw', value=max(float(bw), 0.0),
+                 vary=False, min=0.0)
 
         # ---------------- Model ----------------
         pulses = self._pulses
@@ -422,7 +678,7 @@ class AlphaMultiEMGSigmaFit:
                 out = np.zeros_like(x, dtype=float)
                 for p in pulses:
                     iso = self._isotopes[p['iso_idx']]
-                    sp = _effective_subpeak(kw, iso['name'], iso['safe'], p, allow_shift, use_global)
+                    sp = _effective_subpeak(kw, iso['name'], iso['safe'], p, allow_shift, use_global, use_chain_amp=self.normalize_chains)
                     if sp is None:
                         continue
                     out += _emg_two_tail_stable(x, sp['A'], sp['mu'], sp['sigma'], sp['tau1'], sp['tau2'], sp['eta'])
@@ -500,10 +756,19 @@ class AlphaMultiEMGSigmaFit:
         except Exception:
             shape_head = f"[shapes] mode = {mode} ; source = {shape_src}"
 
+        # Chain normalization mode
+        chain_mode = (
+            "intensities normalized within decay chain (uses 'chain' column)"
+            if self.normalize_chains
+            else "intensities normalized within each isotope block (chain column ignored)"
+        )
+
         header = (shape_head +
                   f"\nNotes: bandwidth = {bw_str} ; weighting = {wtxt}\n"
                   f"Global shift d0 = {d0_str} ; Global gain dg = {dg_str}\n"
-                  f"Bounds: |d0|≤{d0_abs:g}, |dg|≤{dg_abs:g}, |dm_*|≤{dm_abs:g}")
+                  f"Bounds: |d0|≤{d0_abs:g}, |dg|≤{dg_abs:g}, |dm_*|≤{dm_abs:g}\n"
+                  f"Chain normalization: {chain_mode}")
+
 
         if self.fit_global_shapes:
             fmt = lambda pn: _fmt_val_err(res.params[pn].value, getattr(res.params[pn], "stderr", None))
@@ -514,39 +779,78 @@ class AlphaMultiEMGSigmaFit:
                  f"dof={res.nfree} (N={res.ndata}, k={res.nvarys}) ; R^2 (plain)={R2_plain:.4f}")
 
         # Per-isotope block summary
-        iso_lines = ["Per-isotope parameters (A per isotope; ratios fixed):",
-                     f"  allow_shift={self.allow_shift} ; fix_ratios={self.fix_ratios}"]
-
+        # Per-isotope / per-chain block summary
         if self.fit_iso_shape_scales:
-            iso_lines.append("\nPer-isotope shape scales (multipliers on baseline σ, τ1, τ2):")
+            scale_lines = ["\nPer-isotope shape scales (multipliers on baseline σ, τ1, τ2):"]
             for iso in self._isotopes:
                 stem = iso['safe']; name = iso['name']
                 def fmt_s(pn):
                     pp = res.params.get(pn)
                     return _fmt_val_err(pp.value, getattr(pp, "stderr", None)) if pp else "1"
-                iso_lines.append(f"{name:>10}: sσ={fmt_s(f's_sigma_{stem}')}, "
-                                 f"sτ1={fmt_s(f's_tau1_{stem}')}, sτ2={fmt_s(f's_tau2_{stem}')}")
+                scale_lines.append(
+                    f"{name:>10}: sσ={fmt_s(f's_sigma_{stem}')}, "
+                    f"sτ1={fmt_s(f's_tau1_{stem}')}, sτ2={fmt_s(f's_tau2_{stem}')}"
+                )
+        else:
+            scale_lines = []
 
-        for iso in self._isotopes:
-            stem = iso['safe']; name = iso['name']
-            pA   = res.params.get(f"A_{stem}")
-            pDM  = res.params.get(f"dm_{stem}") if self.allow_shift else None
-            A_str  = _fmt_val_err(pA.value, getattr(pA, "stderr", None)) if pA else "n/a"
-            dm_str = _fmt_val_err(pDM.value, getattr(pDM, "stderr", None)) if pDM else None
+        if self.normalize_chains:
+            iso_lines = [
+                "Per-chain parameters (A per decay chain; intra-chain ratios fixed):",
+                f"  allow_shift={self.allow_shift} ; fix_ratios={self.fix_ratios} ; normalize_chains={self.normalize_chains}",
+            ] + scale_lines
 
-            idx0, idx1 = iso['start_idx'], iso['end_idx']
-            blockE  = [f"{self._pulses[k]['E']:.1f}" for k in range(idx0, idx1+1)]
-            blockRt = [float(self._pulses[k]['ratio']) for k in range(idx0, idx1+1)]
-            base = f"{name:>10}:  A={A_str}"
-            if dm_str is not None: base += f"   dm={dm_str}"
-            base += f"   (subpeaks={len(blockE)}; ratios=[{', '.join(f'{r:.3f}' for r in blockRt)}]; E=[{', '.join(blockE)} keV])"
-            iso_lines.append(base)
+            # reuse chain_groups from above (same start() scope)
+            for chain_name, idx_list in chain_groups.items():
+                safe_chain = _safe_name(chain_name)
+                pA = res.params.get(f"Achain_{safe_chain}")
+                A_str = _fmt_val_err(pA.value, getattr(pA, "stderr", None)) if pA else "n/a"
+
+                iso_names = sorted({self._isotopes[k]['name'] for k in idx_list})
+                Es, ratios = [], []
+                for k in idx_list:
+                    idx0, idx1 = self._isotopes[k]['start_idx'], self._isotopes[k]['end_idx']
+                    for jj in range(idx0, idx1 + 1):
+                        Es.append(f"{self._pulses[jj]['E']:.1f}")
+                        ratios.append(float(self._pulses[jj]['ratio']))
+
+                base = (
+                    f"{chain_name:>10}:  A_chain={A_str}   "
+                    f"(isotopes={', '.join(iso_names)}; subpeaks={len(Es)}; "
+                    f"ratios=[{', '.join(f'{r:.3f}' for r in ratios)}]; "
+                    f"E=[{', '.join(Es)} keV])"
+                )
+                iso_lines.append(base)
+        else:
+            iso_lines = [
+                "Per-isotope parameters (A per isotope; ratios fixed):",
+                f"  allow_shift={self.allow_shift} ; fix_ratios={self.fix_ratios} ; normalize_chains={self.normalize_chains}",
+            ] + scale_lines
+
+            for iso in self._isotopes:
+                stem = iso['safe']; name = iso['name']
+                pA   = res.params.get(f"A_{stem}")
+                pDM  = res.params.get(f"dm_{stem}") if self.allow_shift else None
+                A_str  = _fmt_val_err(pA.value, getattr(pA, "stderr", None)) if pA else "n/a"
+                dm_str = _fmt_val_err(pDM.value, getattr(pDM, "stderr", None)) if pDM else None
+
+                idx0, idx1 = iso['start_idx'], iso['end_idx']
+                blockE  = [f"{self._pulses[k]['E']:.1f}" for k in range(idx0, idx1+1)]
+                blockRt = [float(self._pulses[k]['ratio']) for k in range(idx0, idx1+1)]
+                base = f"{name:>10}:  A={A_str}"
+                if dm_str is not None:
+                    base += f"   dm={dm_str}"
+                base += (
+                    f"   (subpeaks={len(blockE)}; ratios=[{', '.join(f'{r:.3f}' for r in blockRt)}]; "
+                    f"E=[{', '.join(blockE)} keV])"
+                )
+                iso_lines.append(base)
 
         # Per-subpeak detailed list (single pass using helper)
         subpeak_lines = ["\nPer-subpeak parameters:"]
         for iso in self._isotopes:
             for kk in range(iso['start_idx'], iso['end_idx'] + 1):
-                sp = _effective_subpeak(res.params, iso['name'], iso['safe'], self._pulses[kk], self.allow_shift, self.fit_global_shapes)
+                sp = _effective_subpeak(res.params, iso['name'], iso['safe'], self._pulses[kk], self.allow_shift, self.fit_global_shapes, use_chain_amp=self.normalize_chains)
                 if sp is None: continue
                 subpeak_lines.append(
                     f"{iso['name']:>10}  E={sp['E']:.1f} keV : "
@@ -579,12 +883,26 @@ class AlphaMultiEMGSigmaFit:
         now = datetime.now().isoformat(timespec="seconds")
         subrows = []
         for iso in self._isotopes:
+            # per-isotope dm (same for all subpeaks of this isotope)
+            dm_param = res.params.get(f"dm_{iso['safe']}") if self.allow_shift else None
+            dm_val = float(dm_param.value) if dm_param is not None else 0.0
+
             for kk in range(iso['start_idx'], iso['end_idx'] + 1):
-                sp = _effective_subpeak(res.params, iso['name'], iso['safe'], self._pulses[kk], self.allow_shift, self.fit_global_shapes)
-                if sp is None: continue
+                q = self._pulses[kk]
+                sp = _effective_subpeak(
+                    res.params, iso['name'], iso['safe'],
+                    q, self.allow_shift, self.fit_global_shapes,
+                    use_chain_amp=self.normalize_chains,
+                )
+                if sp is None:
+                    continue
+
+                chain_name = q.get("chain") or ""
+
                 subrows.append({
                     "timestamp": now,
                     "isotope": iso['name'],
+                    "chain": chain_name,
                     "E_keV": float(sp['E']),
                     "A_sub": float(sp['A']),
                     "mu": float(sp['mu']),
@@ -594,17 +912,40 @@ class AlphaMultiEMGSigmaFit:
                     "eta": float(sp['eta']),
                     "chi2": float(getattr(res, "redchi", np.nan)),
                     "R2": float(R2_plain),
-                    "d0_bound": d0_abs, "dg_bound": dg_abs, "dm_bound": dm_abs,
+                    # actual fitted shift / gain, not bounds
+                    "d0": float(d0),
+                    "dg": float(dg),
+                    "dm": float(dm_val),
+                    "chain_normalized": self.normalize_chains,
                 })
 
         subcsv = os.path.join(os.getcwd(), "fit_EMGMultiSigma_subpeaks.csv")
-        subfields = ["timestamp","isotope","E_keV","A_sub","mu","sigma","tau1","tau2","eta",
-                     "chi2","R2","d0_bound","dg_bound","dm_bound"]
+        subfields = [
+            "timestamp",
+            "isotope",
+            "chain",
+            "E_keV",
+            "A_sub",
+            "mu",
+            "sigma",
+            "tau1",
+            "tau2",
+            "eta",
+            "chi2",
+            "R2",
+            "d0",
+            "dg",
+            "dm",
+            "chain_normalized",
+        ]
+
         write_header = (not os.path.exists(subcsv)) or (os.path.getsize(subcsv) == 0)
         with open(subcsv, "a", newline="") as f:
             w = csv.DictWriter(f, fieldnames=subfields)
-            if write_header: w.writeheader()
+            if write_header:
+                w.writeheader()
             w.writerows(subrows)
+
 
         # ---------------- Plotting ----------------
         xx  = np.linspace(x.min(), x.max(), 1400)
@@ -612,56 +953,104 @@ class AlphaMultiEMGSigmaFit:
         bwv = p['bw'].value if 'bw' in p else float(np.median(np.diff(xx)))
         ytot = model.eval(res.params, x=xx)
 
+        # total fit in a fixed color
         (fitln_total,) = axis.plot(xx, ytot, lw=2.5, color='tab:orange', label='fit total')
 
+        # --- deterministic color per isotope ---
+        color_cycle = plt.rcParams['axes.prop_cycle'].by_key().get('color', None)
+        if not color_cycle:
+            color_cycle = ['C0', 'C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8', 'C9']
+
+        iso_colors = {
+            iso['name']: color_cycle[i % len(color_cycle)]
+            for i, iso in enumerate(self._isotopes)
+        }
+
         sub_lines = []
+        # plot all subpeaks; same color per isotope, one legend entry per isotope
         for iso in self._isotopes:
+            color = iso_colors[iso['name']]
+            first_for_iso = True
             for kk in range(iso['start_idx'], iso['end_idx'] + 1):
-                sp = _effective_subpeak(res.params, iso['name'], iso['safe'], self._pulses[kk], self.allow_shift, self.fit_global_shapes)
-                if sp is None: continue
-                yj = _peak_binned(xx, sp['A'], sp['mu'], sp['sigma'], sp['tau1'], sp['tau2'], sp['eta'], bwv)
-                (ln,) = axis.plot(xx, yj, lw=1.8, ls='--', alpha=0.9, label=f"{iso['name']} {sp['E']:.1f} keV")
+                sp = _effective_subpeak(
+                    res.params, iso['name'], iso['safe'],
+                    self._pulses[kk], self.allow_shift, self.fit_global_shapes, use_chain_amp=self.normalize_chains
+                )
+                if sp is None:
+                    continue
+                yj = _peak_binned(xx, sp['A'], sp['mu'], sp['sigma'],
+                                  sp['tau1'], sp['tau2'], sp['eta'], bwv)
+
+                # only the first subpeak of each isotope gets a legend label
+                label = iso['name'] if first_for_iso else "_nolegend_"
+                (ln,) = axis.plot(
+                    xx, yj,
+                    lw=1.8, ls='--', alpha=0.9,
+                    color=color,
+                    label=label
+                )
+                first_for_iso = False
                 sub_lines.append(ln)
 
-        axis.relim(); axis.autoscale_view()
-        ymin, ymax = axis.get_ylim(); yspan = max(ymax - ymin, 1.0)
+        axis.relim()
+        axis.autoscale_view()
+        ymin, ymax = axis.get_ylim()
+        yspan = max(ymax - ymin, 1.0)
         dy = 0.035 * yspan
 
+        # text labels above peaks (you can also color-match them using iso_colors if you like)
         for iso in self._isotopes:
-            dm_p = res.params.get(f"dm_{iso['safe']}"); dm_val = float(dm_p.value) if dm_p else 0.0
+            dm_p = res.params.get(f"dm_{iso['safe']}")
+            dm_val = float(dm_p.value) if dm_p else 0.0
             bump = 0
             for kk in range(iso['start_idx'], iso['end_idx'] + 1):
                 q = self._pulses[kk]
                 mu = (1.0 + dg) * float(q['mu0']) + d0 + dm_val
                 if xx[0] <= mu <= xx[-1]:
                     y_at = float(np.interp(mu, xx, ytot))
-                    axis.text(mu, y_at + dy + bump*0.6*dy,
-                              f"{iso['name']} {q['E']:.0f}",
-                              ha='center', va='bottom', fontsize=9,
-                              bbox=dict(boxstyle='round,pad=0.2', fc='white', ec='none', alpha=0.6))
+                    axis.text(
+                        mu, y_at + dy + bump * 0.6 * dy,
+                        f"{iso['name']} {q['E']:.0f}",
+                        ha='center', va='bottom', fontsize=9,
+                        bbox=dict(boxstyle='round,pad=0.2',
+                                  fc='white', ec='none', alpha=0.6)
+                    )
                     bump += 1
 
-        # Sort legend entries by energy, keep total first
+        # --- Legend: one entry per isotope, with a hard cap ---
         handles, labels = axis.get_legend_handles_labels()
-        def _extract_E(lbl: str) -> float:
-            m = re.search(r'(\d+(?:\.\d+)?)\s*keV', lbl)
-            return float(m.group(1)) if m else float('inf')
-        triples, total = [], []
-        for h, lbl in zip(handles, labels):
-            if lbl.strip().lower() == 'fit total':
-                total.append((-float('inf'), h, lbl))
-            else:
-                triples.append((_extract_E(lbl), h, lbl))
-        triples.sort(key=lambda t: t[0])
-        axis.legend([h for _, h, _ in total + triples],
-                    [lbl for _, _, lbl in total + triples],
-                    loc='best', frameon=False)
+
+        # keep 'fit total' first
+        total_items = [(h, l) for h, l in zip(handles, labels)
+                       if l.strip().lower() == 'fit total']
+        iso_items = [(h, l) for h, l in zip(handles, labels)
+                     if l.strip().lower() != 'fit total'
+                     and l != "_nolegend_"]
+
+        # deduplicate isotopes (should already be unique, but just in case)
+        seen = set()
+        unique_iso_items = []
+        for h, l in iso_items:
+            if l in seen:
+                continue
+            seen.add(l)
+            unique_iso_items.append((h, l))
+
+        # limit number of isotope entries in the legend
+        limited_iso_items = unique_iso_items[:MAX_LEGEND_ITEMS]
+
+        legend_handles = [h for h, _ in total_items + limited_iso_items]
+        legend_labels  = [l for _, l in total_items + limited_iso_items]
+
+        if legend_handles:
+            axis.legend(legend_handles, legend_labels, loc='best', frameon=False)
 
         # Stash for GUI
         fitln_total.components = sub_lines
         fitln_total.component_data = {'x': xx, 'ytot': ytot}
         fitln_total._isotopes = [iso['name'] for iso in self._isotopes]
         return fitln_total
+
 
 
 class AlphaMultiEMGSigmaFitBuilder:
