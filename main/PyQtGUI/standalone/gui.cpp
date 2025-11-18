@@ -8,14 +8,18 @@
 #include "CPyHelper.h"
 #include <cstdint>
 #include <errno.h>
+#ifdef __unix__
 #include <unistd.h>
+#endif
 
 #if defined(_WIN64) || defined(_WIN32)
 #include <io.h>
 #include <corecrt_io.h>
+#include <direct.h>
 #define INSTALLED_IN "C:\\CutiePie"
 #define F_OK 0
 #define access(a,b) _access(a,b)
+#define getcwd(a,b) _getcwd(a,b)
 #endif
 
 int main(int argc, char *argv[])
