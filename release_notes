@@ -1,8 +1,12 @@
+== v1.5-017 ==
+* Validate on windows.
+
 == v1.5-016 ==
 * Adds decay-chain–aware normalization and per-chain amplitudes to AlphaEMGMultiSigma, including:
   * New GUI options for shape treatment and chain normalization
   * Per-chain A_chain parameters with intra-chain fixed ratios
   * Extended fit report and CSV output with chain IDs, normalization mode, and shift/gain info
+
 == v1.5-016 ==
 
 == v1.5-014 ==
