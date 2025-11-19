@@ -740,10 +740,27 @@ class AlphaMultiEMGSigmaFit:
         wtxt = {0: "none", 1: "Poisson(data)", 2: "Poisson(model, IRLS)"}[wmode]
         bw_str = _fmt_val_err(res.params['bw'].value, res.params['bw'].stderr)
 
+        '''
         d0p = res.params.get('d0'); dgp = res.params.get('dg')
         d0, dg = (float(d0p.value) if d0p else 0.0), (float(dgp.value) if dgp else 0.0)
-        d0_str = _fmt_val_err(d0p.value, getattr(d0p, "stderr", None)) if d0p else "n/a"
-        dg_str = _fmt_val_err(dgp.value, getattr(dgp, "stderr", None)) if dgp else "n/a"
+        '''
+        d0p = res.params.get("d0", None)
+        dgp = res.params.get("dg", None)
+
+        if d0p is not None:
+            d0 = float(d0p.value)
+            d0_str = _fmt_val_err(d0p.value, getattr(d0p, "stderr", None))
+        else:
+            d0 = 0.0
+            d0_str = "n/a"
+
+        if dgp is not None:
+            dg = float(dgp.value)
+            dg_str = _fmt_val_err(dgp.value, getattr(dgp, "stderr", None))
+        else:
+            dg = 0.0
+            dg_str = "n/a"
+
 
         # Shapes header
         mode = ("global + per-isotope scales" if (self.fit_global_shapes and self.fit_iso_shape_scales)
@@ -784,13 +801,19 @@ class AlphaMultiEMGSigmaFit:
             scale_lines = ["\nPer-isotope shape scales (multipliers on baseline σ, τ1, τ2):"]
             for iso in self._isotopes:
                 stem = iso['safe']; name = iso['name']
+
                 def fmt_s(pn):
                     pp = res.params.get(pn)
-                    return _fmt_val_err(pp.value, getattr(pp, "stderr", None)) if pp else "1"
+                    if pp is not None:
+                        return _fmt_val_err(pp.value, getattr(pp, "stderr", None))
+                    else:
+                        return "1"
+
                 scale_lines.append(
                     f"{name:>10}: sσ={fmt_s(f's_sigma_{stem}')}, "
                     f"sτ1={fmt_s(f's_tau1_{stem}')}, sτ2={fmt_s(f's_tau2_{stem}')}"
                 )
+
         else:
             scale_lines = []
 
@@ -804,7 +827,10 @@ class AlphaMultiEMGSigmaFit:
             for chain_name, idx_list in chain_groups.items():
                 safe_chain = _safe_name(chain_name)
                 pA = res.params.get(f"Achain_{safe_chain}")
-                A_str = _fmt_val_err(pA.value, getattr(pA, "stderr", None)) if pA else "n/a"
+                if pA is not None:
+                    A_str = _fmt_val_err(pA.value, getattr(pA, "stderr", None))
+                else:
+                    A_str = "n/a"
 
                 iso_names = sorted({self._isotopes[k]['name'] for k in idx_list})
                 Es, ratios = [], []
@@ -831,8 +857,16 @@ class AlphaMultiEMGSigmaFit:
                 stem = iso['safe']; name = iso['name']
                 pA   = res.params.get(f"A_{stem}")
                 pDM  = res.params.get(f"dm_{stem}") if self.allow_shift else None
-                A_str  = _fmt_val_err(pA.value, getattr(pA, "stderr", None)) if pA else "n/a"
-                dm_str = _fmt_val_err(pDM.value, getattr(pDM, "stderr", None)) if pDM else None
+
+                if pA is not None:
+                    A_str = _fmt_val_err(pA.value, getattr(pA, "stderr", None))
+                else:
+                    A_str = "n/a"
+
+                if pDM is not None:
+                    dm_str = _fmt_val_err(pDM.value, getattr(pDM, "stderr", None))
+                else:
+                    dm_str = None
 
                 idx0, idx1 = iso['start_idx'], iso['end_idx']
                 blockE  = [f"{self._pulses[k]['E']:.1f}" for k in range(idx0, idx1+1)]
@@ -860,7 +894,11 @@ class AlphaMultiEMGSigmaFit:
 
         # Notice if anything pegged at bounds
         def _at_bound(p):
-            return p and (abs(p.value - p.min) < 1e-12 or abs(p.value - p.max) < 1e-12)
+            return (p is not None) and (
+                abs(p.value - p.min) < 1e-12 or
+                abs(p.value - p.max) < 1e-12
+            )
+
 
         pegged_dm = [iso['name'] for iso in self._isotopes if _at_bound(res.params.get(f"dm_{iso['safe']}"))]
         pegged_g  = [nm for nm in ('d0','dg') if _at_bound(res.params.get(nm))]
