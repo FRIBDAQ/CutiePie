@@ -360,7 +360,7 @@ class MainWindow(QMainWindow):
         ### Bashir added for auto update #########################
         
         self.autoUpdateIntervalsUser = ["1 sec", "5 secs", "10 secs", "30 secs", "1 min", "3 mins", "5 mins", "10 mins", "Inf."]
-        self.autoUpdateIntervals = [1, 5, 10, 30, 60, 180, 300, 600, 9e9]
+        self.autoUpdateIntervals = [1, 5, 10, 30, 60, 180, 300, 600, None]
 
         """
         val_auto = self.wConf.autoUpdate2.value()
