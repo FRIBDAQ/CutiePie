@@ -1,7 +1,7 @@
 *.log
 main/PyQtGUI/sip/build
 main/PyQtGUI/src/x64
-main/PyQtGUI/src/.vs
+*.vs
 main/PyQtGUI/standalone/x64
 main/installer*
 main/mirrorclient/X64
