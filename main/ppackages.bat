@@ -17,8 +17,10 @@ python -mpip install bitarray
 python -mpip install uproot3
 python -mpip install httplib2
 python -mpip install pandas
-python -mpip install requests   # for rustogramer client.
+python -mpip install requests 
 python -mpip install parse
+REM  Added packages since 11/18/2025
+python -mpip install lmfit
 
 
 REM   Maybe not needed but:
