@@ -324,7 +324,29 @@ class SpecialFunctions(QWidget):
             self.fit_p15, self.fit_p16, self.fit_p17, self.fit_p18, self.fit_p19,
         ]
 
-        names = maps.get(name, [])
+        names = maps.get(name)
+
+        # ---------- GENERIC CASE: any model not in maps ----------
+        if names is None:
+            # How many generic parameters to show by default?
+            # e.g. 6 => p0..p5
+            MAX_GENERIC_PARAMS = 6
+
+            for i, (lab, edit) in enumerate(zip(labels, edits)):
+                show = i < MAX_GENERIC_PARAMS
+                lab.setVisible(show)
+                edit.setVisible(show)
+                if show:
+                    lab.setText(f"p{i}")
+
+            # For generic models, we do NOT use the wmode combo;
+            # just show the normal p12 line-edit if it is within the visible range.
+            self.wmode_combo.setVisible(False)
+            if MAX_GENERIC_PARAMS > 12:
+                self.fit_p12.setVisible(True)
+
+            return
+
         # Update text and visibility for labels/line-edits
         for i, (lab, edit) in enumerate(zip(labels, edits)):
             show = i < len(names) and bool(names[i])

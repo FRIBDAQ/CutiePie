@@ -20,31 +20,51 @@ class GPol1Fit(FitFunction):
         return frac*gauss(x, params[0:3]) + (1-frac)*pol1(x, params[3:5])
 
     def set_initial_parameters(self, x, y, params):
-        super().set_initial_parameters(x, y, params)
-        if (params[0] != 0.0):
-            self.p_init[0] = params[0]
+        """
+        Use None as 'not seeded', and treat 0.0 as a valid user seed.
+        """
+        # Make sure we can index like a list, even if it's a numpy array
+        p = list(params)
+
+        # amplitude (Gaussian)
+        if p[0] is not None:
+            a0 = float(p[0])
         else:
-            self.p_init[0] = np.max(y)
-        if (params[1] != 0.0):
-            self.p_init[1] = params[1]
+            a0 = float(np.max(y))
+
+        # mean
+        if p[1] is not None:
+            m0 = float(p[1])
         else:
-            self.p_init[1] = x[np.argmax(y)]
-        if (params[2] != 0.0):
-            self.p_init[2] = params[2]
+            m0 = float(x[int(np.argmax(y))])
+
+        # sigma
+        if p[2] is not None:
+            s0 = float(p[2])
         else:
-            self.p_init[2] = np.std(x) # From width of fit range.
-        if (params[3] != 0.0):
-            self.p_init[3] = params[3]
+            s0 = float(np.std(x))  # width of fit range
+
+        # background p0 (offset)
+        if p[3] is not None:
+            b0 = float(p[3])
         else:
-            self.p_init[3] = min(y[0], y[-1])
-        if (params[4] != 0.0):
-            self.p_init[4] = params[4]
+            b0 = float(min(y[0], y[-1]))
+
+        # background p1 (slope)
+        if p[4] is not None:
+            b1 = float(p[4])
         else:
-            self.p_init[4] = (y[-1] - y[0])/(x[-1] - x[0])
-        if (params[5] != 0.0):
-            self.p_init[5] = params[5]
+            b1 = float((y[-1] - y[0]) / (x[-1] - x[0]))
+
+        # fraction f
+        if p[5] is not None:
+            f0 = float(p[5])
         else:
-            self.p_init[5] = 0.9
+            f0 = 0.9
+
+        clean_params = np.array([a0, m0, s0, b0, b1, f0], dtype=np.float64)
+        super().set_initial_parameters(x, y, clean_params)
+
 
 class GPol1FitBuilder:
     def __init__(self):

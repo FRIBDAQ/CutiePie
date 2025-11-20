@@ -14,19 +14,33 @@ class GausFit(FitFunction):
         return params[0]*np.exp(-(x-params[1])**2 / (2*params[2]**2))
 
     def set_initial_parameters(self, x, y, params):
-        super().set_initial_parameters(x, y, params)
-        if (params[0] != 0.0):
-            self.p_init[0] = params[0]
+        """
+        Use None as 'not seeded', and treat 0.0 as a valid user seed.
+        """
+        # Make sure we can index like a list, even if it's a numpy array
+        p = list(params)
+
+        # amplitude
+        if p[0] is not None:
+            a0 = float(p[0])
         else:
-            self.p_init[0] = np.max(y)
-        if (params[1] != 0.0):
-            self.p_init[1] = params[1]
+            a0 = float(np.max(y))
+
+        # mean
+        if p[1] is not None:
+            m0 = float(p[1])
         else:
-            self.p_init[1] = x[np.argmax(y)]
-        if (params[2] != 0.0):
-            self.p_init[2] = params[2]
+            m0 = float(x[int(np.argmax(y))])
+
+        # sigma
+        if p[2] is not None:
+            s0 = float(p[2])
         else:
-            self.p_init[2] = np.std(x) # From width of fit range
+            s0 = float(np.std(x))   # From width of fit range
+
+        # Now call the base class with *numeric only* parameters
+        clean_params = np.array([a0, m0, s0], dtype=np.float64)
+        super().set_initial_parameters(x, y, clean_params)
 
 class GausFitBuilder:
     def __init__(self):
