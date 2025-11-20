@@ -21,34 +21,50 @@ class GPol2Fit(FitFunction):
 
     def set_initial_parameters(self, x, y, params):
         super().set_initial_parameters(x, y, params)
-        if (params[0] != 0.0):
+
+        # amplitude (Gaussian)
+        if params[0] is not None:
             self.p_init[0] = params[0]
         else:
             self.p_init[0] = np.max(y)
-        if (params[1] != 0.0):
+
+        # mean
+        if params[1] is not None:
             self.p_init[1] = params[1]
         else:
             self.p_init[1] = x[np.argmax(y)]
-        if (params[2] != 0.0):
+
+        # sigma
+        if params[2] is not None:
             self.p_init[2] = params[2]
         else:
-            self.p_init[2] = abs(self.p_init[1])/10
-        if (params[3] != 0.0):
+            # From width of fit range: original code used abs(mean)/10
+            self.p_init[2] = abs(self.p_init[1]) / 10.0
+
+        # background p0 (offset)
+        if params[3] is not None:
             self.p_init[3] = params[3]
         else:
             self.p_init[3] = min(y[0], y[-1])
-        if (params[4] != 0.0):
+
+        # background p1 (slope)
+        if params[4] is not None:
             self.p_init[4] = params[4]
         else:
-            self.p_init[4] = (y[-1] - y[0])/(x[-1] - x[0])
-        if (params[5] != 0.0):
+            self.p_init[4] = (y[-1] - y[0]) / (x[-1] - x[0])
+
+        # background p2 (quadratic term)
+        if params[5] is not None:
             self.p_init[5] = params[5]
         else:
-            self.p_init[5] =0.0
-        if (params[6] != 0.0):
+            self.p_init[5] = 0.0
+
+        # fraction f
+        if params[6] is not None:
             self.p_init[6] = params[6]
         else:
             self.p_init[6] = 0.9
+
 
 class GPol2FitBuilder:
     def __init__(self):

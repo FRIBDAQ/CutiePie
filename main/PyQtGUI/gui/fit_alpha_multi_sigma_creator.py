@@ -51,7 +51,7 @@ IRLS_MAX_ITERS = 6
 IRLS_IMPROVE   = 1e-3
 
 
-MAX_LEGEND_ITEMS = 10  # max number of isotopes shown in legend (plus 'fit total')
+MAX_LEGEND_ITEMS = 20  # max number of isotopes shown in legend (plus 'fit total')
 
 
 def _bin_integral(fun, x, bw, *args):
@@ -992,7 +992,7 @@ class AlphaMultiEMGSigmaFit:
         ytot = model.eval(res.params, x=xx)
 
         # total fit in a fixed color
-        (fitln_total,) = axis.plot(xx, ytot, lw=2.5, color='tab:orange', label='fit total')
+        (fitln_total,) = axis.plot(xx, ytot, lw=2, color='tab:orange', label='fit total')
 
         # --- deterministic color per isotope ---
         color_cycle = plt.rcParams['axes.prop_cycle'].by_key().get('color', None)
@@ -1039,7 +1039,7 @@ class AlphaMultiEMGSigmaFit:
         # text labels above peaks (you can also color-match them using iso_colors if you like)
         for iso in self._isotopes:
             dm_p = res.params.get(f"dm_{iso['safe']}")
-            dm_val = float(dm_p.value) if dm_p else 0.0
+            dm_val = float(dm_p.value) if dm_p is not None else 0.0
             bump = 0
             for kk in range(iso['start_idx'], iso['end_idx'] + 1):
                 q = self._pulses[kk]

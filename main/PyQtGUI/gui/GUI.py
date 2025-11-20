@@ -360,7 +360,7 @@ class MainWindow(QMainWindow):
         ### Bashir added for auto update #########################
         
         self.autoUpdateIntervalsUser = ["1 sec", "5 secs", "10 secs", "30 secs", "1 min", "3 mins", "5 mins", "10 mins", "Inf."]
-        self.autoUpdateIntervals = [1, 5, 10, 30, 60, 180, 300, 600, None]
+        self.autoUpdateIntervals = [1, 5, 10, 30, 60, 180, 300, 600, 9e9]
 
         """
         val_auto = self.wConf.autoUpdate2.value()
@@ -5937,14 +5937,6 @@ class MainWindow(QMainWindow):
                         except Exception:
                             fitpar.append(None)
 
-                    '''
-                    # AlphaEMG12 legacy remap (unchanged)
-                    if fit_funct == "AlphaEMG12":
-                        A, mu, sig, tau1, tau2, eta = fitpar[:6]
-                        if tau2 == 0.0: tau2 = tau1
-                        fitpar = [A, mu, sig, tau1, tau2, eta]
-                    '''
-
                     # Subrange x,y
                     ytmp = (self.getSpectrumInfoREST("data", index=index)).tolist()
                     xmin, xmax = self.axisLimitsForFit(ax)
@@ -6046,61 +6038,63 @@ class MainWindow(QMainWindow):
                         except Exception:
                             bw = float(np.median(np.diff(xtmp))) if len(xtmp) > 1 else 1.0
 
+                        if model_name in {"AlphaEMGMulti", "AlphaEMGMultiSigma"}:
+                            # compute bw as you already do...
+                            # bw = ...
 
-                    if model_name in {"AlphaEMGMulti", "AlphaEMGMultiSigma"}:
-                        # compute bw as you already do...
-                        # bw = ...
+                            # take wmode from the normalized fitpar, not the widget
+                            wmode_ui = fitpar[12] if len(fitpar) > 12 else None
 
-                        # take wmode from the normalized fitpar, not the widget
-                        wmode_ui = fitpar[12] if len(fitpar) > 12 else None
+                            # use the already-normalized values for bounds and globals
+                            tail = [
+                                bw,
+                                wmode_ui,
+                                fitpar[9],   # sigma upper bound (None if blank)
+                                fitpar[10],  # tau1 upper bound
+                                fitpar[11],  # tau2 upper bound
+                                fitpar[13],  # |d0|  (None => default; 0 => lock)
+                                fitpar[14],  # |dg|  (None => default; 0 => lock)
+                                fitpar[15],  # |dm*| (None => default; 0 => disable shifts)
+                            ]
+                            fitpar.extend(tail)
 
-                        # use the already-normalized values for bounds and globals
-                        tail = [
-                            bw,
-                            wmode_ui,
-                            fitpar[9],   # sigma upper bound (None if blank)
-                            fitpar[10],  # tau1 upper bound
-                            fitpar[11],  # tau2 upper bound
-                            fitpar[13],  # |d0|  (None => default; 0 => lock)
-                            fitpar[14],  # |dg|  (None => default; 0 => lock)
-                            fitpar[15],  # |dm*| (None => default; 0 => disable shifts)
-                        ]
-                        fitpar.extend(tail)
+                        elif model_name in {"AlphaEMG22"}:
+                            wmode = 1
+                            bw_idx, wm_idx = 12, 13
+                            need_len = wm_idx + 1
+                            if len(fitpar) < need_len:
+                                fitpar += [None] * (need_len - len(fitpar))   # <-- no zeros
+                            fitpar[bw_idx] = bw
+                            fitpar[wm_idx] = wmode
 
-                    elif model_name in {"AlphaEMG22"}:
-                        wmode = 1
-                        bw_idx, wm_idx = 12, 13
-                        need_len = wm_idx + 1
-                        if len(fitpar) < need_len:
-                            fitpar += [None] * (need_len - len(fitpar))   # <-- no zeros
-                        fitpar[bw_idx] = bw
-                        fitpar[wm_idx] = wmode
+                        elif model_name in {"AlphaEMG32"}:
+                            wmode = 1
+                            bw_idx, wm_idx = 18, 19
+                            need_len = wm_idx + 1
+                            if len(fitpar) < need_len:
+                                fitpar += [None] * (need_len - len(fitpar))   # <-- no zeros
+                            fitpar[bw_idx] = bw
+                            fitpar[wm_idx] = wmode
 
-                    elif model_name in {"AlphaEMG32"}:
-                        wmode = 1
-                        bw_idx, wm_idx = 18, 19
-                        need_len = wm_idx + 1
-                        if len(fitpar) < need_len:
-                            fitpar += [None] * (need_len - len(fitpar))   # <-- no zeros
-                        fitpar[bw_idx] = bw
-                        fitpar[wm_idx] = wmode
+                        elif model_name in {"AlphaEMG12"}:
+                            # >>> Treat AlphaEMG12 like 22/32: programmatically set bw + wmode=2
+                            wmode = 2
+                            need_len = 6                 # [A, mu, sigma, tau1, bw, wmode]
+                            if len(fitpar) < need_len:
+                                fitpar += [None] * (need_len - len(fitpar))
+                            fitpar[4] = bw
+                            fitpar[5] = wmode
 
-                    elif model_name in {"AlphaEMG12"}:
-                        # >>> Treat AlphaEMG12 like 22/32: programmatically set bw + wmode=2
-                        wmode = 2
-                        need_len = 6                 # [A, mu, sigma, tau1, bw, wmode]
-                        if len(fitpar) < need_len:
-                            fitpar += [None] * (need_len - len(fitpar))
-                        fitpar[4] = bw
-                        fitpar[5] = wmode
+                        else:
+                            # AlphaEMG1 / 12 / 2 / 3:
+                            need_len = 6
+                            if len(fitpar) < need_len:
+                                fitpar += [None] * (need_len - len(fitpar))   # <-- no zeros
+                            fitpar[4] = bw
+                            fitpar[5] = 1
 
                     else:
-                        # AlphaEMG1 / 12 / 2 / 3:
-                        need_len = 6
-                        if len(fitpar) < need_len:
-                            fitpar += [None] * (need_len - len(fitpar))   # <-- no zeros
-                        fitpar[4] = bw
-                        fitpar[5] = 1
+                        bw = None
                     # ----------------------------------------------------------------
 
                     # --- Run fit (works for AlphaEMG22 and others) ---
@@ -6131,19 +6125,20 @@ class MainWindow(QMainWindow):
                             f"(source: {src})\n\n"
                         )
 
-                    # --- Report the shapes source + mode (like calibration) ---
-                    def _shape_mode(f):
-                        g = bool(getattr(f, "fit_global_shapes", False))
-                        i = bool(getattr(f, "fit_iso_shape_scales", False))
-                        if g and i:   return "global + per-isotope"
-                        if g:         return "global"
-                        if i:         return "per-isotope only (baseline from file)"
-                        return "frozen (file σ,τ₁,τ₂,η)"
+                    if fit_funct in EMG_MODELS:
+                        # --- Report the shapes source + mode (like calibration) ---
+                        def _shape_mode(f):
+                            g = bool(getattr(f, "fit_global_shapes", False))
+                            i = bool(getattr(f, "fit_iso_shape_scales", False))
+                            if g and i:   return "global + per-isotope"
+                            if g:         return "global"
+                            if i:         return "per-isotope only (baseline from file)"
+                            return "frozen (file σ,τ₁,τ₂,η)"
 
-                    shape_src = config.get("shape_file", getattr(fit, "shape_file", None))
-                    fitResultsText.insertPlainText(
-                        f"[shapes] mode = {_shape_mode(fit)} ; source: {shape_src or 'unknown'}\n\n"
-                    )
+                        shape_src = config.get("shape_file", getattr(fit, "shape_file", None))
+                        fitResultsText.insertPlainText(
+                            f"[shapes] mode = {_shape_mode(fit)} ; source: {shape_src or 'unknown'}\n\n"
+                        )
 
                     self.setFitLineLabel(ax, fitln, fitResultsText, spectrumName)
                     self._tag_new_fit_artists(ax, before_ids)
@@ -6562,7 +6557,9 @@ class MainWindow(QMainWindow):
             pass
         self.logger.debug("clear_all_fit_artists_in_figure: removed %d artists", total_removed)
 
+
  ################################# Bashir added for ploting the fitting calibration results ######
+    '''
     # --- ADD: helper to lazily create/show the dialog ---
     def _ensure_fit_params_dialog(self):
         if not hasattr(self, "_fit_params_dialog") or self._fit_params_dialog is None:
@@ -6594,7 +6591,7 @@ class MainWindow(QMainWindow):
         if mu is None or A is None or sigma is None or tau is None:
             return None
         return {"A": A, "mu": mu, "sigma": sigma, "tau": tau}
-
+    '''
     #########################################################################################
 
 
