@@ -31,7 +31,7 @@ int main(int argc, char *argv[])
 		instPath = cwd;
 		filename = instPath + "/Main.py";
 	    } else {
-		std::cerr << "Failed to set cwd!!! Falling back to " << instPath << std::endl;
+		std::cerr << "Failed to set cwd and load Main.py from there!!! Falling back to " << instPath << std::endl;
 	    }
 	}
     } else{
@@ -48,6 +48,8 @@ int main(int argc, char *argv[])
       if (access(testfile.c_str(), F_OK) != -1) {
 	  instPath = path_string;
 	  filename = instPath + "/Main.py";
+      } else {
+	  std::cerr << "Failed to load Main.py from USERDIR!!! Falling back to " << instPath << std::endl;
       }
   }
 
