@@ -323,6 +323,16 @@ class MainWindow(QMainWindow):
         self.connectConfig.ok.clicked.connect(self.okConnect)
         self.connectConfig.cancel.clicked.connect(self.closeConnect)
 
+        ### Bashir added to auto select connect button if ports are default
+        rest_text   = self.connectConfig.rest.text().strip()
+        mirror_text = self.connectConfig.mirror.text().strip()
+        if rest_text.isdigit() and mirror_text.isdigit():
+            # visually show "connected"
+            self.wConf.connectButton.setChecked(True)
+
+            # actually perform the connection once the event loop is ready
+            QTimer.singleShot(0, self.okConnect)
+
         #### Bashir chenged ###################
         menu = QMenu(self.wConf.geometryButton)     # parent the menu to the button
 
