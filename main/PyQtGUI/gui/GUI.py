@@ -323,6 +323,16 @@ class MainWindow(QMainWindow):
         self.connectConfig.ok.clicked.connect(self.okConnect)
         self.connectConfig.cancel.clicked.connect(self.closeConnect)
 
+        ### Bashir added to auto select connect button if ports are default
+        rest_text   = self.connectConfig.rest.text().strip()
+        mirror_text = self.connectConfig.mirror.text().strip()
+        if rest_text.isdigit() and mirror_text.isdigit():
+            # visually show "connected"
+            self.wConf.connectButton.setChecked(True)
+
+            # actually perform the connection once the event loop is ready
+            QTimer.singleShot(0, self.okConnect)
+
         #### Bashir chenged ###################
         menu = QMenu(self.wConf.geometryButton)     # parent the menu to the button
 
@@ -4610,7 +4620,6 @@ class MainWindow(QMainWindow):
             ax.add_artist(line)
 
 
-
     #callback for createSumRegionButton, show popup to define name
     def createSumRegion(self):
         self.logger.info('createSumRegion CallBack')
@@ -4657,6 +4666,7 @@ class MainWindow(QMainWindow):
 
 
     #button of the cutoff window, sets the cutoff values in the spectrum dict
+    '''
     def okSumRegion(self):
         self.logger.info('okSumRegion')
         # if sumRegionName already exists issue warning
@@ -4690,6 +4700,52 @@ class MainWindow(QMainWindow):
                 pass
         #"save"/draw a new version of the region line in ax before deleting listRegionLine in closeEvent of the popup
         self.saveSumRegion(self.sumRegionPopup.sumRegionSpectrumIndex)
+        self.cancelSumRegion()
+    '''
+
+    ### Bashir modified okSumRegion to actually overwrite or cancel if region name exists
+    def okSumRegion(self):
+        self.logger.info('okSumRegion')
+        # if sumRegionName already exists issue warning
+        sumRegionName = self.sumRegionPopup.sumRegionNameList.currentText()
+        spec_index = self.sumRegionPopup.sumRegionSpectrumIndex
+
+        if sumRegionName in self.sumRegionPopup.sumRegionNameListSaved:
+            self.logger.debug('okSumRegion - sumRegionName: %s already exist', sumRegionName)
+            msgBox = QMessageBox(self)
+            msgBox.setIcon(QMessageBox.Warning)
+            msgBox.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+            msgBox.setText("Summing region name already exists.")
+            msgBox.setInformativeText(
+                'Do you want to overwrite "' + sumRegionName + '" summing region definition?'
+            )
+            msgBox.setStandardButtons(QMessageBox.Yes | QMessageBox.Cancel)
+            msgBox.setDefaultButton(QMessageBox.Cancel)
+            ret = msgBox.exec()
+            if ret == QMessageBox.Yes:
+                # Actually overwrite: delete the old region first
+                # deleteSumRegion uses sumRegionNameList.currentText(),
+                # which is still `sumRegionName` here.
+                self.deleteSumRegion()
+                # deleteSumRegion sets the combo to "None", put the name back
+                self.sumRegionPopup.sumRegionNameList.setCurrentText(sumRegionName)
+            elif ret == QMessageBox.Cancel:
+                return
+
+        elif "_-_" in sumRegionName:
+            self.logger.debug('okSumRegion - sumRegionName has _-_ in its name')
+            msgBox = QMessageBox(self)
+            msgBox.setIcon(QMessageBox.Warning)
+            msgBox.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+            msgBox.setText('Region name must not include "_-_"')
+            msgBox.setStandardButtons(QMessageBox.Ok)
+            msgBox.setDefaultButton(QMessageBox.Ok)
+            ret = msgBox.exec()
+            if ret == QMessageBox.Ok:
+                return  # <- don’t continue with save if the name is invalid
+
+        # "save"/draw a new version of the region line in ax before deleting listRegionLine
+        self.saveSumRegion(spec_index)
         self.cancelSumRegion()
 
 
