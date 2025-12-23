@@ -16,6 +16,7 @@ import signal, ctypes
 import re
 import csv, json
 from types import SimpleNamespace
+from functools import partial
 
 
 
@@ -500,6 +501,11 @@ class MainWindow(QMainWindow):
 
         # extra popup
         self.extraPopup.fit_button.clicked.connect(self.fit)
+        
+        self.extraPopup.plot_csv_button.clicked.connect(self.on_plot_csv_clicked)
+        self.extraPopup.fit_csv_button.clicked.connect(self.on_fit_csv_clicked)
+
+
         self.extraPopup.abort_button.clicked.connect(self.on_abort_clicked)  # Bashir added Abort button
         self.extraPopup.all_fitIdx_button.clicked.connect(self.printFitLineLabels)
         self.extraPopup.delete_button.clicked.connect(self.deleteFit)
@@ -5902,6 +5908,60 @@ class MainWindow(QMainWindow):
         try: self.extraPopup.fit_results.append("[abort] Requested…")
         except Exception: pass
 
+    def on_fit_csv_clicked(self):
+        if not hasattr(self, "_csv_x") or self._csv_x is None or len(self._csv_x) == 0:
+            QMessageBox.warning(self, "No CSV loaded", "Click 'Plot CSV' first.")
+            return
+        if not hasattr(self, "_csv_ax") or self._csv_ax is None:
+            QMessageBox.warning(self, "No CSV plot", "Click 'Plot CSV' first.")
+            return
+
+        self._use_csv_fit = True
+        try:
+            self.fit()
+        finally:
+            self._use_csv_fit = False
+
+    def on_plot_csv_clicked(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select CSV for plotting (x,y)", "",
+            "CSV files (*.csv *.txt);;All files (*)"
+        )
+        if not path:
+            return
+
+        self._csv_path = path
+
+        arr = np.genfromtxt(path, delimiter=",", comments="#")
+        if arr.ndim == 1:
+            x = np.arange(arr.size, dtype=float)
+            y = arr.astype(float)
+        else:
+            x = arr[:, 0].astype(float)
+            y = arr[:, 1].astype(float)
+
+        # clean + sort
+        m = np.isfinite(x) & np.isfinite(y)
+        x, y = x[m], y[m]
+        o = np.argsort(x)
+        x, y = x[o], y[o]
+
+        self._csv_x, self._csv_y = x, y
+
+        if not hasattr(self, "_csv_ax") or self._csv_ax is None:
+            fig, ax = plt.subplots()
+            try: fig.canvas.manager.set_window_title("CSV")
+            except Exception: pass
+            self._csv_ax = ax
+
+        ax = self._csv_ax
+        ax.clear()
+        ax.plot(self._csv_x, self._csv_y, lw=1)
+        ax.set_title(os.path.basename(path))
+        ax.relim()
+        ax.autoscale_view()
+        ax.figure.canvas.draw_idle()
+        ax.figure.show()
 
     def fit(self):
 
@@ -5926,40 +5986,48 @@ class MainWindow(QMainWindow):
         self.extraPopup.abort_button.setEnabled(True)
 
 
+        ## Determine whether fitting from CSV or spectrum
+        use_csv = getattr(self, "_use_csv_fit", False)
+        if use_csv:
+            ax = self._csv_ax
+            spectrumName = f"CSV: {os.path.basename(getattr(self, '_csv_path', 'data.csv'))}"
+            index = None
+        else:
+            index = self.autoIndex()
+            spectrumName = self.nameFromIndex(index)
+            ax = self.getSpectrumInfo("axis", index=index)
 
-        index = self.autoIndex()
-        spectrumName = self.nameFromIndex(index)
-        ax = self.getSpectrumInfo("axis", index=index)
+
+
         self.logger.debug('fit - spectrumName, fit_funct, index: %s, %s, %s', spectrumName, fit_funct, index)
 
         ##### Delete existing fit lines before drawing a new fit
-        '''
-        labels = self.listFitLineLabels(ax)
-        # populate UI (optional)
-        self.extraPopup.delete_fitIdx_list.setText(" ".join(labels) if labels else "")
-        # ALWAYS sweep gid=='fit' artifacts, even if no labels are present
-        self.deleteFit()
-        # after deleteFit()
-        leg = ax.get_legend()
-        if leg:
-            try: leg.remove()
-            except Exception: pass
+        # self._clear_all_fit_artists_in_figure(self.currentPlot.figure)
+        if not use_csv:
+            self._clear_all_fit_artists_in_figure(ax.figure)
 
-        try:
-            ax.figure.canvas.draw_idle()
-        except Exception:
-            pass
-        '''
-        self._clear_all_fit_artists_in_figure(self.currentPlot.figure)
-        # snapshot BEFORE drawing the new fit
+
+
         before_ids = self._snap_ax_ids(ax)
+
         ######################################################################
 
 
-        dim = self.getSpectrumInfoREST("dim", index=index)
-        binx = self.getSpectrumInfoREST("binx", index=index)
-        minxREST = self.getSpectrumInfoREST("minx", index=index)
-        maxxREST = self.getSpectrumInfoREST("maxx", index=index)
+
+        ## Get data from REST or CSV
+        if use_csv:
+            dim = 1
+            x = np.asarray(self._csv_x, float)
+            y = np.asarray(self._csv_y, float)
+            binx = len(x)
+            minxREST = float(np.nanmin(x))
+            maxxREST = float(np.nanmax(x))
+        else:
+            dim = self.getSpectrumInfoREST("dim", index=index)
+            binx = self.getSpectrumInfoREST("binx", index=index)
+            minxREST = self.getSpectrumInfoREST("minx", index=index)
+            maxxREST = self.getSpectrumInfoREST("maxx", index=index)
+
 
         #### Bashir added {} ###
         # config = self.fit_factory._configs.get(fit_funct) or {}
@@ -5969,11 +6037,7 @@ class MainWindow(QMainWindow):
         try:
             if spectrumName != "":
                 if dim == 1:
-                    x = []
-                    y = []
-                    xtmp = self.createRange(binx, minxREST, maxxREST)
-
-                
+            
                     # -------------------------------------------------------------------------------
                     widgets = (
                         self.extraPopup.fit_p0, self.extraPopup.fit_p1, self.extraPopup.fit_p2,
@@ -5993,14 +6057,42 @@ class MainWindow(QMainWindow):
                         except Exception:
                             fitpar.append(None)
 
-                    # Subrange x,y
-                    ytmp = (self.getSpectrumInfoREST("data", index=index)).tolist()
-                    xmin, xmax = self.axisLimitsForFit(ax)
-                    for i in range(1, len(xtmp)):
-                        if (xtmp[i] > xmin and xtmp[i] <= xmax):
-                            x.append(xtmp[i-1] + (xtmp[i] - xtmp[i-1]) / 2)
-                            y.append(ytmp[i])
-                    x = np.array(x); y = np.array(y)
+                    if use_csv:
+                        # 1) take range from the GUI (Min X / Max X)
+                        xmin, xmax = self.axisLimitsForFit(ax)   # uses your UI boxes
+
+                        # 2) clamp to actual CSV data range (safeguard)
+                        xdata_min = float(np.nanmin(x))
+                        xdata_max = float(np.nanmax(x))
+                        lo, hi = sorted([float(xmin), float(xmax)])
+                        xmin = max(lo, xdata_min)
+                        xmax = min(hi, xdata_max)
+
+                        if (not np.isfinite(xmin)) or (not np.isfinite(xmax)) or (xmin >= xmax):
+                            xmin, xmax = xdata_min, xdata_max
+
+                        # 3) IMPORTANT: slice data so the fit is guaranteed to use the range
+                        m = (x >= xmin) & (x <= xmax)
+                        if np.count_nonzero(m) < 3:
+                            QMessageBox.warning(self, "Fit range too small",
+                                                "Min X / Max X selects < 3 points. Widen the range.")
+                            return
+                        x = x[m]
+                        y = y[m]
+
+                    else:
+
+                        # Subrange x,y
+                        x = []
+                        y = []
+                        xtmp = self.createRange(binx, minxREST, maxxREST)
+                        ytmp = (self.getSpectrumInfoREST("data", index=index)).tolist()
+                        xmin, xmax = self.axisLimitsForFit(ax)
+                        for i in range(1, len(xtmp)):
+                            if (xtmp[i] > xmin and xtmp[i] <= xmax):
+                                x.append(xtmp[i-1] + (xtmp[i] - xtmp[i-1]) / 2)
+                                y.append(ytmp[i])
+                        x = np.array(x); y = np.array(y)
                     #### Bashir added for calibration prompt ########################################
                     # --- Ask user whether to run calibration ---
                     run_cal = False
@@ -6087,12 +6179,16 @@ class MainWindow(QMainWindow):
 
                     if model_name in EMG_MODELS:
                         # safe bin width
-                        try:
-                            bw = float(maxxREST - minxREST) / float(binx)
-                            if not np.isfinite(bw) or bw <= 0:
-                                raise ValueError
-                        except Exception:
-                            bw = float(np.median(np.diff(xtmp))) if len(xtmp) > 1 else 1.0
+                        if use_csv:
+                            bw = float(np.median(np.diff(x))) if len(x) > 1 else 1.0
+                        else:
+                            try:
+                                bw = float(maxxREST - minxREST) / float(binx)
+                                if not np.isfinite(bw) or bw <= 0:
+                                    raise ValueError
+                            except Exception:
+                                bw = float(np.median(np.diff(x))) if len(x) > 1 else 1.0
+
 
                         if model_name in {"AlphaEMGMulti", "AlphaEMGMultiSigma"}:
                             # compute bw as you already do...
@@ -6223,7 +6319,11 @@ class MainWindow(QMainWindow):
                     QMessageBox.about(self, "Warning", "Sorry 2D fitting is not implemented yet")
             else:
                 QMessageBox.about(self, "Warning", "Histogram not existing. Please load a histogram...")
-            self.currentPlot.canvas.draw()
+
+            ############### Redraw canvas ##################    
+            # self.currentPlot.canvas.draw()
+            ax.figure.canvas.draw_idle()
+
         except NameError as err:
             print(err)
             pass

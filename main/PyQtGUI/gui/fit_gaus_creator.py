@@ -11,7 +11,11 @@ class GausFit(FitFunction):
 
     def model(self, x, params):
         """Un-normalized Gaussian."""
-        return params[0]*np.exp(-(x-params[1])**2 / (2*params[2]**2))
+        sigma = float(abs(params[2]))
+        if sigma <= 1e-12:
+            sigma = 1e-12
+        return params[0] * np.exp(-(x - params[1])**2 / (2 * sigma**2))
+
 
     def set_initial_parameters(self, x, y, params):
         """
