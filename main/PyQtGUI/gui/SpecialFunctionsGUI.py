@@ -97,6 +97,12 @@ class SpecialFunctions(QWidget):
         self.fit_button = QPushButton("Fit", self)
         self.fit_button.setStyleSheet("background-color:#bcee68;")
 
+        self.plot_csv_button = QPushButton("Plot CSV", self)
+        self.plot_csv_button.setStyleSheet("background-color:#f0a500;")
+
+        self.fit_csv_button = QPushButton("Fit CSV", self)
+        self.fit_csv_button.setStyleSheet("background-color:#68bcee;")
+
         # Abort button
         self.abort_button = QPushButton("Abort", self)
         self.abort_button.setStyleSheet("background-color:#ff6b6b;")
@@ -246,6 +252,8 @@ class SpecialFunctions(QWidget):
         v2.addLayout(v1b)
         v2.addLayout(deflayout)
         v2.addWidget(self.fit_button)
+        v2.addWidget(self.plot_csv_button)
+        v2.addWidget(self.fit_csv_button)
         v2.addWidget(self.abort_button)
 
         v3 = QVBoxLayout()
