@@ -129,6 +129,10 @@ from logger import log, setup_logging, set_logger
 from notebook_process import testnotebook, startnotebook, stopnotebook
 from WebWindow import WebWindow
 
+## Bashir added for alpha filter dialog
+from alpha_filter_dialog import AlphaChainIsoFilterDialog
+
+
 #from collapseMenu import Spoiler
 
 SETTING_BASEDIR = "workdir"
@@ -147,6 +151,9 @@ class MainWindow(QMainWindow):
         super(MainWindow, self).__init__(*args, **kwargs)
 
         self.autoUpdateTriggered.connect(self._updatePlotOnGui)
+
+        ### Bashir added for alpha filter dialog
+        self._alphaFilterDlg = None
 
         # initialize debug logging 
         logging.basicConfig(datefmt='%d-%b-%y %H:%M:%S')        
@@ -5970,6 +5977,10 @@ class MainWindow(QMainWindow):
 
         
         fit_funct = self.extraPopup.fit_list.currentText().strip()
+
+        ## Close alpha filter popup if open
+        self._close_alpha_filter_popup()
+
         model_name = fit_funct
         # force_prompt = bool(QApplication.keyboardModifiers() & Qt.ShiftModifier)
         force_prompt = bool(True)
@@ -6254,6 +6265,9 @@ class MainWindow(QMainWindow):
                     print(f"... Fitting {fit_funct} ...")
 
                     fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
+
+                    # --- Show alpha filter popup if needed ---
+                    self._maybe_show_alpha_filter_popup(fitln, fit_funct)
 
                     # Check if user aborted
                     if fitln is None and self._abort_fit:
@@ -6639,6 +6653,33 @@ class MainWindow(QMainWindow):
 
         return config
 
+    def _close_alpha_filter_popup(self):
+        dlg = getattr(self, "_alphaFilterDlg", None)
+        if dlg is not None:
+            try:
+                dlg.close()
+            except Exception:
+                pass
+        self._alphaFilterDlg = None
+
+    def _maybe_show_alpha_filter_popup(self, fitln, fit_funct: str):
+        # Only for this model (keeps your generality)
+        if fit_funct.strip() != "AlphaEMGMultiSigma":
+            self._close_alpha_filter_popup()
+            return
+
+        # Must have the stash (so popup won’t crash if something changes)
+        dlg = self._alphaFilterDlg or AlphaChainIsoFilterDialog(self)
+        if not dlg.supports(fitln):
+            self._close_alpha_filter_popup()
+            return
+
+        self._alphaFilterDlg = dlg
+        dlg.bind(fitln)
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+
     ################################ Bashir added to clear fit figures ######
     def _snap_ax_ids(self, ax):
         ids = set()
@@ -6790,6 +6831,10 @@ class MainWindow(QMainWindow):
     # Delete fit function (delete_button callback), reads user defined fit indexes list and delete corresponding lines
     def deleteFit(self):
         self.logger.info('deleteFit')
+
+        ## Close alpha filter popup if open
+        self._close_alpha_filter_popup()
+
         index = self.autoIndex()
         ax = self.getSpectrumInfo("axis", index=index)
         userFitIdxs = self.extraPopup.delete_fitIdx_list.text().split()

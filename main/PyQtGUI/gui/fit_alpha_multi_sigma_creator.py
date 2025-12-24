@@ -994,6 +994,30 @@ class AlphaMultiEMGSigmaFit:
         # total fit in a fixed color
         (fitln_total,) = axis.plot(xx, ytot, lw=2, color='tab:orange', label='fit total')
 
+        ### added for subpeaks plot selection ###
+        iso_lines = {iso['name']: [] for iso in self._isotopes}
+        iso_texts = {iso['name']: [] for iso in self._isotopes}
+
+        # NEW: chain -> isotopes mapping
+        chain_to_isos = {}
+        iso_to_chain = {}
+        for iso in self._isotopes:
+            iso_to_chain[iso['name']] = ""  # default
+
+        for q in self._pulses:
+            iso_name = self._isotopes[q['iso_idx']]['name']
+            ch = (q.get('chain') or "").strip()
+            if ch == "":
+                ch = "Unchained"
+            iso_to_chain[iso_name] = ch
+            chain_to_isos.setdefault(ch, set()).add(iso_name)
+
+        # make stable lists for GUI
+        chain_to_isos = {k: sorted(v) for k, v in chain_to_isos.items()}
+        chains = sorted(chain_to_isos.keys())
+        ##################################################
+
+
         # --- deterministic color per isotope ---
         color_cycle = plt.rcParams['axes.prop_cycle'].by_key().get('color', None)
         if not color_cycle:
@@ -1005,6 +1029,36 @@ class AlphaMultiEMGSigmaFit:
         }
 
         sub_lines = []
+        # plot all subpeaks; same color per isotope, one legend entry per isotope
+        for iso in self._isotopes:
+            color = iso_colors[iso['name']]
+            first_for_iso = True
+            for kk in range(iso['start_idx'], iso['end_idx'] + 1):
+                sp = _effective_subpeak(
+                    res.params, iso['name'], iso['safe'],
+                    self._pulses[kk], self.allow_shift, self.fit_global_shapes,
+                    use_chain_amp=self.normalize_chains
+                )
+                if sp is None:
+                    continue
+
+                yj = _peak_binned(xx, sp['A'], sp['mu'], sp['sigma'],
+                                  sp['tau1'], sp['tau2'], sp['eta'], bwv)
+
+                label = iso['name'] if first_for_iso else "_nolegend_"
+                (ln,) = axis.plot(
+                    xx, yj,
+                    lw=1.8, ls='--', alpha=0.9,
+                    color=color,
+                    label=label
+                )
+                first_for_iso = False
+
+                # NEW: stash handles per isotope
+                iso_lines[iso['name']].append(ln)
+                sub_lines.append(ln)
+
+        '''
         # plot all subpeaks; same color per isotope, one legend entry per isotope
         for iso in self._isotopes:
             color = iso_colors[iso['name']]
@@ -1029,7 +1083,7 @@ class AlphaMultiEMGSigmaFit:
                 )
                 first_for_iso = False
                 sub_lines.append(ln)
-
+        '''
         axis.relim()
         axis.autoscale_view()
         ymin, ymax = axis.get_ylim()
@@ -1046,6 +1100,7 @@ class AlphaMultiEMGSigmaFit:
                 mu = (1.0 + dg) * float(q['mu0']) + d0 + dm_val
                 if xx[0] <= mu <= xx[-1]:
                     y_at = float(np.interp(mu, xx, ytot))
+                    '''
                     axis.text(
                         mu, y_at + dy + bump * 0.6 * dy,
                         f"{iso['name']} {q['E']:.0f}",
@@ -1053,6 +1108,17 @@ class AlphaMultiEMGSigmaFit:
                         bbox=dict(boxstyle='round,pad=0.2',
                                   fc='white', ec='none', alpha=0.6)
                     )
+                    '''
+                    t = axis.text(
+                        mu, y_at + dy + bump * 0.6 * dy,
+                        f"{iso['name']} {q['E']:.0f}",
+                        ha='center', va='bottom', fontsize=9,
+                        bbox=dict(boxstyle='round,pad=0.2',
+                                  fc='white', ec='none', alpha=0.6)
+                    )
+                    # NEW: stash
+                    iso_texts[iso['name']].append(t)
+
                     bump += 1
 
         # --- Legend: one entry per isotope, with a hard cap ---
@@ -1087,6 +1153,13 @@ class AlphaMultiEMGSigmaFit:
         fitln_total.components = sub_lines
         fitln_total.component_data = {'x': xx, 'ytot': ytot}
         fitln_total._isotopes = [iso['name'] for iso in self._isotopes]
+        #### for peak plot selection
+        fitln_total._iso_lines = iso_lines
+        fitln_total._iso_texts = iso_texts
+        fitln_total._chains = chains
+        fitln_total._chain_to_isos = chain_to_isos
+        fitln_total._iso_to_chain = iso_to_chain
+        ###########
         return fitln_total
 
 
