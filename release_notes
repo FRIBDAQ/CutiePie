@@ -1,3 +1,6 @@
+== v1.5-019 ==
+* Support for vector spectra and gates (Issue #94).
+
 == v1.5-017 ==
 * Validate on windows.
 
