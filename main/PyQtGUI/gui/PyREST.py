@@ -236,6 +236,7 @@ class PyREST:
     # can be modified (except for the name)
     # A band must have a minimum of two points, while a contour requires at least three points
     def createGate(self, name, types, parameters, boundaries, maskval="*"):
+
         url = "http://"+self.server+":"+self.rest+"/spectcl/gate/edit?name="+str(name)+"&type="+str(types)
         if str(types) == "s": # slice
             url += "&parameter="+str(parameters[0])+"&low="+str(boundaries[0])+"&high="+str(boundaries[1])
@@ -259,6 +260,12 @@ class PyREST:
             url = "http://"+self.server+":"+self.rest+"/spectcl/gate/edit?name="+str(name)+"&type=%2B"
             for i in parameters:
                 url +="&gate="+str(i)
+        elif str(types) == "vs+":
+            self.createVectorOrSlice(name, parameters[0], boundaries[0], boundaries[1])
+            return
+        elif str(types) == "vs*":
+            self.createVectorAndSlice(name, parameters[0], boundaries[0], boundaries[1])
+            return
         self.sendRequest(url)
 
 
@@ -275,12 +282,38 @@ class PyREST:
             for i in parameters:
                 url += "&parameter="+str(i)
             url += "&low="+str(boundaries[0])+"&high="+str(boundaries[1])
+        elif str(types) == 'vs+':
+            self.createVectorOrSlice(name, parameters[0], low, high)
+            return
+        elif str(types) == 'vs*':
+            self.createVectorAndSlice(name, parameters[0], low, high)
         else:
             raise Exception("Only s and gs types are allowed")
             
         self.sendRequest(url)
 
-
+    def createVectorSlice(self, name, type, vector, low, high):
+        ''' 
+            Create/edit a generic vector slice in SpecTcl:
+            Parameters
+              name -name of the new condition.
+              type -type of the condition ('vs%2B' or 'vs*' only)
+              vector -name of a vector parameter.
+              low, high - slice limits.
+            Note that the type for vs+ is vs%2B because substitutions 
+            are not getting done by  the HTTTP client methods. 
+        '''
+        if type not in ['vs%2B', 'vs*'] :
+            raise Exception(f'Invalid gate type: {type} must be either "vs+ or "vs*"')
+        url = f'http://{self.server}:{self.rest}/spectcl/gate/edit?name={name}&type={type}&parameter={vector}&low={low}&high={high}'
+        self.sendRequest(url)
+    
+    def createVectorAndSlice(self, name, vector, low, high):
+        self.createVectorSlice(name, 'vs*', vector, low, high)
+    def createVectorOrSlice(self, name, vector, low, high):
+        self.createVectorSlice(name, 'vs%2B', vector, low, high)
+        
+        
     # Creates a simple 2d gate. This must be of type c/b or gc/gb. The query parameters are:
     # name - gate name; if the gate already exists this gate definition will replace it
     # gatetype - type of gate; it must be s or gs or an error will be raised

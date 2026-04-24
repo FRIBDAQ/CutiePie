@@ -1802,7 +1802,7 @@ class MainWindow(QMainWindow):
             if len(self.gatePopup.listRegionLine) == 0:
                 return
             if dim == 1:
-                if gateType in ["s", "gs"] :
+                if gateType in ["s", "vs+", "vs*", "gs"] :
                     # gate 1Dgate_xamine s {aris.db1.ppac0.uc {1392.232056 1665.277466}}
                     boundaries = [self.gatePopup.listRegionLine[0].get_xdata()[0],self.gatePopup.listRegionLine[1].get_xdata()[0]]
                     # sort such that lowest first
@@ -4315,8 +4315,16 @@ class MainWindow(QMainWindow):
         if ax is None:
             self.logger.debug('drawGate - ax is None')
             return
-
-        drawableTypes = {"b": ["s"], "1": ["s"], "g1": ["gs"], "2": ["c", "b"], "g2": ["gc", "gb"], "gd": ["gc", "gb"], "m2": ["NotDefinedYet"], "s": ["NotDefinedYet"]}
+        # Drawable types - for each spectrum type, the sorts of gates that can be drawn on it.
+        drawableTypes = {"b": ["s"], 
+                         "1v": ["vs+", 'vs*'], 
+                         "1": ["s"], 
+                         "g1": ["gs"], 
+                         "2": ["c", "b"], 
+                         "g2": ["gc", "gb"], 
+                         "gd": ["gc", "gb"], 
+                         "m2": ["NotDefinedYet"], 
+                         "s": ["NotDefinedYet"]}
 
         #get all gates that share the same parameters than spectrum 
         #gateList is a list of gate which is a dictionary e.g.
@@ -4980,7 +4988,14 @@ class MainWindow(QMainWindow):
         if self.currentPlot.selected_plot_index is None:
             return QMessageBox.about(self,"Warning!", "Please add at least one spectrum")
         else:
-            gateTypesDict = {"b": ["NotDefinedYet"], "1": ["s"], "g1": ["gs"], "2": ["c", "b"], "g2": ["gc", "gb"], "gd": ["gc", "gb"], "m2": ["c", "b"], "s": ["NotDefinedYet"]}
+            gateTypesDict = {"b": ["NotDefinedYet"], 
+                             "1v" : ["vs*", "vs+"],
+                             "1": ["s"], 
+                             "g1": ["gs"], 
+                             "2": ["c", "b"], 
+                             "g2": ["gc", "gb"], 
+                             "gd": ["gc", "gb"], 
+                             "m2": ["c", "b"], "s": ["NotDefinedYet"]}
             spectrumType = self.getSpectrumInfoREST("type", index=self.currentPlot.selected_plot_index)
             if spectrumType is None :
                 return
