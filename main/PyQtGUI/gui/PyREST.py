@@ -236,6 +236,7 @@ class PyREST:
     # can be modified (except for the name)
     # A band must have a minimum of two points, while a contour requires at least three points
     def createGate(self, name, types, parameters, boundaries, maskval="*"):
+
         url = "http://"+self.server+":"+self.rest+"/spectcl/gate/edit?name="+str(name)+"&type="+str(types)
         if str(types) == "s": # slice
             url += "&parameter="+str(parameters[0])+"&low="+str(boundaries[0])+"&high="+str(boundaries[1])
@@ -259,6 +260,12 @@ class PyREST:
             url = "http://"+self.server+":"+self.rest+"/spectcl/gate/edit?name="+str(name)+"&type=%2B"
             for i in parameters:
                 url +="&gate="+str(i)
+        elif str(types) == "vs+":
+            self.createVectorOrSlice(name, parameters[0], boundaries[0], boundaries[1])
+            return
+        elif str(types) == "vs*":
+            self.createVectorAndSlice(name, parameters[0], boundaries[0], boundaries[1])
+            return
         self.sendRequest(url)
 
 
@@ -275,6 +282,11 @@ class PyREST:
             for i in parameters:
                 url += "&parameter="+str(i)
             url += "&low="+str(boundaries[0])+"&high="+str(boundaries[1])
+        elif str(types) == 'vs+':
+            self.createVectorOrSlice(name, parameters[0], low, high)
+            return
+        elif str(types) == 'vs*':
+            self.createVectorAndSlice(name, parameters[0], low, high)
         else:
             raise Exception("Only s and gs types are allowed")
             
