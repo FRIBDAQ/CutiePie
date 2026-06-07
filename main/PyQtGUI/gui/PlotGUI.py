@@ -195,19 +195,20 @@ class Plot(QWidget):
         spacer2.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
 
-        # save wanted actions before remove all 
+        # save wanted actions before remove all
         allActions = self.toolbar.actions()
         for idx, x in enumerate(allActions):
             if idx == 5:
-                zoomAction = x 
+                zoomAction = x
             if idx == 9:
-                saveAction = x 
+                saveAction = x
             self.toolbar.removeAction(x)
 
         # set actions in desired order
         self.toolbar.addWidget(self.histo_autoscale)
         # zoom action triggered by customZoomButton so setVisible(False)
         self.toolbar.addAction(zoomAction)
+        self.zoom_action = zoomAction
         zoomAction.setVisible(False)
         # Copy zoom icon for customZoomButton
         zoomIcon = zoomAction.icon()

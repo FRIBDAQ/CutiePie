@@ -1,19 +1,16 @@
-#!/usr/bin/env python3os
+#!/usr/bin/env python3
 # import modules and packages
 
 import sys, os, ast
-import logging, copy, cv2
+import copy, cv2
+import logging, logging.handlers
 import threading, time, math, re
-from ctypes import *
 from copy import copy, deepcopy
 import pandas as pd
 import numpy as np
-import logging, logging.handlers
 import CPyConverter as cpy
 
-## Bashir imports ###
 import signal, ctypes
-import re
 import csv, json
 from types import SimpleNamespace
 from functools import partial
@@ -51,11 +48,19 @@ sys.path.append(instPath + "/lib")
 os.environ['NO_PROXY'] = ""
 os.environ['XDG_RUNTIME_DIR'] = os.getcwd()
 
-from PyQt5 import QtCore, QtNetwork
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
-from PyQt5.QtTest import *
+from PyQt5 import QtCore
+from PyQt5.QtWidgets import (
+    QApplication, QCheckBox, QComboBox, QCompleter, QDialog,
+    QFileDialog, QFormLayout, QGridLayout, QHBoxLayout, QInputDialog,
+    QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox, QPushButton,
+    QShortcut, QSlider, QTabBar, QTableWidget, QTableWidgetItem,
+    QTabWidget, QTextEdit, QVBoxLayout, QWidget,
+)
+from PyQt5.QtGui import QCursor, QKeySequence, QMouseEvent, QPalette
+from PyQt5.QtCore import (
+    pyqtSignal, pyqtSlot, Qt, QObject, QTimer, QElapsedTimer,
+    QEventLoop, QSettings, QDir, QEvent, QPoint,
+)
 
 
 from sklearn import metrics
@@ -73,7 +78,6 @@ import matplotlib.image as mpimg
 import matplotlib.gridspec as gridspec
 import matplotlib.colorbar as mcolorbar
 import matplotlib.colors as colors
-from matplotlib.backend_bases import *
 from matplotlib.artist import Artist
 
 from matplotlib.patches import Polygon, Circle, Ellipse
@@ -86,10 +90,6 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 import matplotlib.text as mtext
-import time
-#### Bashir's import
-from PyQt5.QtGui import QKeySequence
-import matplotlib.colors as mcolors
 
 # List of implementation topics
 # 0) Class definition
@@ -112,7 +112,7 @@ import matplotlib.colors as mcolors
 # 17) Misc Tools
 
 # import widgets
-from MenuAndConfigGUI import * #All widgets of the top menu section
+from MenuAndConfigGUI import Configuration
 from SpecialFunctionsGUI import SpecialFunctions # all the extra functions we defined
 # from OutputGUI import OutputPopup # popup output window
 from PlotGUI import Plot # area defined for the histograms
@@ -467,7 +467,7 @@ class MainWindow(QMainWindow):
         self.cutoffp.resetButton.clicked.connect(lambda: self.resetCutoff(True))
 
         # zoom callback
-        self.wTab.wPlot[self.wTab.currentIndex()].canvas.toolbar.actions()[1].triggered.connect(self.zoomCallback)
+        self.wTab.wPlot[self.wTab.currentIndex()].zoom_action.triggered.connect(self.zoomCallback)
         
         # copy properties
         self.wTab.wPlot[self.wTab.currentIndex()].copyButton.clicked.connect(self.copyPopup)
@@ -584,7 +584,7 @@ class MainWindow(QMainWindow):
                 self.wTab.wPlot[self.wTab.currentIndex()].customHomeButton.disconnect()
                 self.wTab.countClickTab[index] = False
 
-        self.wTab.wPlot[self.wTab.currentIndex()].canvas.toolbar.actions()[1].triggered.connect(self.zoomCallback)
+        self.wTab.wPlot[self.wTab.currentIndex()].zoom_action.triggered.connect(self.zoomCallback)
         self.wTab.wPlot[self.wTab.currentIndex()].histo_autoscale.clicked.connect(lambda: self.autoScaleAxisBox(None))
         self.wTab.wPlot[self.wTab.currentIndex()].customZoomButton.clicked.connect(self.customZoomButtonCallback)
         self.wTab.wPlot[self.wTab.currentIndex()].customZoomButton.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
@@ -729,13 +729,12 @@ class MainWindow(QMainWindow):
     # small delay introduced such that updatePlotLimits is executed after on_release.
     def on_release(self, event):
         self.logger.info('on_release - self.currentPlot.zoomPress: %s',self.currentPlot.zoomPress)
-        # print("Simon - on_release - self.currentPlot.zoomPress",self.currentPlot.zoomPress,self.currentPlot.canvas.toolbar.actions()[1].isChecked())
+        # print("Simon - on_release - self.currentPlot.zoomPress",self.currentPlot.zoomPress,self.currentPlot.zoom_action.isChecked())
         if self.currentPlot.zoomPress:
-            self.currentPlot.canvas.toolbar.actions()[1].triggered.emit()
-            self.currentPlot.canvas.toolbar.actions()[1].setChecked(False)
+            self.currentPlot.zoom_action.triggered.emit()
+            self.currentPlot.zoom_action.setChecked(False)
             self.currentPlot.customZoomButton.setDown(False)
-            threadLimits = threading.Thread(target=self.updatePlotLimits, args=(0.1,))
-            threadLimits.start()
+            QTimer.singleShot(100, self.updatePlotLimits)
             self.currentPlot.zoomPress = False
 
 
@@ -743,7 +742,7 @@ class MainWindow(QMainWindow):
     # Introduced for endding zoom action (toolbar) see on_release and on_press too
     def mousePressEvent(self, event: QMouseEvent) -> None:
         self.logger.info('mousePressEvent - self.currentPlot.zoomPress: %s',self.currentPlot.zoomPress)
-        # print("Simon - mousePressEvent - ",self.currentPlot.zoomPress,self.currentPlot.canvas.toolbar.actions()[1].isChecked())
+        # print("Simon - mousePressEvent - ",self.currentPlot.zoomPress,self.currentPlot.zoom_action.isChecked())
         if not self.currentPlot.zoomPress : return 
         #height and width determined empirically... better if overestimated because event handled by on_press in that case
         #these values doesnt change with window resizing but could change if decide to change the layout.
@@ -759,8 +758,8 @@ class MainWindow(QMainWindow):
         withinLimits = True if (event.x() in range(leftLimit,rightLimit)) and (event.y() in range(topLimit,bottomLimit)) else False
 
         if not withinLimits or event.button == 3:
-            self.currentPlot.canvas.toolbar.actions()[1].triggered.emit()
-            self.currentPlot.canvas.toolbar.actions()[1].setChecked(False)
+            self.currentPlot.zoom_action.triggered.emit()
+            self.currentPlot.zoom_action.setChecked(False)
             self.currentPlot.customZoomButton.setDown(False)
             self.currentPlot.zoomPress = False
 
@@ -768,11 +767,11 @@ class MainWindow(QMainWindow):
     #callback for button_press_event
     def on_press(self, event):
         self.logger.info('on_press')
-        # print("Simon - on_press - ",self.currentPlot.zoomPress,self.currentPlot.canvas.toolbar.actions()[1].isChecked())
+        # print("Simon - on_press - ",self.currentPlot.zoomPress,self.currentPlot.zoom_action.isChecked())
         #if initate zoom (magnifying glass) but dont press in axes, reset the action
         if self.currentPlot.zoomPress and not event.inaxes: 
-            self.currentPlot.canvas.toolbar.actions()[1].triggered.emit()
-            self.currentPlot.canvas.toolbar.actions()[1].setChecked(False)
+            self.currentPlot.zoom_action.triggered.emit()
+            self.currentPlot.zoom_action.setChecked(False)
             self.currentPlot.customZoomButton.setDown(False)
             self.currentPlot.zoomPress = False
 
@@ -1554,8 +1553,8 @@ class MainWindow(QMainWindow):
 
         # Abord zoom action if click a tab
         if self.currentPlot.zoomPress:
-            self.currentPlot.canvas.toolbar.actions()[1].triggered.emit()
-            self.currentPlot.canvas.toolbar.actions()[1].setChecked(False)
+            self.currentPlot.zoom_action.triggered.emit()
+            self.currentPlot.zoom_action.setChecked(False)
             self.currentPlot.customZoomButton.setDown(False)
             self.currentPlot.zoomPress = False
 
@@ -1603,8 +1602,8 @@ class MainWindow(QMainWindow):
 
         # Abord zoom action if click a tab
         if self.currentPlot.zoomPress:
-            self.currentPlot.canvas.toolbar.actions()[1].triggered.emit()
-            self.currentPlot.canvas.toolbar.actions()[1].setChecked(False)
+            self.currentPlot.zoom_action.triggered.emit()
+            self.currentPlot.zoom_action.setChecked(False)
             self.currentPlot.customZoomButton.setDown(False)
             self.currentPlot.zoomPress = False
 
@@ -3080,13 +3079,13 @@ class MainWindow(QMainWindow):
 
         # Abord zoom action if one is ongoing
         if self.currentPlot.zoomPress:
-            self.currentPlot.canvas.toolbar.actions()[1].triggered.emit()
-            self.currentPlot.canvas.toolbar.actions()[1].setChecked(False)
+            self.currentPlot.zoom_action.triggered.emit()
+            self.currentPlot.zoom_action.setChecked(False)
             self.currentPlot.customZoomButton.setDown(False)
             self.currentPlot.zoomPress = False
         else:
-            self.currentPlot.canvas.toolbar.actions()[1].triggered.emit()
-            self.currentPlot.canvas.toolbar.actions()[1].setChecked(True)
+            self.currentPlot.zoom_action.triggered.emit()
+            self.currentPlot.zoom_action.setChecked(True)
             self.currentPlot.customZoomButton.setDown(True)
 
 
@@ -3896,7 +3895,7 @@ class MainWindow(QMainWindow):
                     return
 
                 bounds = []
-                colors = []
+                color_list = []
 
                 with open(filename) as f:
                     for line in f:
@@ -3907,14 +3906,14 @@ class MainWindow(QMainWindow):
                         r, g, b = map(float, parts[2:])
                         # take lower bound and its color
                         bounds.append(lo)
-                        colors.append((r, g, b))
+                        color_list.append((r, g, b))
                     # also add the very last high bound with last color
                     bounds.append(hi)
-                    colors.append((r, g, b))
+                    color_list.append((r, g, b))
 
                 # Build custom colormap
-                self.palette = mcolors.LinearSegmentedColormap.from_list(
-                    "custom_cmap", list(zip(bounds, colors)), N=256
+                self.palette = colors.LinearSegmentedColormap.from_list(
+                    "custom_cmap", list(zip(bounds, color_list)), N=256
                 )
                 self.palette.set_bad(color="white")
             else:

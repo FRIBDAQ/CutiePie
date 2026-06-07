@@ -78,12 +78,8 @@ from GUI import MainWindow
 import fit_factory
 # skeleton for user-based FIT implementation
 import fit_skel_creator
-import fit_alpha1_creator
-import fit_alpha2_creator
-import fit_alpha3_creator
 import fit_alpha12_creator
 import fit_alpha22_creator
-import fit_alpha22_vanila
 import fit_alpha32_creator
 import fit_alpha_multi_creator
 import fit_alpha_multi_sigma_creator
@@ -167,24 +163,6 @@ config_fit_skel = {
     'param_3': 10
 }
 
-config_fit_alph1 = {
-    'param_1': 1,
-    'param_2': 1,
-    'param_3': 10
-}
-
-config_fit_alph2 = {
-    'param_1': 1,
-    'param_2': 1,
-    'param_3': 10
-}
-
-config_fit_alph3 = {
-    'param_1': 1,
-    'param_2': 1,
-    'param_3': 10
-}
-
 config_fit_alph12 = {
     'param_1': 1,
     'param_2': 1,
@@ -194,13 +172,6 @@ config_fit_alph12 = {
 }
 
 config_fit_alph22 = {
-    'param_1': 1,
-    'param_2': 1,
-    'param_3': 10,
-
-}
-
-config_fit_alph22_vanilla = {
     'param_1': 1,
     'param_2': 1,
     'param_3': 10,
@@ -289,12 +260,8 @@ fitfactory.register_builder('Pol1', fit_p1_creator.Pol1FitBuilder(), config_fit_
 fitfactory.register_builder('Pol2', fit_p2_creator.Pol2FitBuilder(), config_fit_p2)
 fitfactory.register_builder('G+Pol1', fit_gp1_creator.GPol1FitBuilder(), config_fit_gp1)
 fitfactory.register_builder('G+Pol2', fit_gp2_creator.GPol2FitBuilder(), config_fit_gp2)
-# fitfactory.register_builder('AlphaEMG1', fit_alpha1_creator.AlphaEMG1FitBuilder(), config_fit_alph1)
-# fitfactory.register_builder('AlphaEMG2', fit_alpha2_creator.AlphaEMG2FitBuilder(), config_fit_alph2)
-# fitfactory.register_builder('AlphaEMG3', fit_alpha3_creator.AlphaEMG3FitBuilder(), config_fit_alph3)
 fitfactory.register_builder('AlphaEMG12', fit_alpha12_creator.AlphaEMG12FitBuilder(), config_fit_alph12)
 fitfactory.register_builder('AlphaEMG22', fit_alpha22_creator.AlphaEMG22FitBuilder(), config_fit_alph22)
-# fitfactory.register_builder('AlphaEMG22Vanilla', fit_alpha22_vanila.AlphaEMG22FitVanillaBuilder(), config_fit_alph22_vanilla)
 fitfactory.register_builder('AlphaEMG32', fit_alpha32_creator.AlphaEMG32FitBuilder(), config_fit_alph32)
 # fitfactory.register_builder('AlphaEMGMulti', fit_alpha_multi_creator.AlphaMultiEMGFitBuilder(), config_fit_alphmulti)
 fitfactory.register_builder('AlphaEMGMultiSigma', fit_alpha_multi_sigma_creator.AlphaMultiEMGSigmaFitBuilder(), config_fit_alph_sigma_multi)
