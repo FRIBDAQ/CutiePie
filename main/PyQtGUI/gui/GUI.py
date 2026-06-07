@@ -34,6 +34,10 @@ sys.path.append(os.getcwd())
 # caveat : expects a particular format of installation directory (N.NN-NNN)
 instPath = ""
 fileDir = os.path.dirname(os.path.abspath(__file__))
+# ensure GUI.py's own directory (Script/ when installed) is importable so
+# sub-packages like services/ are found regardless of launch CWD
+if fileDir not in sys.path:
+    sys.path.insert(0, fileDir)
 subDirList = fileDir.split("/")
 for subDir in subDirList:
     if subDir != "":
@@ -118,6 +122,7 @@ from SpecialFunctionsGUI import SpecialFunctions # all the extra functions we de
 from PlotGUI import Plot # area defined for the histograms
 from PlotGUI import Tabs # area defined for the Tabs
 from PyREST import PyREST # class interface for SpecTcl REST plugin
+from services.spectrum_store import SpectrumStore
 from CopyPropertiesGUI import CopyProperties
 from connectConfigGUI import ConnectConfiguration #class for the connection configuration popup
 from MenuGate import MenuGate #class for the gate creation/edition popup
@@ -277,8 +282,8 @@ class MainWindow(QMainWindow):
         self.fit_factory.initialize(self.extraPopup.fit_list)
 
         # global variables
-        #spectrum_dict_rest {key:name_spectrum, value:{info_spectrum}}, created when connect and updated continuously with traces (if any), hidden to user.
-        self.spectrum_dict_rest = {}
+        #spectra (SpectrumStore): canonical REST registry {name -> {dim,binx,minx,maxx,biny,miny,maxy,data,parameters,type}}
+        self.spectra = SpectrumStore()
 
         #list of summing region line labels of the displayed spectrum {spectrumName : [sumRegionLabel, ...]}
         self.sumRegionDict = {} 
@@ -1913,7 +1918,7 @@ class MainWindow(QMainWindow):
             if self.stopRestThread.wait(retention/2):
                 break
             tracesDetails = self.rest.pollTraces(self.token)
-            if tracesDetails is None :
+            if not tracesDetails:
                 break
             self.updateFromTraces(tracesDetails)
         self.wConf.connectButton.setStyleSheet("background-color:rgb(252, 48, 3);")
@@ -1924,10 +1929,10 @@ class MainWindow(QMainWindow):
     #Update various list and dict according to the trace.
     def updateFromTraces(self, tracesDetails):
         self.logger.info('updateFromTraces - tracesDetails: %s',tracesDetails)
-        t_para = tracesDetails.get("parameter")
-        t_spec = tracesDetails.get("spectrum")
-        t_gate = tracesDetails.get("gate")
-        t_bind = tracesDetails.get("binding")
+        t_para = tracesDetails.get("parameter") or []
+        t_spec = tracesDetails.get("spectrum") or []
+        t_gate = tracesDetails.get("gate") or []
+        t_bind = tracesDetails.get("binding") or []
         if len(t_bind) > 0:
             for str in t_bind:
                 action, name, bindingIdx = str.split(" ") #list with 3 items: add/remove histoName bindingIndex
@@ -1949,6 +1954,9 @@ class MainWindow(QMainWindow):
                     #get spectrum info from ReST but not the data, need to query shmem for that (connect button).
                     #dont need to check the binding, given the definition of this trace...
                     info = self.rest.listSpectrum(name)
+                    if not info:
+                        self.logger.warning('updateFromTraces - listSpectrum returned empty for %s', name)
+                        return
                     #info[0] because expect only one element in the list with the name filter
 
                     #get the data in shmem ... maybe not the best to do it here
@@ -2034,21 +2042,16 @@ class MainWindow(QMainWindow):
                     return 
 
 
-    #Set spectrum info from ReST in spectrum_dict_rest (identified by histo name and can update multiple info at once)
-    #self.spectrum_dict_rest is used to keep track of the treegui definition (fixed) 
+    #Set spectrum info from ReST in self.spectra (identified by histo name and can update multiple info at once)
+    #self.spectra is used to keep track of the treegui definition (fixed)
     def setSpectrumInfoREST(self, name, **info):
         self.logger.info('setSpectrumInfoREST - name, info: %s, %s',info, name)
-        for key, value in info.items():
-            if key in ("dim", "binx", "minx", "maxx", "biny", "miny", "maxy", "data", "parameters", "type"):
-                if name not in self.spectrum_dict_rest:
-                    self.spectrum_dict_rest[name] = {"dim":[],"binx":[],"minx":[],"maxx":[],"biny":[],"miny":[],"maxy":[],"data":[],"parameters":[],"type":[]}
-                # print("Simon - setSpectrumInfoREST - name key value",name,key,value)
-                self.spectrum_dict_rest[name][key] = value
+        self.spectra.set(name, **info)
 
 
-    #Get spectrum info from spectrum_dict_rest (identified by histo name or index and info name)
+    #Get spectrum info from self.spectra (identified by histo name or index and info name)
     #template of expected arguments e.g.: ("dim", index=5) takes only the first info parameter (here "dim") (one per call)
-    #Important that it gets only the info from self.spectrum_dict_rest here.
+    #Important that it gets only the info from self.spectra here.
     def getSpectrumInfoREST(self, *info, **identifier):
         # self.logger.info('getSpectrumInfoREST - info, identifier: %s, %s',info, identifier)
         name = None
@@ -2062,11 +2065,8 @@ class MainWindow(QMainWindow):
             self.logger.debug('getSpectrumInfoREST - wrong identifier - expects name=histo_name or index=histo_index or shoud be in zoomed mode')
             # print("getSpectrumInfo - wrong identifier - expects name=histo_name or index=histo_index or shoud be in zoomed mode")
             return
-        if name is not None and name in self.spectrum_dict_rest and info[0] in ("dim", "binx", "minx", "maxx", "biny", "miny", "maxy", "data", "parameters", "type"):
-            # print("Simon - getSpectrumInfoREST - ",name,info[0],self.spectrum_dict_rest[name][info[0]])
-            return self.spectrum_dict_rest[name][info[0]]
-        else:
-            return
+        if name is not None:
+            return self.spectra.get(name, info[0])
 
 
     #Update spectrum info in spectrum_dict (identified by index and can update multiple info at once)
@@ -2132,7 +2132,7 @@ class MainWindow(QMainWindow):
 
 
     #Remove spectrum from self.wTab.spectrum_dict:
-    #important: only functions that delete item in spectrum_dict and spectrum_dict_rest
+    #important: only functions that delete item in spectrum_dict and self.spectra
     #important: should not be triggered by user, for now used only in updateFromTraces, because of the way it deletes local spectrumInfo entries.
     def removeSpectrum(self, **identifier):
         self.logger.info('removeSpectrum - identifier: %s', identifier)
@@ -2149,7 +2149,7 @@ class MainWindow(QMainWindow):
             # print("removeSpectrum - wrong identifier - expects name=histo_name or index=histo_index")
             return
         # in spectrumInfoReST dict can only have unique spectrum
-        del self.spectrum_dict_rest[name]
+        self.spectra.remove(name)
     
         # in local spectrumInfo dict can have multiple spectra with the same name
         # dont use indexFromName because wont work properly when delete while in enlarged mode
@@ -2173,9 +2173,9 @@ class MainWindow(QMainWindow):
         return self.wTab.spectrum_dict[self.wTab.currentIndex()]
 
 
-    #get full spectrum dict self.spectrum_dict_rest:
+    #get full spectrum dict from self.spectra:
     def getSpectrumInfoRESTDict(self):
-        return self.spectrum_dict_rest
+        return self.spectra.as_dict()
  
 
     #Find name with geo index:
@@ -2211,8 +2211,8 @@ class MainWindow(QMainWindow):
         if index not in self.wTab.spectrum_dict[self.wTab.currentIndex()]:
             self.wTab.spectrum_dict[self.wTab.currentIndex()][index] = {"name":[], "dim":[],"binx":[],"minx":[],"maxx":[],"biny":[],"miny":[],"maxy":[],"data":[],"parameters":[],"type":[],"log":[],"minz":[],"maxz":[], "spectrum":[], "axis":[], "cutoff":[]}
         self.wTab.spectrum_dict[self.wTab.currentIndex()][index]["name"] = name
-        #Initialize with the same info than in spectrum_dict_rest.
-        for key, value in self.spectrum_dict_rest[name].items():
+        #Initialize with the same info as in self.spectra.
+        for key, value in self.spectra.as_dict()[name].items():
             self.wTab.spectrum_dict[self.wTab.currentIndex()][index][key] = value
 
 
