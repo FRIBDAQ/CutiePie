@@ -1918,308 +1918,25 @@ class MainWindow(QMainWindow):
 
     # can sets x, y scales for 1d and x, y, z scales for 2d depending on the scale identifier and if axisIsLog
     # basically do all the scaling operations
-    def setAxisScale(self, ax, index, *scale):
-        self.logger.info('setAxisScale - index: %s', index)
-
-        wPlot = self.currentPlot
-        axisIsLog = self.getSpectrumInfo("log", index=index)
-        axisIsAutoScale = wPlot.histo_autoscale.isChecked()
-
-        # priority to autoscale value, then if not to user defined value (ex: by zoom), and finally to default value
-        # log is set last
-        # update spectrumInfo if autoscale and/or log if value <=0
-
-        if (self.getSpectrumInfoREST("dim", index=index) == 1) :
-            #x limits need to be known for y autoscale in x range
-            xmin = self.getSpectrumInfo("minx", index=index)
-            xmax = self.getSpectrumInfo("maxx", index=index)
-            if "x" in scale and xmin is not None and xmax is not None:
-                ax.set_xlim(xmin,xmax) 
-            if "y" in scale or "log" in scale:
-                ymin = self.getSpectrumInfo("miny", index=index)
-                ymax = self.getSpectrumInfo("maxy", index=index)
-                if (not ymin or ymin is None or ymin == 0) and (not ymax or ymax is None or ymax == 0):
-                    ymin = self.minY
-                    ymax = self.maxY               
-                if axisIsAutoScale:
-                    #search in the current view
-                    xmin, xmax = ax.get_xlim()
-                    #getMinMaxInRange returns only max for 1d 
-                    ymax = self.getMinMaxInRange(index, xmin=xmin, xmax=xmax)
-                if axisIsLog:
-                    if ymin <= 0:
-                        ymin = 0.001
-                    if ymax <= 0:
-                        self.logger.warning('setAxisScale - all value <0 for : %s - cannot log scale', self.nameFromIndex(index))
-                    else:
-                        ax.set_ylim(ymin,ymax)
-                        ax.set_yscale("log")
-                else:
-                    ax.set_ylim(ymin,ymax)
-                    ax.set_yscale("linear")
-                self.setSpectrumInfo(miny=ymin, index=index)
-                self.setSpectrumInfo(maxy=ymax, index=index)
-        else:
-            #x and y limits need to be known for z autoscale in x,y ranges
-            xmin = self.getSpectrumInfo("minx", index=index)
-            xmax = self.getSpectrumInfo("maxx", index=index)
-            ymin = self.getSpectrumInfo("miny", index=index)
-            ymax = self.getSpectrumInfo("maxy", index=index)
-
-            if "x" in scale and xmin is not None and xmax is not None:
-                ax.set_xlim(xmin,xmax)
-            if "y" in scale and ymin is not None and ymax is not None:
-                ax.set_ylim(ymin,ymax)
-            if "z" in scale or "log" in scale:
-                zmin = self.getSpectrumInfo("minz", index=index)
-                zmax = self.getSpectrumInfo("maxz", index=index)
-                spectrum = self.getSpectrumInfo("spectrum", index=index)
-                if spectrum is None :
-                    return
-                if (not zmin or zmin is None or zmin==0) and (not zmax or zmax is None or zmax==0):
-                    zmin = self.minZ
-                    zmax = self.maxZ
-                if axisIsAutoScale:
-                    #search in the current view
-                    xmin, xmax = ax.get_xlim()
-                    ymin, ymax = ax.get_ylim()
-                    #getMinMaxInRange returns min and max for 2d 
-                    zmin, zmax = self.getMinMaxInRange(index, xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
-                    self.setSpectrumInfo(maxz=zmax, index=index)
-                    self.setSpectrumInfo(minz=zmin, index=index)
-                spectrum.set_clim(vmin=zmin, vmax=zmax)
-                if axisIsLog:
-                    self.setCmapNorm("log", index)
-                else :
-                    #linearCentered not used so far but could be user choice 
-                    #while testing linearCentered noticed that it is not very compatible with cutoff
-                    #self.setCmapNorm("linearCentered", index)
-                    self.setCmapNorm("linear", index)
-                self.setSpectrumInfo(spectrum=spectrum, index=index)
+    def setAxisScale(self, ax, index, *scale):   return self.plot_controller.setAxisScale(ax, index, *scale)
 
 
 
     # Where is defined the color bar
-    def setCmapNorm(self, scale, index):
-        self.logger.info('setCmapNorm')
-        validScales = ["linear", "log", "linearCentered"]
-        if scale not in validScales or index is None:
-            self.logger.debug('setCmapNorm - scale not in validScales or index is None')
-            return
-        spectrum = self.getSpectrumInfo("spectrum", index=index)
-        zmin, zmax = spectrum.get_clim()
-
-        if scale is validScales[0]:
-            if zmin > zmax: 
-                self.logger.warning('setCmapNorm - zmin > zmax')
-                spectrum.set_norm(colors.Normalize(vmin=self.minZ, vmax=self.maxZ))
-            else :
-                spectrum.set_norm(colors.Normalize(vmin=zmin, vmax=zmax))
-        elif scale is validScales[1]:
-            if zmin and zmin <= 0 :
-                zmin = 0.001
-                self.logger.warning('setCmapNorm - LogNorm with zmin<=0, may want to use CenteredNorm')
-            spectrum.set_norm(colors.LogNorm(vmin=zmin, vmax=zmax))
-            if zmin > zmax: 
-                self.logger.warning('setCmapNorm - zmin > zmax')
-                spectrum.set_norm(colors.LogNorm(vmin=self.minZ, vmax=self.maxZ))
-        elif scale is validScales[2]:
-            palette = copy(plt.cm.jet)
-            palette.set_bad(color='white')
-            data = self.getSpectrumInfo("data", index=index)
-            spectrum.set_cmap(palette)
-            # set vcenter to variable set by user
-            spectrum.set_norm(centeredNorm(data,50000))
-        if self.getEnlargedSpectrum() is None:
-            ax = spectrum.axes
-            self.removeCb(ax)
-            divider = make_axes_locatable(ax)
-            cax = divider.append_axes('right', size='5%', pad=0.05)
-            # label used in on_press to avoid interaction with it
-            label = "colorbar_"+str(index)
-            cax.set_label(label)
-            self.currentPlot.figure.colorbar(spectrum, cax=cax, orientation='vertical')
+    def setCmapNorm(self, scale, index):         return self.plot_controller.setCmapNorm(scale, index)
 
 
     #Callback for plusButton/minusButton
-    def zoomInOut(self, arg):
-        #### Bashir added to disable auto scaling when zooming in/out
-        self.currentPlot.histo_autoscale.setChecked(False)
-        #############################################################
-
-        self.logger.info('zoomInOut - arg: %s', arg)
-        # Simon - added following lines to avoid None plot index
-        index = self.autoIndex()
-        ax = None
-        spectrum = self.getSpectrumInfo("spectrum", index=index)
-        if spectrum is None : return
-        ax = spectrum.axes
-        dim = self.getSpectrumInfoREST("dim", index=index)
-        if dim == 1 :
-            """
-            #### Bashir added to zoom in x around mouse location ###
-            xmin, xmax = ax.get_xlim()
-            center_x = getattr(self, 'mouse_x', (xmin + xmax) / 2)
-            xscale = 0.5
-            scale = xscale if arg == "in" else 1 / xscale
-            half_range_x = (xmax - xmin) * scale / 2
-
-            # xmin_new = max(0, center_x - half_range_x)
-            xmin_new = 0.0
-            xmax_new = center_x + half_range_x
-
-            ax.set_xlim(xmin_new, xmax_new)
-            self.setSpectrumInfo(minx=xmin_new, index=index)
-            self.setSpectrumInfo(maxx=xmax_new, index=index)
-            #########################################################
-            """
-            #step if 0.5
-            ymin, ymax = ax.get_ylim()
-            if arg == "in" :
-                ymax = ymax*0.5
-            elif arg == "out" :
-                ymax = ymax*2
-            ax.set_ylim(ymin, ymax)
-            self.setSpectrumInfo(miny=ymin, index=index)
-            self.setSpectrumInfo(maxy=ymax, index=index)
-            self.setSpectrumInfo(spectrum=spectrum, index=index)
-        elif dim == 2 :
-            """
-            #### Bashir added to zoom in x around mouse location ###
-            xmin, xmax = ax.get_xlim()
-            center_x = getattr(self, 'mouse_x', (xmin + xmax) / 2)
-            xscale = 0.3
-            scale = xscale if arg == "in" else 1 / xscale
-            half_range_x = (xmax - xmin) * scale / 2
-
-            # xmin_new = max(0, center_x - half_range_x)
-            xmin_new = 0.0
-            xmax_new = center_x + half_range_x
-
-            ax.set_xlim(xmin_new, xmax_new)
-            self.setSpectrumInfo(minx=xmin_new, index=index)
-            self.setSpectrumInfo(maxx=xmax_new, index=index)
-            #########################################################
-            """
-            zmin, zmax = spectrum.get_clim()
-            if arg == "in" :
-                zmax = zmax*0.5
-            elif arg == "out" :
-                zmax = zmax*2
-            spectrum.set_clim(zmin, zmax)
-            self.setSpectrumInfo(minz=zmin, index=index)
-            self.setSpectrumInfo(maxz=zmax, index=index)
-            self.setSpectrumInfo(spectrum=spectrum, index=index)
-        self.drawGate(index)
-        self.currentPlot.canvas.draw()
+    def zoomInOut(self, arg):                    return self.plot_controller.zoomInOut(arg)
 
 
     # Callback for histo_autoscale, calls setAxisScale
-    def autoScaleAxisBox(self, forIndex):
-        self.logger.info('autoScaleAxisBox - forIndex: %s', forIndex)
-        try:
-            ax = None
-            if self.currentPlot.isEnlarged:
-                ax = self.getSpectrumInfo("axis", index=0)
-                dim = self.getSpectrumInfoREST("dim", index=0)
-                if ax is None :
-                    self.logger.debug('autoScaleAxisBox - isEnlarged TRUE - ax is None ')
-                    return
-                #Set y for 1D and z for 2D.
-                #dont need to specify if log scale, it is checked inside setAxisScale, if 2D histo in log its z axis is set too.
-                if dim == 1:
-                    self.setAxisScale(ax, 0, "y")
-                elif dim == 2:
-                    self.setAxisScale(ax, 0, "z")
-                #draw gate if there is one
-                self.drawGate(0)
-            # implemented this condition to do autoscale in addPlot
-            elif forIndex is not None:
-                ax = self.getSpectrumInfo("axis", index=forIndex)
-                dim = self.getSpectrumInfoREST("dim", index=forIndex)
-                if ax is None :
-                    self.logger.debug('autoScaleAxisBox - forIndex - ax is None ')
-                    return
-                #Set y for 1D and z for 2D.
-                #dont need to specify if log scale, it is checked inside setAxisScale, if 2D histo in log its z axis is set too.
-                if dim == 1:
-                    self.setAxisScale(ax, forIndex, "y")
-                elif dim == 2:
-                    self.setAxisScale(ax, forIndex, "z")
-            else:
-                for index, name in self.getGeo().items():
-                    if name:
-                        ax = self.getSpectrumInfo("axis", index=index)
-                        dim = self.getSpectrumInfoREST("dim", index=index)
-                        if ax is None :
-                            self.logger.debug('autoScaleAxisBox - isEnlarged FALSE - ax is None ')
-                            return
-                        #Set y for 1D and z for 2D.
-                        #dont need to specify if log scale, it is checked inside setAxisScale, if 2D histo in log its z axis is set too.
-                        if dim == 1:
-                            self.setAxisScale(ax, index, "y")
-                        elif dim == 2:
-                            self.setAxisScale(ax, index, "z")
-                        #draw gate if there is one
-                        self.drawGate(index)
-            self.currentPlot.canvas.draw()
-        except:
-            pass
+    def autoScaleAxisBox(self, forIndex):        return self.plot_controller.autoScaleAxisBox(forIndex)
 
 
     # get data max within user defined range
     # For 2D have to give two ranges (x,y), for 1D range x.
-    def getMinMaxInRange(self, index, **limits):
-        self.logger.info('getMinMaxInRange - limits: %s', limits)
-        result = None
-        if not limits :
-            self.logger.warning('getMinMaxInRange - limits identifier not valid - expect xmin=val, xmax=val etc. for y with 2D')
-            return
-        if "xmin" and "xmax" in limits:
-            xmin = limits["xmin"]
-            xmax = limits["xmax"]
-        if "ymin" and "ymax" in limits:
-            ymin = limits["ymin"]
-            ymax = limits["ymax"]
-
-        dim = self.getSpectrumInfoREST("dim", index=index)
-        minx = self.getSpectrumInfoREST("minx", index=index)
-        maxx = self.getSpectrumInfoREST("maxx", index=index)
-        binx = self.getSpectrumInfoREST("binx", index=index)
-        # data = self.getSpectrumInfoREST("data", index=index)
-        data = self.getSpectrumInfo("data", index=index)
-        stepx = (float(maxx)-float(minx))/float(binx)
-        binminx = int((xmin-minx)/stepx)
-        binmaxx = int((xmax-minx)/stepx)
-        if dim == 1:
-            try:
-                # get max in x range
-                #increase by 10% to get axis view a little bigger than max
-                result = data[binminx+1:binmaxx+2].max()*1.1
-            except :
-                self.logger.debug('getMinMaxInRange - dim == 1 - exception occured', exc_info=True)
-                return self.maxY
-        elif dim == 2:
-            try:
-                #get max in x,y ranges
-                miny = self.getSpectrumInfoREST("miny", index=index)
-                maxy = self.getSpectrumInfoREST("maxy", index=index)
-                biny = self.getSpectrumInfoREST("biny", index=index)
-                stepy = (float(maxy)-float(miny))/float(biny)
-                binminy = int((ymin-miny)/stepy)
-                binmaxy = int((ymax-miny)/stepy)
-                #Dont increase max by 10% here...
-                #truncData = data[binminy:binmaxy+1, binminx:binmaxx+1]
-                #Following two lines work for "small" array, replaced by custom function
-                #maximum = truncData.max()
-                #minimum = np.min(truncData[np.nonzero(truncData)])
-                # minimum, maximum = self.customMinMax(data, binminy, binmaxy, binminx, binmaxx)
-                minimum, maximum = self.customMinMax(data[binminy:binmaxy+1, binminx:binmaxx+1])
-                result = minimum, maximum
-            except :
-                self.logger.debug('getMinMaxInRange - dim == 2 - exception occured', exc_info=True)
-                return self.minZ, self.maxZ
-        return result
+    def getMinMaxInRange(self, index, **limits):  return self.plot_controller.getMinMaxInRange(index, **limits)
 
 
     # Have seen malloc error if data array too large
@@ -2234,305 +1951,37 @@ class MainWindow(QMainWindow):
     def zoomCallback(self, event):               return self.plot_controller.zoomCallback(event)
 
     #Used by customZoom button, trigger toolbar zoom action
-    def customZoomButtonCallback(self):
-        self.logger.info('customZoomButtonCallback')
-        
-        #### Bashir added to disable autoscale while zooming ####
-        self.currentPlot.histo_autoscale.setChecked(False)
-        #########################################################
-
-        # Abord zoom action if one is ongoing
-        if self.currentPlot.zoomPress:
-            self.currentPlot.zoom_action.triggered.emit()
-            self.currentPlot.zoom_action.setChecked(False)
-            self.currentPlot.customZoomButton.setDown(False)
-            self.currentPlot.zoomPress = False
-        else:
-            self.currentPlot.zoom_action.triggered.emit()
-            self.currentPlot.zoom_action.setChecked(True)
-            self.currentPlot.customZoomButton.setDown(True)
+    def customZoomButtonCallback(self):          return self.plot_controller.customZoomButtonCallback()
 
 
     #Used by customHome button, reset the axis limits to ReST definitions, for the specified plot at index or for all plots if index not provided
-    def customHomeButtonCallback(self, index=None):
-        #### Bashir added to enable autoscale at home ####
-        # self.currentPlot.histo_autoscale.setChecked(True)
-        #########################################################
-
-        self.logger.info('customHomeButtonCallback - index: %s', index)
-
-        index_list = [idx for idx, name in self.getGeo().items() if index is None]
-        if index is not None:
-            index_list = [index]
-        for idx in index_list:
-            ax = None
-            spectrum = self.getSpectrumInfo("spectrum", index=idx)
-            if spectrum is None : return
-            ax = spectrum.axes
-            dim = self.getSpectrumInfoREST("dim", index=idx)
-            xmin = self.getSpectrumInfoREST("minx", index=idx)
-            xmax = self.getSpectrumInfoREST("maxx", index=idx)
-            ymin = self.getSpectrumInfoREST("miny", index=idx)
-            ymax = self.getSpectrumInfoREST("maxy", index=idx)
-
-            ax.set_xlim(xmin, xmax)
-            if dim == 1:
-                #Similar to autoscale, in principle ymin and ymax are not defined in ReST for 1D so set to ymin=0 and autoscale for ymax
-                #getMinMaxInRange gives only min for 1d
-                ymax = self.getMinMaxInRange(idx, xmin=xmin, xmax=xmax)
-                ax.set_ylim(ymin, ymax)
-                if self.getSpectrumInfo("log", index=idx) :
-                    ax.set_yscale("linear")
-            # y limits should be known at this point for both cases 1D/2D
-            if dim == 2:
-                ax.set_ylim(ymin, ymax)  
-                #getMinMaxInRange gives min and max for 2d
-                zmin, zmax = self.getMinMaxInRange(idx, xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
-                spectrum.set_clim(vmin=zmin, vmax=zmax)
-                self.setCmapNorm("linear", idx)
-                self.setSpectrumInfo(maxz=zmax, index=idx)
-                self.setSpectrumInfo(minz=zmin, index=idx)
-            self.drawGate(idx)
-                
-            self.setSpectrumInfo(log=None, index=idx)
-            self.setSpectrumInfo(minx=xmin, index=idx)
-            self.setSpectrumInfo(maxx=xmax, index=idx)
-            self.setSpectrumInfo(miny=ymin, index=idx)
-            self.setSpectrumInfo(maxy=ymax, index=idx)
-            self.setSpectrumInfo(spectrum=spectrum, index=idx)
-        self.currentPlot.canvas.draw()
+    def customHomeButtonCallback(self, index=None): return self.plot_controller.customHomeButtonCallback(index)
 
 
     #Used by logButton, defines the log scale, for the specified plot at index or for all plots if logAll/unlogAll, calls setAxisScale
-    def logButtonCallback(self, *arg):
-        self.logger.info('logButtonCallback - arg: %s', arg)
-
-        index = None
-        logAllPlot = False
-        unlogAllPlot = False
-        if "logAll" in arg:
-            logAllPlot = True
-        elif "unlogAll" in arg:
-            unlogAllPlot = True
-        else :
-            index = arg[0]
-
-        wPlot = self.currentPlot
-        index_list = [idx for idx, name in self.getGeo().items() if logAllPlot or unlogAllPlot]
-
-        if index is not None:
-            index_list = [index]
-        for idx in index_list:
-            ax = None
-            # spectrum = self.getSpectrum(idx)
-            spectrum = self.getSpectrumInfo("spectrum", index=idx)
-            if spectrum is None : continue 
-            ax = spectrum.axes
-            # only place where the log spectrum info is set 
-            # so if log now it needs to switch to linear, and vice et versa
-            if logAllPlot :
-                self.setSpectrumInfo(index=idx, log=True)
-            elif unlogAllPlot :
-                self.setSpectrumInfo(index=idx, log=False)
-            elif self.getSpectrumInfo("log", index=idx) and not logAllPlot and not unlogAllPlot:
-                self.setSpectrumInfo(index=idx, log=False)
-            elif not self.getSpectrumInfo("log", index=idx) and not logAllPlot and not unlogAllPlot:
-                self.setSpectrumInfo(index=idx, log=True)
-
-            self.setAxisScale(ax, idx, "log")
-        wPlot.canvas.draw()
+    def logButtonCallback(self, *arg):           return self.plot_controller.logButtonCallback(*arg)
 
 
     #callback when right click on customZoomButton
-    def zoom_handle_right_click(self):
-        self.logger.info('zoom_handle_right_click')
-        menu = QMenu()
-        item1 = menu.addAction("Set Zoom Range Manually") 
-        #Empty agrument for customHomeButtonCallback means it will reset all spectra
-        # Set fields to current spectrum range, as starting points
-        index = self.currentPlot.selected_plot_index
-        if index is None :
-            return QMessageBox.about(self,"Warning!", "Please add/select a spectrum")
-        else:        
-            # Set fields to current spectrum range, as starting points
-            item1.triggered.connect(self.cutoffButtonCallback)
-            plotgui = self.currentPlot
-            menuPosX = plotgui.mapToGlobal(QtCore.QPoint(0,0)).x() + plotgui.customZoomButton.geometry().topLeft().x()
-            menuPosY = plotgui.mapToGlobal(QtCore.QPoint(0,0)).y() + plotgui.customZoomButton.geometry().topLeft().y()
-            menuPos = QtCore.QPoint(menuPosX, menuPosY)
-            # Shows menu at button position, need to calibrate with 0,0 position
-            menu.exec_(menuPos) 
+    def zoom_handle_right_click(self):           return self.plot_controller.zoom_handle_right_click()
 
     #callback when right click on customHomeButton
-    def handle_right_click(self):
-        self.logger.info('handle_right_click')
-        menu = QMenu()
-        item1 = menu.addAction("Reset all") 
-        #Empty agrument for customHomeButtonCallback means it will reset all spectra
-        item1.triggered.connect(lambda: self.customHomeButtonCallback())
-        plotgui = self.currentPlot
-        menuPosX = plotgui.mapToGlobal(QtCore.QPoint(0,0)).x() + plotgui.customHomeButton.geometry().topLeft().x()
-        menuPosY = plotgui.mapToGlobal(QtCore.QPoint(0,0)).y() + plotgui.customHomeButton.geometry().topLeft().y()
-        menuPos = QtCore.QPoint(menuPosX, menuPosY)
-        # Shows menu at button position, need to calibrate with 0,0 position
-        menu.exec_(menuPos)     
+    def handle_right_click(self):                return self.plot_controller.handle_right_click()
 
 
     #callback when right click on logButton
-    def log_handle_right_click(self):
-        self.logger.info('log_handle_right_click')
-        menu = QMenu()
-        item1 = menu.addAction("Log all")
-        item2 = menu.addAction("unLog all")
-        #Empty agrument for logButtonCallback means it will set log for all spectra
-        item1.triggered.connect(lambda: self.logButtonCallback("logAll"))
-        item2.triggered.connect(lambda: self.logButtonCallback("unlogAll"))
-        plotgui = self.currentPlot
-        menuPosX = plotgui.mapToGlobal(QtCore.QPoint(0,0)).x() + plotgui.logButton.geometry().topLeft().x()
-        menuPosY = plotgui.mapToGlobal(QtCore.QPoint(0,0)).y() + plotgui.logButton.geometry().topLeft().y()
-        menuPos = QtCore.QPoint(menuPosX, menuPosY)
-        # Shows menu at button position, need to calibrate with 0,0 position
-        menu.exec_(menuPos)
+    def log_handle_right_click(self):            return self.plot_controller.log_handle_right_click()
 
 
     #button of the cutoff window, sets the cutoff values in the spectrum dict
-    def okCutoff(self):
-        self.logger.info('okCutoff')
-        index = self.currentPlot.selected_plot_index
-        if index is None : 
-            self.logger.debug('okCutoff - index is None')
-            return
-        spectrum = self.getSpectrumInfo("spectrum", index=index)
-        if spectrum is None : return
-        ax = self.getSpectrumInfo("axis", index=index)
-        if ax is None :
-            self.logger.debug('okCutoff - ax is None')
-            return
-
-        dim = self.getSpectrumInfoREST("dim", index=index)        
-        rangeXmin = self.cutoffp.lineeditXMin.text()
-        rangeXmax = self.cutoffp.lineeditXMax.text()
-        rangeYmin = self.cutoffp.lineeditYMin.text()
-        rangeYmax = self.cutoffp.lineeditYMax.text()                
-
-        cutoffVal = [None, None]
-        cutoffMin = self.cutoffp.lineeditZMin.text()
-        cutoffMax = self.cutoffp.lineeditZMax.text()
-
-        # Convert and check expected format
-        try:
-            rangeXmin = float(rangeXmin)
-            rangeXmax = float(rangeXmax)
-            rangeYmin = float(rangeYmin)
-            rangeYmax = float(rangeYmax)
-        except ValueError:
-            self.logger.warning("okCutoff Range - Invalid input format for zoom range(s). Please enter valid numbers.")
-            return
-
-        #Order X min/max may be inverted
-        if rangeXmin is not None and rangeXmax is not None and rangeXmax < rangeXmin:
-            buff = rangeXmin
-            rangeXmin = rangeXmax
-            rangeXmax = buff
-            self.logger.warning('okCutoff Range - new range X values swapped because min > max')
-        #Order Y min/max may be inverted
-        if rangeYmin is not None and rangeYmax is not None and rangeYmax < rangeYmin:
-            buff = rangeYmin
-            rangeYmin = rangeYmax
-            rangeYmax = buff
-            self.logger.warning('okCutoff Range - new range Y values swapped because min > max')
-        #check expected format and save cutoff in spectrum dict 
-        if dim == 2:
-            if self.cutoffp.lineeditZMin.text() != "" and self.cutoffp.lineeditZMin.text().isdigit():
-                cutoffVal[0] = float(cutoffMin)
-                self.setSpectrumInfo(cutoff=cutoffVal, index=index)
-            if self.cutoffp.lineeditZMax.text() != "" and self.cutoffp.lineeditZMax.text().isdigit():
-                cutoffVal[1] = float(cutoffMax)
-                self.setSpectrumInfo(cutoff=cutoffVal, index=index)              
-            #Order may be inverted
-            if cutoffVal[0] is not None and cutoffVal[1] is not None and cutoffVal[1] < cutoffVal[0]:
-                cutoffVal = [cutoffVal[1], cutoffVal[0]]
-                self.setSpectrumInfo(cutoff=cutoffVal, index=index)
-        try:
-            #Set new axis limits and save new range in spectrum dict
-            spectrum = self.getSpectrumInfo("spectrum", index=index)
-            ax.set_xlim(float(rangeXmin), float(rangeXmax))
-            ax.set_ylim(float(rangeYmin), float(rangeYmax))
-            self.setSpectrumInfo(minx=rangeXmin, index=index)
-            self.setSpectrumInfo(maxx=rangeXmax, index=index)
-            self.setSpectrumInfo(miny=rangeYmin, index=index)
-            self.setSpectrumInfo(maxy=rangeYmax, index=index)                
-            if dim == 2 :
-                spectrum.set_clim(cutoffVal[0], cutoffVal[1])
-                self.setSpectrumInfo(minz=cutoffVal[0], index=index)
-                self.setSpectrumInfo(maxz=cutoffVal[1], index=index)
-                self.setSpectrumInfo(spectrum=spectrum, index=index)
-            self.setSpectrumInfo(spectrum=spectrum, index=index)
-            self.drawGate(index)
-            self.currentPlot.canvas.draw()
-            #self.updatePlot()
-        except NameError as err:
-            self.logger.debug('okZoomSetRange - NameError', exc_info=True)
-            pass
-
-        self.cutoffp.close()
+    def okCutoff(self):                          return self.plot_controller.okCutoff()
         
-    def cancelCutoff(self):
-        self.cutoffp.close()
+    def cancelCutoff(self):                      return self.plot_controller.cancelCutoff()
 
-    def resetCutoff(self, doUpdate):
-        self.logger.info('resetCutoff - doUpdate: %s', doUpdate)
-        index = self.currentPlot.selected_plot_index
-        if index is None : return 
-        cutoffVal = [None, None]
-        self.setSpectrumInfo(cutoff=cutoffVal, index=index)
-        if doUpdate:
-            self.updatePlot()
-        self.cutoffp.close()
+    def resetCutoff(self, doUpdate):             return self.plot_controller.resetCutoff(doUpdate)
 
     #called by cutoffButton, sets the information in the cutoff window
-    def cutoffButtonCallback(self, *arg):
-        self.logger.info('cutoffButtonCallback')
-
-        #### Bashir added to disable autoscale while zooming ###
-        self.currentPlot.histo_autoscale.setChecked(False)
-        ########################################################
-
-        index = self.currentPlot.selected_plot_index
-        if index is None :
-            return QMessageBox.about(self,"Warning!", "Please Add/Select a Spectrum")
-        name = self.nameFromIndex(index)
-        if name is not None : 
-            self.cutoffp.setWindowTitle("Set zoom range for: " + name)
-        else :
-            self.cutoffp.setWindowTitle("Set zoom range for: ???" )
-        self.cutoffp.setGeometry(300,100,300,100)
-        if self.cutoffp.isVisible():
-            self.cutoffp.close()
-        if self.getSpectrumInfo("cutoff", index=index) is not None and len(self.getSpectrumInfo("cutoff", index=index)) > 0:
-            ax = self.getSpectrumInfo("axis", index=index)
-            dim = self.getSpectrumInfoREST("dim", index=index) 
-            xmin, xmax = ax.get_xlim()
-            ymin, ymax = ax.get_ylim()
-            self.cutoffp.lineeditXMin.setText(f"{xmin:.1f}")
-            self.cutoffp.lineeditXMax.setText(f"{xmax:.1f}")
-            self.cutoffp.lineeditYMin.setText(f"{ymin:.1f}")
-            self.cutoffp.lineeditYMax.setText(f"{ymax:.1f}")
-            if dim == 2:
-                spectrum = self.getSpectrumInfo("spectrum", index=index)
-                zmin, zmax = spectrum.get_clim()
-                self.cutoffp.lineeditZMin.setText(f"{zmin:.1f}")
-                self.cutoffp.lineeditZMax.setText(f"{zmax:.1f}")
-
-            if dim == 1 :
-                self.cutoffp.layout1d()
-            elif dim == 2 :
-                self.cutoffp.layout2d()
-            self.cutoffp.show()
-             
-        else :
-            QMessageBox.about(self,"Warning!", "Please Add/Select a Spectrum")            
-            self.logger.warning('cutoffButtonCallback - you broke something really bad - spectrum dict: %s', self.getSpectrumInfo("cutoff", index=index))
+    def cutoffButtonCallback(self, *arg):        return self.plot_controller.cutoffButtonCallback(*arg)
 
     #Used in zoomCallBack to save the new axis limits
     #sleepTime is a small delay to ensure this function is executed after on_release
