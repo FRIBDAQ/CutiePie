@@ -2076,6 +2076,183 @@ class MainWindow(QMainWindow):
 
 
 
+    # add copy of listRegionLine to axis before deleting the later one (considered a temporary line)
+    # Identify this region line with label
+    def saveSumRegion(self, index):
+        self.logger.info('saveSumRegion - index: %s', index)
+        spectrumName = self.nameFromIndex(index)
+        spectrum = self.getSpectrumInfo("spectrum", index=index)
+        ax = spectrum.axes
+        dim = self.getSpectrumInfoREST("dim", name=spectrumName)
+        if ax is None :
+            self.logger.debug('saveSumRegion - ax is None')
+            return
+        regionName = self.sumRegionPopup.sumRegionNameList.currentText()
+        if regionName is None or regionName == "None" :
+            self.logger.debug('saveSumRegion - regionName is None or regionName == "None"')
+            return
+        self.logger.debug('saveSumRegion - spectrumName, dim, regionName: %s, %s, %s', spectrumName, dim, regionName)
+
+        if dim == 1:
+            ylim = ax.get_ybound()
+            if len(self.sumRegionPopup.listRegionLine) != 2:
+                return
+            for iLine in range(2):
+                xlim = self.sumRegionPopup.listRegionLine[iLine].get_xdata()
+                lineLabel = "sumReg_-_" + regionName + "_-_" + str(iLine)
+                line = mlines.Line2D([xlim[0],xlim[0]], [ylim[0],ylim[1]], picker=5, color='blue', label=lineLabel)
+                self.setSumRegion(index, line)
+                ax.add_artist(line)
+
+        elif dim == 2:
+            lineLabel = "sumReg_-_" + regionName + "_-_"
+            xPoints = []
+            yPoints = []
+            for iLine, line in enumerate(self.sumRegionPopup.listRegionLine):
+                if iLine == 0:
+                    for iPoint in range(2):
+                        xPoints.append(self.sumRegionPopup.listRegionLine[iLine].get_xdata()[iPoint])
+                        yPoints.append(self.sumRegionPopup.listRegionLine[iLine].get_ydata()[iPoint])
+                else:
+                    xPoints.append(self.sumRegionPopup.listRegionLine[iLine].get_xdata()[1])
+                    yPoints.append(self.sumRegionPopup.listRegionLine[iLine].get_ydata()[1])
+            line = mlines.Line2D(xPoints, yPoints, picker=5, color='blue', label=lineLabel)
+            self.setSumRegion(index, line)
+            ax.add_artist(line)
+
+
+    #callback for createSumRegionButton, show popup to define name
+    def createSumRegion(self):
+        self.logger.info('createSumRegion CallBack')
+        self.skipAutoUpdateThread.set()
+        self.sumRegionPopup.sumRegionNameList.setEditable(True)
+        self.sumRegionPopup.sumRegionNameList.setInsertPolicy(QComboBox.NoInsert)
+
+        if self.currentPlot.selected_plot_index is None:
+            return QMessageBox.about(self, "Warning!", "Please add/select a spectrum")
+        else:
+            self.sumRegionPopup.clearInfo()
+
+            spectrumName = self.nameFromIndex(self.currentPlot.selected_plot_index)
+            dim = self.getSpectrumInfoREST("dim", name=spectrumName)
+            ax = self.getSpectrumInfo("axis", index=self.currentPlot.selected_plot_index)
+            if ax is None:
+                self.logger.debug('createSumRegion - ax is None')
+                return
+
+            self.refreshSpectrumSumRegionDict()
+
+            sumRegionLabels = [child.get_label() for child in ax.get_children()
+                               if isinstance(child, matplotlib.lines.Line2D) and "_-_" in child.get_label()]
+            for label in sumRegionLabels:
+                if dim == 1:
+                    label = label.split("_-_")
+                    if label[0] == "sumReg" and label[2] == '0':
+                        self.sumRegionPopup.sumRegionNameList.addItem(label[1])
+                elif dim == 2:
+                    label = label.split("_-_")
+                    if label[0] == "sumReg":
+                        self.sumRegionPopup.sumRegionNameList.addItem(label[1])
+            self.sumRegionPopup.sumRegionNameList.setCurrentText("None")
+            self.sumRegionPopup.sumRegionNameList.completer().setCompletionMode(QCompleter.PopupCompletion)
+            self.sumRegionPopup.sumRegionNameList.completer().setFilterMode(QtCore.Qt.MatchContains)
+            self.sumRegionPopup.sumRegionNameListSaved = [
+                self.sumRegionPopup.sumRegionNameList.itemText(i)
+                for i in range(self.sumRegionPopup.sumRegionNameList.count())
+                if self.sumRegionPopup.sumRegionNameList.itemText(i) != "None"
+            ]
+
+            self.currentPlot.toCreateSumRegion = True
+            self.sumRegionPopup.sumRegionSpectrumIndex = self.currentPlot.selected_plot_index
+        self.sumRegionPopup.show()
+
+
+    def okSumRegion(self):
+        self.logger.info('okSumRegion')
+        sumRegionName = self.sumRegionPopup.sumRegionNameList.currentText()
+        spec_index = self.sumRegionPopup.sumRegionSpectrumIndex
+
+        if sumRegionName in self.sumRegionPopup.sumRegionNameListSaved:
+            self.logger.debug('okSumRegion - sumRegionName: %s already exist', sumRegionName)
+            msgBox = QMessageBox(self)
+            msgBox.setIcon(QMessageBox.Warning)
+            msgBox.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+            msgBox.setText("Summing region name already exists.")
+            msgBox.setInformativeText(
+                'Do you want to overwrite "' + sumRegionName + '" summing region definition?')
+            msgBox.setStandardButtons(QMessageBox.Yes | QMessageBox.Cancel)
+            msgBox.setDefaultButton(QMessageBox.Cancel)
+            ret = msgBox.exec()
+            if ret == QMessageBox.Yes:
+                self.deleteSumRegion()
+                self.sumRegionPopup.sumRegionNameList.setCurrentText(sumRegionName)
+            elif ret == QMessageBox.Cancel:
+                return
+
+        elif "_-_" in sumRegionName:
+            self.logger.debug('okSumRegion - sumRegionName has _-_ in its name')
+            msgBox = QMessageBox(self)
+            msgBox.setIcon(QMessageBox.Warning)
+            msgBox.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+            msgBox.setText('Region name must not include "_-_"')
+            msgBox.setStandardButtons(QMessageBox.Ok)
+            msgBox.setDefaultButton(QMessageBox.Ok)
+            ret = msgBox.exec()
+            if ret == QMessageBox.Ok:
+                return
+
+        self.saveSumRegion(spec_index)
+        self.cancelSumRegion()
+
+
+    def cancelSumRegion(self, doClose=True):
+        self.logger.info('cancelSumRegion')
+        self.currentPlot.toCreateSumRegion = False
+        if doClose:
+            self.sumRegionPopup.close()
+        self.updatePlot()
+
+
+    def cleanPopupExit(self, doClose=True):
+        if (self.currentPlot.toCreateGate or self.currentPlot.toEditGate) and not self.gatePopup.isVisible():
+            self.cancelGate(doClose)
+        if self.currentPlot.toCreateSumRegion and not self.sumRegionPopup.isVisible():
+            self.cancelSumRegion(doClose)
+
+
+    def deleteSumRegion(self):
+        self.logger.info('deleteSumRegion')
+        spectrumName = self.nameFromIndex(self.currentPlot.selected_plot_index)
+        dim = self.getSpectrumInfoREST("dim", name=spectrumName)
+        ax = self.getSpectrumInfo("axis", index=self.currentPlot.selected_plot_index)
+        if ax is None:
+            return
+        sumRegionName = self.sumRegionPopup.sumRegionNameList.currentText()
+
+        if sumRegionName not in self.sumRegionPopup.sumRegionNameListSaved:
+            self.logger.debug('deleteSumRegion - sumRegionName: %s doesnt exists', sumRegionName)
+            msgBox = QMessageBox(self)
+            msgBox.setIcon(QMessageBox.Warning)
+            msgBox.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+            msgBox.setText("Cannot delete summing region " + sumRegionName + " not found")
+            msgBox.setStandardButtons(QMessageBox.Ok)
+            ret = msgBox.exec()
+            if ret == QMessageBox.Ok:
+                return
+        else:
+            if dim == 1:
+                for iLine in range(2):
+                    label = "sumReg_-_" + sumRegionName + "_-_" + str(iLine)
+                    self.deleteSumRegionDict(label)
+            elif dim == 2:
+                label = "sumReg_-_" + sumRegionName + "_-_"
+                self.deleteSumRegionDict(label)
+
+        self.sumRegionPopup.sumRegionNameList.setCurrentText("None")
+        self.currentPlot.figure.tight_layout()
+        self.currentPlot.canvas.draw()
+
+
     ##########################################
     # 6) Accessing the ShMem
     ##########################################
