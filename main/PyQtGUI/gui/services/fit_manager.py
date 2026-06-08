@@ -24,8 +24,8 @@ class FitManager:
 
     FIT_PREFIX = FIT_PREFIX
 
-    def __init__(self, window, fit_factory, spectra, extra_popup, logger=None):
-        self._w       = window        # bridge to MainWindow (temporary)
+    def __init__(self, fit_factory, spectra, extra_popup, parent_widget=None, logger=None):
+        self._parent_widget = parent_widget  # Qt dialog parent only — no domain calls
         self._factory = fit_factory
         self._spectra = spectra
         self._popup   = extra_popup
@@ -40,6 +40,11 @@ class FitManager:
         self._cal              = None
         self._alphaFilterDlg   = None
         self._lastFitResultsText = None
+
+    @staticmethod
+    def _create_range(bins, vmin, vmax):
+        step = (float(vmax) - float(vmin)) / float(bins)
+        return [float(vmin)] + list(np.arange(float(vmin), float(vmax), step) + step)
 
     # ------------------------------------------------------------------
     # Axis limits helper
@@ -64,7 +69,7 @@ class FitManager:
             right = ax.get_xlim()[1]
         if left > right:
             left, right = right, left
-            QMessageBox.about(self._w, "Warning", "xmin > xmax, the provided limits will be swapped for the fit")
+            QMessageBox.about(self._parent_widget, "Warning", "xmin > xmax, the provided limits will be swapped for the fit")
         return left, right
 
     # ------------------------------------------------------------------
@@ -84,10 +89,10 @@ class FitManager:
 
     def on_fit_csv_clicked(self):
         if not hasattr(self, "_csv_x") or self._csv_x is None or len(self._csv_x) == 0:
-            QMessageBox.warning(self._w, "No CSV loaded", "Click 'Plot CSV' first.")
+            QMessageBox.warning(self._parent_widget, "No CSV loaded", "Click 'Plot CSV' first.")
             return
         if not hasattr(self, "_csv_ax") or self._csv_ax is None:
-            QMessageBox.warning(self._w, "No CSV plot", "Click 'Plot CSV' first.")
+            QMessageBox.warning(self._parent_widget, "No CSV plot", "Click 'Plot CSV' first.")
             return
 
         self._use_csv_fit = True
@@ -98,7 +103,7 @@ class FitManager:
 
     def on_plot_csv_clicked(self):
         path, _ = QFileDialog.getOpenFileName(
-            self._w, "Select CSV for plotting (x,y)", "",
+            self._parent_widget, "Select CSV for plotting (x,y)", "",
             "CSV files (*.csv *.txt);;All files (*)"
         )
         if not path:
@@ -140,7 +145,7 @@ class FitManager:
     # Main fit entry point
     # ------------------------------------------------------------------
 
-    def fit(self):
+    def fit(self, index=None, name=None, ax=None):
         self.logger.info('fit')
 
         fit_funct = self._popup.fit_list.currentText().strip()
@@ -153,7 +158,7 @@ class FitManager:
         try:
             config = self.prepare_fit_config(fit_funct, force_prompt=force_prompt)
         except ValueError as e:
-            QMessageBox.warning(self._w, "Fit cancelled", str(e))
+            QMessageBox.warning(self._parent_widget, "Fit cancelled", str(e))
             return
 
         self._abort_fit = False
@@ -166,9 +171,10 @@ class FitManager:
             spectrumName = f"CSV: {os.path.basename(getattr(self, '_csv_path', 'data.csv'))}"
             index = None
         else:
-            index = self._w.autoIndex()
-            spectrumName = self._w.nameFromIndex(index)
-            ax = self._w.getSpectrumInfo("axis", index=index)
+            if name is None or ax is None:
+                self.logger.warning('fit - called without name/ax context; cannot fit histogram')
+                return
+            spectrumName = name
 
         self.logger.debug('fit - spectrumName, fit_funct, index: %s, %s, %s', spectrumName, fit_funct, index)
 
@@ -185,10 +191,10 @@ class FitManager:
             minxREST = float(np.nanmin(x))
             maxxREST = float(np.nanmax(x))
         else:
-            dim = self._w.getSpectrumInfoREST("dim", index=index)
-            binx = self._w.getSpectrumInfoREST("binx", index=index)
-            minxREST = self._w.getSpectrumInfoREST("minx", index=index)
-            maxxREST = self._w.getSpectrumInfoREST("maxx", index=index)
+            dim      = self._spectra.get(spectrumName, "dim")
+            binx     = self._spectra.get(spectrumName, "binx")
+            minxREST = self._spectra.get(spectrumName, "minx")
+            maxxREST = self._spectra.get(spectrumName, "maxx")
 
         try:
             if spectrumName != "":
@@ -225,7 +231,7 @@ class FitManager:
 
                         m = (x >= xmin) & (x <= xmax)
                         if np.count_nonzero(m) < 3:
-                            QMessageBox.warning(self._w, "Fit range too small",
+                            QMessageBox.warning(self._parent_widget, "Fit range too small",
                                                 "Min X / Max X selects < 3 points. Widen the range.")
                             return
                         x = x[m]
@@ -234,8 +240,8 @@ class FitManager:
                     else:
                         x = []
                         y = []
-                        xtmp = self._w.createRange(binx, minxREST, maxxREST)
-                        ytmp = (self._w.getSpectrumInfoREST("data", index=index)).tolist()
+                        xtmp = self._create_range(binx, minxREST, maxxREST)
+                        ytmp = self._spectra.get(spectrumName, "data").tolist()
                         xmin, xmax = self.axisLimitsForFit(ax)
                         for i in range(1, len(xtmp)):
                             if (xtmp[i] > xmin and xtmp[i] <= xmax):
@@ -253,7 +259,7 @@ class FitManager:
                         pass
 
                     if fit_funct in {"AlphaEMGMulti", "AlphaEMGMultiSigma"} and (force_prompt or ask_pref):
-                        msg = QMessageBox(self._w)
+                        msg = QMessageBox(self._parent_widget)
                         msg.setWindowTitle("Energy calibration")
                         msg.setText("Run energy calibration before fitting?")
                         btn_yes    = msg.addButton("Yes",    QMessageBox.YesRole)
@@ -432,9 +438,9 @@ class FitManager:
                     self._lastFitResultsText = fitResultsText
 
                 else:
-                    QMessageBox.about(self._w, "Warning", "Sorry 2D fitting is not implemented yet")
+                    QMessageBox.about(self._parent_widget, "Warning", "Sorry 2D fitting is not implemented yet")
             else:
-                QMessageBox.about(self._w, "Warning", "Histogram not existing. Please load a histogram...")
+                QMessageBox.about(self._parent_widget, "Warning", "Histogram not existing. Please load a histogram...")
 
             ax.figure.canvas.draw_idle()
 
@@ -451,7 +457,7 @@ class FitManager:
     # ------------------------------------------------------------------
 
     def _prompt_energy_calibration(self, ax, x, y, min_pts=2, max_pts=4, snap_halfwin=150):
-        dlg = QDialog(self._w)
+        dlg = QDialog(self._parent_widget)
         dlg.setWindowTitle("Energy calibration")
         info = QLabel(
             f"Ctrl + Left-click on the spectrum to pick μ.\n"
@@ -565,7 +571,7 @@ class FitManager:
     # ------------------------------------------------------------------
 
     def _prompt_shape_flags(self, default_global=True, default_iso_scales=False, default_chain=True):
-        dlg = QDialog(self._w); dlg.setWindowTitle("Shape fitting options")
+        dlg = QDialog(self._parent_widget); dlg.setWindowTitle("Shape fitting options")
         lbl = QLabel("Choose how to treat peak shapes:")
 
         cb_global = QCheckBox("Fit global shape (σ, τ₁, τ₂, η)")
@@ -617,7 +623,7 @@ class FitManager:
         s = QSettings("YourLab", "AlphaGUI")
         last = s.value(settings_key, "", type=str) or os.getcwd()
         path, _ = QFileDialog.getOpenFileName(
-            self._w, "Choose shape file", last,
+            self._parent_widget, "Choose shape file", last,
             "Text/CSV files (*.txt *.csv);;All files (*)"
         )
         if path:
@@ -628,7 +634,7 @@ class FitManager:
         s = QSettings("YourLab", "AlphaGUI")
         last = s.value(settings_key, "", type=str) or os.getcwd()
         path, _ = QFileDialog.getOpenFileName(
-            self._w, "Calibration file", last,
+            self._parent_widget, "Calibration file", last,
             "Text/CSV/JSON (*.txt *.csv *.json);;All files (*)"
         )
         if path:
@@ -719,7 +725,7 @@ class FitManager:
                     s.setValue("calibration/b", b)
                 except Exception as e:
                     QMessageBox.warning(
-                        self._w, "Calibration",
+                        self._parent_widget, "Calibration",
                         f"Could not parse calibration from:\n{cal_path}\n\n{e}\n\nUsing defaults."
                     )
                     if not have_numbers_already:
@@ -750,7 +756,7 @@ class FitManager:
             self._close_alpha_filter_popup()
             return
 
-        dlg = self._alphaFilterDlg or AlphaChainIsoFilterDialog(self._w)
+        dlg = self._alphaFilterDlg or AlphaChainIsoFilterDialog(self._parent_widget)
         if not dlg.supports(fitln):
             self._close_alpha_filter_popup()
             return
@@ -867,13 +873,14 @@ class FitManager:
         self.setFitResultsLineLabel(fitIdx, resultsText, spectrumName)
         self.logger.debug('setFitLineLabel - line label: %s', line.get_label())
 
-    def deleteFit(self):
+    def deleteFit(self, index=None, name=None, ax=None):
         self.logger.info('deleteFit')
 
         self._close_alpha_filter_popup()
 
-        index = self._w.autoIndex()
-        ax = self._w.getSpectrumInfo("axis", index=index)
+        if ax is None:
+            self.logger.warning('deleteFit - called without ax context; cannot delete fit')
+            return
         userFitIdxs = self._popup.delete_fitIdx_list.text().split()
         availableFitIdxs = self.listFitLineLabels(ax)
         notAvailableFitIdxs = [fitIdx for fitIdx in userFitIdxs if fitIdx not in availableFitIdxs]
@@ -901,10 +908,11 @@ class FitManager:
             fitLabels.append(labelSplit[1])
         return fitLabels
 
-    def printFitLineLabels(self):
+    def printFitLineLabels(self, index=None, name=None, ax=None):
         self.logger.info('printFitLineLabels')
-        index = self._w.autoIndex()
-        ax = self._w.getSpectrumInfo("axis", index=index)
+        if ax is None:
+            self.logger.warning('printFitLineLabels - called without ax context; cannot list labels')
+            return
         fitLabels = self.listFitLineLabels(ax)
         textLabels = ''
         for label in fitLabels:

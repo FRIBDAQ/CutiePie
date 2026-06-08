@@ -284,10 +284,10 @@ class MainWindow(QMainWindow):
         self.spectra = SpectrumStore()
 
         self.fit_manager = FitManager(
-            window=self,
             fit_factory=self.fit_factory,
             spectra=self.spectra,
             extra_popup=self.extraPopup,
+            parent_widget=self,
             logger=self.logger,
         )
 
@@ -535,12 +535,15 @@ class MainWindow(QMainWindow):
         self.wTab.countClickTab[self.wTab.currentIndex()] = True
 
         # extra popup — wired directly to fit_manager
-        self.extraPopup.fit_button.clicked.connect(self.fit_manager.fit)
+        self.extraPopup.fit_button.clicked.connect(
+            lambda: self.fit_manager.fit(*self._current_plot_ctx()))
         self.extraPopup.plot_csv_button.clicked.connect(self.fit_manager.on_plot_csv_clicked)
         self.extraPopup.fit_csv_button.clicked.connect(self.fit_manager.on_fit_csv_clicked)
         self.extraPopup.abort_button.clicked.connect(self.fit_manager.on_abort_clicked)
-        self.extraPopup.all_fitIdx_button.clicked.connect(self.fit_manager.printFitLineLabels)
-        self.extraPopup.delete_button.clicked.connect(self.fit_manager.deleteFit)
+        self.extraPopup.all_fitIdx_button.clicked.connect(
+            lambda: self.fit_manager.printFitLineLabels(*self._current_plot_ctx()))
+        self.extraPopup.delete_button.clicked.connect(
+            lambda: self.fit_manager.deleteFit(*self._current_plot_ctx()))
 
         self.extraPopup.peak.peak_analysis.clicked.connect(self.analyzePeak)
         self.extraPopup.peak.peak_analysis_clear.clicked.connect(self.peakAnalClear)
@@ -2113,6 +2116,11 @@ class MainWindow(QMainWindow):
 
         return self.currentPlot.index
 
+    def _current_plot_ctx(self):
+        """Return (index, name, ax) for the currently selected plot slot.
+        Used by fit_manager signal lambdas to pass resolved context without a bridge."""
+        idx = self.autoIndex()
+        return idx, self.nameFromIndex(idx), self.getSpectrumInfo("axis", index=idx)
 
     #go to next index, used in addPlot, so that one can add spectrum without selecting everytime the pad where to draw
     def nextIndex(self):
@@ -2386,10 +2394,10 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Fit methods — delegated to FitManager (see gui/services/fit_manager.py)
     # ------------------------------------------------------------------
-    def fit(self):                       return self.fit_manager.fit()
-    def deleteFit(self):                 return self.fit_manager.deleteFit()
+    def fit(self):               return self.fit_manager.fit(*self._current_plot_ctx())
+    def deleteFit(self):         return self.fit_manager.deleteFit(*self._current_plot_ctx())
     def listFitLineLabels(self, ax):     return self.fit_manager.listFitLineLabels(ax)
-    def printFitLineLabels(self):        return self.fit_manager.printFitLineLabels()
+    def printFitLineLabels(self): return self.fit_manager.printFitLineLabels(*self._current_plot_ctx())
     def setFitLineLabel(self, ax, line, resultsText, spectrumName):
         return self.fit_manager.setFitLineLabel(ax, line, resultsText, spectrumName)
     def setFitResultsLineLabel(self, fitLineLabelIdx, resultsText, spectrumName):
