@@ -6,7 +6,7 @@ from PyQt5.QtCore import QThread, QElapsedTimer, pyqtSlot
 from PyQt5.QtWidgets import QComboBox, QCompleter
 from PyQt5 import QtCore
 
-from PyRESTSpecTcl import PyREST
+from PyREST import PyREST
 from services.thread_workers import RestWorker, AutoUpdateWorker
 
 

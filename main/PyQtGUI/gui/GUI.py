@@ -3576,7 +3576,7 @@ class MainWindow(QMainWindow):
     def autoUpdateStart(self):           return self.connection_manager.autoUpdateStart()
     def autoUpdateResume(self):          return self.connection_manager.autoUpdateResume()
     def updateSpectrumList(self, init=False): return self.connection_manager.updateSpectrumList(init)
-    def updateFromTraces(self, d):       return self.connection_manager.updateFromTraces(d)
+    def updateFromTraces(self, tracesDetails): return self.connection_manager.updateFromTraces(tracesDetails)
     def _stop_auto_thread(self):         return self.connection_manager._stop_auto_thread()
     def _stop_rest_thread(self):         return self.connection_manager._stop_rest_thread()
 
