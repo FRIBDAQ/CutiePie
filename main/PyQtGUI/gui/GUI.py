@@ -1455,28 +1455,7 @@ class MainWindow(QMainWindow):
 
 
     #set geometry of the canvas
-    def setCanvasLayout(self):
-        self.logger.info('setCanvasLayout')
-        indexTab = self.wTab.currentIndex()
-        ##### Bashir changed to examine apply function to set the row and col
-        nRow = int(self.wConf.histo_geo_row.currentText())
-        nCol = int(self.wConf.histo_geo_col.currentText())
-        # print("setCanvasLayout - nRow: %s, nCol: %s", nRow, nCol)
-        # nRow = self.wConf.histo_geo_row.value()
-        # nCol = self.wConf.histo_geo_col.value()
-        ######################################################################
-        self.wTab.layout[indexTab] = [nRow, nCol]
-        self.wTab.wPlot[indexTab].InitializeCanvas(nRow, nCol)
-        self.wTab.selected_plot_index_bak[indexTab] = None
-        self.currentPlot.selected_plot_index = None
-        self.currentPlot.next_plot_index = -1
-
-        """
-        if self.wConf.darkModeButton.isChecked():
-            self.toggleDarkMode()
-        """
-        # ✅ mark geometry applied
-        self.geometry_applied = True
+    def setCanvasLayout(self):                   return self.plot_controller.setCanvasLayout()
 
     
     ####### Bashir added to exit gui once exited from SpecTcl
@@ -2245,68 +2224,14 @@ class MainWindow(QMainWindow):
 
     # Have seen malloc error if data array too large
     # Divide data array in sub-arrays with sub-(min, max) and then find the global-(min, max)
-    def customMinMax(self, data):
-        self.logger.info('customMinMax')
-        minimum = None
-        maximum = None
-        nbCol = data.shape[1] 
-        nbRow = data.shape[0] 
-
-        #len(data) <= 0
-        if not data.any():
-            return minimum, maximum
-        #Arbitrarily choose number max of col and row of 200...
-        if nbCol < 200 and nbRow < 200:
-            maximum = data.max()
-            minimum = np.min(data[np.nonzero(data)])
-            return minimum, maximum
-        else :
-            stepX = nbCol if nbCol < 200 else 200
-            stepY = nbRow if nbRow < 200 else 200
-            rangeX = list(range(0, data.shape[1], stepX))
-            rangeY = list(range(0, data.shape[0], stepY))
-            subMax = []
-            subMin = []
-            yprev = data.shape[0]+1
-            xprev = data.shape[1]+1
-            for x in rangeX[::-1]:
-                for y in rangeY[::-1]:
-                    subData = data[y:yprev,x:xprev]
-                    nonZeroIndices = np.where(subData > 0)
-                    filteredSubData = subData[nonZeroIndices]
-                    if filteredSubData is not None and filteredSubData.size > 0:
-                        subMax.append(filteredSubData.max())
-                        subMin.append(filteredSubData.min())
-                    yprev = y
-                xprev = x
-            if len(subMin) == 0:
-                minimum = self.minZ
-            if len(subMax) == 0:
-                minimum = self.maxZ
-            elif len(subMin)>0 and len(subMax)>0 :
-                minimum = min(subMin)
-                maximum = max(subMax)
-
-            return minimum, maximum
+    def customMinMax(self, data):                return self.plot_controller.customMinMax(data)
 
 
     #return the axis limits in a certain format [[xmin, xmax], [ymin, ymax]]
-    def getAxisProperties(self, index):
-        self.logger.info('getAxisProperties')
-        try:
-            ax = self.getSpectrumInfo("axis", index=index)
-            if ax is None :
-                return None
-            else :
-                return list(ax.get_xlim()), list(ax.get_ylim())
-        except:
-            self.logger.debug('getAxisProperties - exception occured', exc_info=True)
-            pass
+    def getAxisProperties(self, index):          return self.plot_controller.getAxisProperties(index)
             
 
-    def zoomCallback(self, event):
-        self.logger.info('zoomCallback')
-        self.currentPlot.zoomPress = True
+    def zoomCallback(self, event):               return self.plot_controller.zoomCallback(event)
 
     #Used by customZoom button, trigger toolbar zoom action
     def customZoomButtonCallback(self):
@@ -2653,38 +2578,15 @@ class MainWindow(QMainWindow):
     ##################################
 
     # remove colorbar
-    def removeCb(self, axis):
-        im = axis.images
-        if im is not None and len(im) > 0:
-            try:
-                cb = im[-1].colorbar
-                cb.remove()
-            except :
-                self.logger.debug('removeCb - IndexError exception', exc_info=True)
-                pass
+    def removeCb(self, axis):                    return self.plot_controller.removeCb(axis)
 
 
     # select axes based on indexing, used only in add()
-    def select_plot(self, index):
-        self.logger.info('select_plot - index: %s', index)
-        for i, axis in enumerate(self.currentPlot.figure.axes):
-            # retrieve the subplot from the click
-            if (i == index and axis is not None):
-                return axis
+    def select_plot(self, index):                return self.plot_controller.select_plot(index)
 
 
     # returns position in grid based on indexing
-    def plotPosition(self, index):
-        self.logger.info('plotPosition - index: %s', index)
-        cntr = 0
-        # convert index to position in geometry
-        canvasLayout = self.wTab.layout[self.wTab.currentIndex()]
-        for i in range(canvasLayout[0]):
-            for j in range(canvasLayout[1]):
-                if index == cntr:
-                    return i, j
-                else:
-                    cntr += 1
+    def plotPosition(self, index):               return self.plot_controller.plotPosition(index)
 
 
     # setup histogram limits according to the ReST info
@@ -2930,14 +2832,7 @@ class MainWindow(QMainWindow):
 
 
     #why not using np.linspace(vmin, vmax, bins)
-    def createRange(self, bins, vmin, vmax):
-        self.logger.info('createRange')
-        x = []
-        step = (float(vmax)-float(vmin))/float(bins)
-        for i in np.arange(float(vmin), float(vmax), step):
-            x.append(i + step)
-        x.insert(0, float(vmin))
-        return x
+    def createRange(self, bins, vmin, vmax):     return self.plot_controller.createRange(bins, vmin, vmax)
 
 
     # fill spectrum with new data
@@ -3977,74 +3872,20 @@ class MainWindow(QMainWindow):
         self.connection_manager._stop_rest_thread()
         event.accept()
 
-    def createRectangle(self, plot):
-        self.logger.info('createRectangle')
-        rec = matplotlib.patches.Rectangle((0, 0), 1, 1, ls="-", lw=2, ec="red", fc="none", transform=plot.transAxes)
-        rec = plot.add_patch(rec)
-        rec.set_clip_on(False)
-        return rec
+    def createRectangle(self, plot):             return self.plot_controller.createRectangle(plot)
 
 
-    def createDashedRectangle(self, plot):
-        self.logger.info('createDashedRectangle')
-        rec = matplotlib.patches.Rectangle((0, 0), 1, 1, ls=":", lw=2, ec="red", fc="none", transform=plot.transAxes)
-        rec = plot.add_patch(rec)
-        rec.set_clip_on(False)
-        return rec
+    def createDashedRectangle(self, plot):       return self.plot_controller.createDashedRectangle(plot)
 
 
-    def removeRectangle(self):
-        self.logger.info('removeRectangle')
-        try:                       
-            for ax in self.currentPlot.figure.axes:
-                for child in ax.get_children():
-                    if type(child) == matplotlib.patches.Rectangle :
-                        if child.get_ls() == ":" and child.get_lw() == 2:
-                            if self.currentPlot.recDashed is not None :
-                                self.currentPlot.recDashed.remove()
-                                self.currentPlot.recDashed = None
-                        elif child.get_ls() == "-" and child.get_lw() == 2:
-                            if self.currentPlot.rec is not None :
-                                self.currentPlot.rec.remove()
-                                self.currentPlot.rec = None
-        except NameError:
-            raise
+    def removeRectangle(self):                  return self.plot_controller.removeRectangle()
 
     #for debug
-    def axesChilds(self):
-        try:      
-            for ax in self.currentPlot.figure.axes:
-                print("Simon - axes ---------------------------- ",ax)
-                for child in ax.get_children():
-                    print("Simon - axesChilds - ",child)
-                    if type(child) == matplotlib.lines.Line2D :
-                        print("Simon - axesChild get_c", child.get_c())
-                        print("Simon - axesChild get_lw", child.get_lw())
-                        print("Simon - axesChild get_ls", child.get_ls())
-                        print("Simon - axesChild get_xdata:",child.get_xdata())
-                        print("Simon - axesChild get_ydata:",child.get_ydata())
-        except NameError:
-            raise
+    def axesChilds(self):                       return self.plot_controller.axesChilds()
 
 
     #for debug
-    def axesChildsTest(self, axis=None):
-        try:    
-            dumTypeList = []
-
-            if type(axis) == type(dumTypeList):
-                return
-            print("Simon - axes ---------------------------- ",axis)
-            for child in axis.get_children():
-                print("Simon - axesChilds - ",child)
-                if type(child) == matplotlib.lines.Line2D :
-                    print("Simon - axesChild get_c", child.get_c())
-                    print("Simon - axesChild get_lw", child.get_lw())
-                    print("Simon - axesChild get_ls", child.get_ls())
-                    print("Simon - axesChild get_xdata:",child.get_xdata())
-                    print("Simon - axesChild get_ydata:",child.get_ydata())
-        except NameError:
-            raise
+    def axesChildsTest(self, axis=None):        return self.plot_controller.axesChildsTest(axis)
 
 
     def debugModeCallBack(self):
