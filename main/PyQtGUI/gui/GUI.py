@@ -298,8 +298,18 @@ class MainWindow(QMainWindow):
             logger=self.logger,
         )
         self.sum_region_manager = SumRegionManager(
-            window=self,
+            spectra=self.spectra,
+            name_from_index=self.nameFromIndex,
+            get_spectrum_info=self.getSpectrumInfo,
+            histo_list=self.wConf.histo_list,
+            integrate_popup=self.integratePopup,
+            skip_auto=self.skipAutoUpdateThread,
+            add_line=self.addLine,
+            remove_prev_line=self.removePrevLine,
+            get_rest=lambda: self.rest,
+            check_and_cancel_gate=self._check_and_cancel_gate,
             sum_popup=self.sumRegionPopup,
+            parent_widget=self,
             logger=self.logger,
         )
         self.connection_manager = ConnectionManager(
@@ -478,20 +488,29 @@ class MainWindow(QMainWindow):
         self.gatePopup.clearInfoSignal.connect(self.autoUpdateResume) 
 
         # summing region
-        self.wConf.createSumRegionButton.clicked.connect(self.sum_region_manager.createSumRegion)
+        self.wConf.createSumRegionButton.clicked.connect(
+            lambda: self.sum_region_manager.createSumRegion(*self._current_plot_ctx()))
         self.sumRegionPopup.ok.clicked.connect(self.sum_region_manager.okSumRegion)
         self.sumRegionPopup.cancel.clicked.connect(self.sum_region_manager.cancelSumRegion)
-        self.sumRegionPopup.delete.clicked.connect(self.sum_region_manager.deleteSumRegion)
+        self.sumRegionPopup.delete.clicked.connect(
+            lambda: self.sum_region_manager.deleteSumRegion(*self._current_plot_ctx()))
         self.sumRegionPopup.clearInfoSignal.connect(self.sumRegionPopup.clearInfo)
         self.sumRegionPopup.clearInfoSignal.connect(self.autoUpdateResume)
-
+        self.sum_region_manager.canvasDrawRequested.connect(self._on_srm_canvas_draw)
+        self.sum_region_manager.figureTightLayoutRequested.connect(self._on_srm_tight_layout)
+        self.sum_region_manager.updatePlotRequested.connect(self.updatePlot)
+        self.sum_region_manager.sumRegionStarted.connect(self._on_sum_region_started)
+        self.sum_region_manager.sumRegionEnded.connect(self._on_sum_region_ended)
+        self.sum_region_manager.gateSignalsDisconnectRequested.connect(self.disconnectGateSignals)
+        self.sum_region_manager.sidTableConnectionUpdated.connect(self._on_side_table_conn_updated)
 
         # self.wConf.editGate.setToolTip("Key bindings for Modify->Edit:\n"
         #                               "'i' insert vertex\n"
         #                               "'d' delete vertex\n")
 
         #integrate gate and summing region
-        self.wConf.integrateGateAndRegion.clicked.connect(self.sum_region_manager.integrate)
+        self.wConf.integrateGateAndRegion.clicked.connect(
+            lambda: self.sum_region_manager.integrate(*self._current_plot_ctx()))
         self.integratePopup.ok.clicked.connect(self.sum_region_manager.okIntegrate)
 
         self.tabp.okButton.clicked.connect(self.okTab)
@@ -859,10 +878,11 @@ class MainWindow(QMainWindow):
                 self.gate_manager.on_singleclick_gate_edit(event)
             elif self.currentPlot.toCreateSumRegion :
                 #1: left mouse button, 3: right mouse button
+                _srm_name = self.nameFromIndex(index)
                 if event.button == 1:
-                    self.sum_region_manager.on_singleclick_sumRegion(event, index)
+                    self.sum_region_manager.on_singleclick_sumRegion(event, index, _srm_name)
                 if event.button == 3:
-                    self.sum_region_manager.on_singleclick_sumRegion_right(index)
+                    self.sum_region_manager.on_singleclick_sumRegion_right(index, _srm_name)
             else :
                 self.on_singleclick(index)
 
@@ -1592,6 +1612,33 @@ class MainWindow(QMainWindow):
         """REST client owned by ConnectionManager; exposed here for backward compat."""
         cm = getattr(self, 'connection_manager', None)
         return cm._rest if cm is not None else None
+
+    def _check_and_cancel_gate(self, doClose):
+        """Called by SumRegionManager.cleanPopupExit to handle gate-side cleanup."""
+        if (self.currentPlot.toCreateGate or self.currentPlot.toEditGate) \
+                and not self.gatePopup.isVisible():
+            self.cancelGate(doClose)
+
+    @pyqtSlot()
+    def _on_srm_canvas_draw(self):
+        self.currentPlot.canvas.draw()
+
+    @pyqtSlot()
+    def _on_srm_tight_layout(self):
+        self.currentPlot.figure.tight_layout()
+        self.currentPlot.canvas.draw()
+
+    @pyqtSlot(int)
+    def _on_sum_region_started(self, index):
+        self.currentPlot.toCreateSumRegion = True
+
+    @pyqtSlot()
+    def _on_sum_region_ended(self):
+        self.currentPlot.toCreateSumRegion = False
+
+    @pyqtSlot(object)
+    def _on_side_table_conn_updated(self, conn):
+        self.sidTableIntegrateCopy = conn
 
     @pyqtSlot(str)
     def _on_spectrum_removed_rest(self, name):
@@ -2447,22 +2494,31 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # SumRegion methods — delegated to SumRegionManager (see gui/services/sum_region_manager.py)
     # ------------------------------------------------------------------
-    def setSumRegion(self, index, line):         return self.sum_region_manager.setSumRegion(index, line)
-    def getSumRegion(self, index):               return self.sum_region_manager.getSumRegion(index)
-    def deleteSumRegionDict(self, label):        return self.sum_region_manager.deleteSumRegionDict(label)
+    def setSumRegion(self, index, line):
+        name = self.nameFromIndex(index)
+        return self.sum_region_manager.setSumRegion(index, line, name)
+    def getSumRegion(self, index):
+        name = self.nameFromIndex(index)
+        return self.sum_region_manager.getSumRegion(index, name)
+    def deleteSumRegionDict(self, label):
+        return self.sum_region_manager.deleteSumRegionDict(label, self.currentPlot.figure.axes)
     def refreshSpectrumSumRegionDict(self):      return self.sum_region_manager.refreshSpectrumSumRegionDict()
-    def saveSumRegion(self, index):              return self.sum_region_manager.saveSumRegion(index)
-    def createSumRegion(self):                   return self.sum_region_manager.createSumRegion()
+    def saveSumRegion(self, index):
+        name = self.nameFromIndex(index)
+        return self.sum_region_manager.saveSumRegion(index, name)
+    def createSumRegion(self):                   return self.sum_region_manager.createSumRegion(*self._current_plot_ctx())
     def okSumRegion(self):                       return self.sum_region_manager.okSumRegion()
     def cancelSumRegion(self, doClose=True):     return self.sum_region_manager.cancelSumRegion(doClose)
     def cleanPopupExit(self, doClose=True):      return self.sum_region_manager.cleanPopupExit(doClose)
-    def deleteSumRegion(self):                   return self.sum_region_manager.deleteSumRegion()
-    def integrate(self):                         return self.sum_region_manager.integrate()
+    def deleteSumRegion(self):                   return self.sum_region_manager.deleteSumRegion(*self._current_plot_ctx())
+    def integrate(self):                         return self.sum_region_manager.integrate(*self._current_plot_ctx())
     def okIntegrate(self):                       return self.sum_region_manager.okIntegrate()
     def copySelectionIntegrateTable(self):       return self.sum_region_manager.copySelectionIntegrateTable()
     def formatResultsIntegrate(self, results):   return self.sum_region_manager.formatResultsIntegrate(results)
     def setPrecisionIntegrationResult(self, d):  return self.sum_region_manager.setPrecisionIntegrationResult(d)
-    def integrateGateLocal(self, idx, lines):    return self.sum_region_manager.integrateGateLocal(idx, lines)
+    def integrateGateLocal(self, idx, lines):
+        name = self.nameFromIndex(idx)
+        return self.sum_region_manager.integrateGateLocal(idx, name, lines)
 
     # -- ConnectionManager shims --
     def connectShMem(self):              return self.connection_manager.connectShMem()
