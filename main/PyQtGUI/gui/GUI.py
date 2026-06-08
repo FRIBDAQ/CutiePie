@@ -128,6 +128,7 @@ from services.fit_manager import FitManager
 from services.gate_manager import GateManager
 from services.sum_region_manager import SumRegionManager
 from services.connection_manager import ConnectionManager
+from services.plot_controller import PlotController
 from CopyPropertiesGUI import CopyProperties
 from connectConfigGUI import ConnectConfiguration #class for the connection configuration popup
 from MenuGate import MenuGate #class for the gate creation/edition popup
@@ -308,6 +309,12 @@ class MainWindow(QMainWindow):
             stop_rest=self.stopRestThread,
             stop_auto=self.stopAutoUpdateThread,
             skip_auto=self.skipAutoUpdateThread,
+            logger=self.logger,
+        )
+        self.plot_controller = PlotController(
+            window=self,
+            wTab=self.wTab,
+            wConf=self.wConf,
             logger=self.logger,
         )
 
