@@ -254,6 +254,7 @@ config_algo_canny = {
 }
 '''
 # Fitting function registration
+# Gauss is registered first so it is the default selection in the dropdown
 fitfactory.register_builder('Gauss', fit_gaus_creator.GausFitBuilder(), config_fit_gaus)
 fitfactory.register_builder('Exp', fit_exp_creator.ExpFitBuilder(), config_fit_exp)
 fitfactory.register_builder('Pol1', fit_p1_creator.Pol1FitBuilder(), config_fit_p1)

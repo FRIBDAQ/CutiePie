@@ -92,6 +92,7 @@ class SpecialFunctions(QWidget):
         )
 
         self.fit_list = QComboBox()
+        # Items are populated by FitFactory.initialize() in GUI.__init__
 
         ############################################################
         self.fit_button = QPushButton("Fit", self)
@@ -158,8 +159,7 @@ class SpecialFunctions(QWidget):
         self.delete_button = QPushButton("Delete", self)
         self.delete_button.setToolTip("Delete the listed fitted lines")
 
-        # models in the dropdown
-        self.fit_list.addItems(["AlphaEMGMultiSigma"])
+        # models in the dropdown — populated by FitFactory.initialize() in GUI.__init__
         self.fit_list.currentTextChanged.connect(self._on_model_changed)
 
         # clear seed fields
@@ -272,9 +272,6 @@ class SpecialFunctions(QWidget):
 
         fitBox.setLayout(vv)
 
-        # set initial labeling (after combo exists)
-        self._on_model_changed("AlphaEMGMultiSigma")
-
         return fitBox
 
     # ---------------- helpers ----------------
@@ -292,6 +289,16 @@ class SpecialFunctions(QWidget):
     def _on_model_changed(self, name: str):
         # Map model → nice parameter names (left-to-right: p0..p19)
         maps = {
+            "Gauss":  ["A (amplitude)", "μ (mean)", "σ (sigma)"],
+            "Exp":    ["a (offset)", "b (amplitude)", "c (decay)"],
+            "Pol1":   ["p0 (offset)", "p1 (slope)"],
+            "Pol2":   ["p0 (offset)", "p1 (slope)", "p2 (quadratic)"],
+            "G+Pol1": ["A (amplitude)", "μ (mean)", "σ (sigma)",
+                       "bg offset", "bg slope", "fraction f"],
+            "G+Pol2": ["A (amplitude)", "μ (mean)", "σ (sigma)",
+                       "bg p0", "bg p1", "bg p2", "fraction f"],
+            "Skeleton": ["param_1", "param_2", "param_3"],
+
             "AlphaEMG12": ["A", "mu", "sigma", "tau1", "tau2", "eta"],
 
             "AlphaEMG22": [

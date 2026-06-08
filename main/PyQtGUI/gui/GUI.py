@@ -62,7 +62,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtGui import QCursor, QKeySequence, QMouseEvent, QPalette
 from PyQt5.QtCore import (
-    pyqtSignal, pyqtSlot, Qt, QObject, QTimer, QElapsedTimer,
+    pyqtSignal, pyqtSlot, Qt, QObject, QThread, QTimer, QElapsedTimer,
     QEventLoop, QSettings, QDir, QEvent, QPoint,
 )
 
@@ -123,6 +123,7 @@ from PlotGUI import Plot # area defined for the histograms
 from PlotGUI import Tabs # area defined for the Tabs
 from PyREST import PyREST # class interface for SpecTcl REST plugin
 from services.spectrum_store import SpectrumStore
+from services.thread_workers import RestWorker, AutoUpdateWorker
 from CopyPropertiesGUI import CopyProperties
 from connectConfigGUI import ConnectConfiguration #class for the connection configuration popup
 from MenuGate import MenuGate #class for the gate creation/edition popup
@@ -149,13 +150,9 @@ FIT_PREFIX = "fit-_-"  # if you keep it as class attr, reference with self.FIT_P
 
 # 0) Class definition
 class MainWindow(QMainWindow):
-    ### Bashir added for auto-update signal
-    autoUpdateTriggered = pyqtSignal()
 
     def __init__(self, factory, fit_factory, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
-
-        self.autoUpdateTriggered.connect(self._updatePlotOnGui)
 
         ### Bashir added for alpha filter dialog
         self._alphaFilterDlg = None
@@ -204,15 +201,17 @@ class MainWindow(QMainWindow):
         self.setMouseTracking(True)
 
 
-        self.stopAutoUpdateThread = threading.Event() 
-        self.skipAutoUpdateThread = threading.Event() 
-        self.threadAutoUpdate = False
+        self.stopAutoUpdateThread = threading.Event()
+        self.skipAutoUpdateThread = threading.Event()
+        self._auto_thread  = None
+        self._auto_worker  = None
 
         # Bashir, make the first `addPlot()` call your starter
         self.stopAutoUpdateThread.set()
 
-        self.stopRestThread = threading.Event() 
-        self.threadRest = False
+        self.stopRestThread = threading.Event()
+        self._rest_thread  = None
+        self._rest_worker  = None
 
         #######################
         # 1) Main layout GUI
@@ -1544,9 +1543,8 @@ class MainWindow(QMainWindow):
         self.logger.info('clickedTab - index: %s',index)
         # self.setCanvasLayout()
         # print("clickedTab - index: %s",index)
-        # End current auto update thread, to avoid thread issu, will start a new thread if/when tab is not empty 
-        self.stopAutoUpdateThread.set()
-        self.endThread(self.threadAutoUpdate)
+        # End current auto update thread, to avoid thread issue, will start a new thread if/when tab is not empty
+        self._stop_auto_thread()
 
         # For now, if change tab while working on gate, close any ongoing gate action
         if self.currentPlot.toCreateGate or self.currentPlot.toEditGate or self.gatePopup.isVisible():
@@ -1902,29 +1900,6 @@ class MainWindow(QMainWindow):
 
     #Start ReST traces on a separated thread
     #Check for traces updates (poll) periodically, with period time < retention time.
-    def restThread(self, retention):
-        self.token = self.rest.startTraces(retention)
-        if self.token is None:
-            return
-        self.stopRestThread.clear()
-        self.wConf.connectButton.setStyleSheet("background-color:#bcee68;")
-        self.wConf.connectButton.setText("Connected")
-        ### Bashir added for canvas layout
-        self.setCanvasLayout()
-
-        while not self.stopRestThread.is_set():
-            # Wait while stop event is false, if event true break loop
-            # waits time < retention to avoid loosing information
-            if self.stopRestThread.wait(retention/2):
-                break
-            tracesDetails = self.rest.pollTraces(self.token)
-            if not tracesDetails:
-                break
-            self.updateFromTraces(tracesDetails)
-        self.wConf.connectButton.setStyleSheet("background-color:rgb(252, 48, 3);")
-        self.wConf.connectButton.setText("Disconnected")
-
-
     #Excecuted periodially (period defined in restThread)
     #Update various list and dict according to the trace.
     def updateFromTraces(self, tracesDetails):
@@ -2422,10 +2397,16 @@ class MainWindow(QMainWindow):
                 return
             else:
                 self.logger.debug("connectShMem - could make REST request of server")
-                self.stopRestThread.set()
-                self.endThread(self.threadRest)
-                self.threadRest = threading.Thread(target=self.restThread, args=(6,))
-                self.threadRest.start()
+                self._stop_rest_thread()
+                self.stopRestThread.clear()
+                self._rest_worker = RestWorker(self.rest, 6, self.stopRestThread)
+                self._rest_thread = QThread(self)
+                self._rest_worker.moveToThread(self._rest_thread)
+                self._rest_thread.started.connect(self._rest_worker.run)
+                self._rest_worker.connected.connect(self._on_rest_connected)
+                self._rest_worker.disconnected.connect(self._on_rest_disconnected)
+                self._rest_worker.tracesReady.connect(self.updateFromTraces)
+                self._rest_thread.start()
             timer1 = QElapsedTimer()
             timer1.start()
 
@@ -7274,19 +7255,49 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self.logger.info('closeEvent - MainWindow')
         # end threads (auto update, poll rest interface)
-        self.stopAutoUpdateThread.set()
-        self.endThread(self.threadAutoUpdate)
-        self.stopRestThread.set()
-        self.endThread(self.threadRest)
+        self._stop_auto_thread()
+        self._stop_rest_thread()
         event.accept()
 
     
-    # End openned threads, probably useless if threads close events are set correctly
-    def endThread(self, thread):
-        self.logger.info('endThread')
-        if thread:
-            if thread.is_alive():
-                thread.join()
+    def _stop_rest_thread(self):
+        self.logger.info('_stop_rest_thread')
+        self.stopRestThread.set()
+        if self._rest_thread is not None:
+            self._rest_thread.quit()
+            self._rest_thread.wait()
+            self._rest_thread = None
+            self._rest_worker = None
+
+    def _stop_auto_thread(self):
+        self.logger.info('_stop_auto_thread')
+        self.stopAutoUpdateThread.set()
+        if self._auto_thread is not None:
+            self._auto_thread.quit()
+            self._auto_thread.wait()
+            self._auto_thread = None
+            self._auto_worker = None
+
+    @pyqtSlot()
+    def _on_rest_connected(self):
+        self.logger.info('_on_rest_connected')
+        self.wConf.connectButton.setStyleSheet("background-color:#bcee68;")
+        self.wConf.connectButton.setText("Connected")
+        self.setCanvasLayout()
+
+    @pyqtSlot()
+    def _on_rest_disconnected(self):
+        self.logger.info('_on_rest_disconnected')
+        self.wConf.connectButton.setStyleSheet("background-color:rgb(252, 48, 3);")
+        self.wConf.connectButton.setText("Disconnected")
+        # quit() the thread when the worker exits naturally (pollTraces failure, etc.)
+        # _stop_rest_thread() already sets _rest_thread = None before this slot runs;
+        # the None guard prevents a double quit/wait in that path.
+        if self._rest_thread is not None:
+            self._rest_thread.quit()
+            self._rest_thread.wait()
+        self._rest_thread = None
+        self._rest_worker = None
 
 
     # Gate and summing region popup close is connected to that, resume auto update
@@ -7311,37 +7322,17 @@ class MainWindow(QMainWindow):
         # self.wConf.autoUpdateLabel2.setText("Update every: {}".format(updateIntervalUser))
         ######################################################################
         try:
-            # If already a thread end it, and start a new 
-            if self.threadAutoUpdate:
-                if self.threadAutoUpdate.is_alive():
-                    self.stopAutoUpdateThread.set()
+            self._stop_auto_thread()
             self.stopAutoUpdateThread.clear()
             self.skipAutoUpdateThread.clear()
-            
-            self.threadAutoUpdate = threading.Thread(target=self.autoUpdateThread, args=(updateInterval,))
-            self.threadAutoUpdate.start()
+            self._auto_worker = AutoUpdateWorker(updateInterval, self.stopAutoUpdateThread, self.skipAutoUpdateThread)
+            self._auto_thread = QThread(self)
+            self._auto_worker.moveToThread(self._auto_thread)
+            self._auto_thread.started.connect(self._auto_worker.run)
+            self._auto_worker.updateTriggered.connect(self._updatePlotOnGui)
+            self._auto_thread.start()
         except ValueError:
             self.logger.debug('autoUpdateStart - ValueError exception', exc_info=True)
-
-
-    #Spectrum update periodically, run on separated thread.
-    def autoUpdateThread(self, interval):
-        self.logger.info('autoUpdateThread')
-        # Loop while stop event is false
-        while not self.stopAutoUpdateThread.is_set():
-            # Keep loop running but skip update if skip event  
-            if self.skipAutoUpdateThread.is_set():
-                self.stopAutoUpdateThread.wait(0.05)  # Bashir, tiny sleep prevents CPU spin
-                continue
-            # Wait while stop event is false, if event true break loop
-            if self.stopAutoUpdateThread.wait(interval):
-                break
-            try:
-                ### Bashir changed to emit a signal to updae on GUI thread
-                self.autoUpdateTriggered.emit()
-                # self.updatePlot()
-            except ValueError:
-                self.logger.debug('autoUpdateThread - ValueError exception', exc_info=True)
 
 
     def createRectangle(self, plot):
