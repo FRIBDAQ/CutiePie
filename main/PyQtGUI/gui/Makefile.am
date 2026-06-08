@@ -40,4 +40,6 @@ EXTRA_DIST = Main.py GUI.py connectConfigGUI.py MenuAndConfigGUI.py \
 	shm_parser.py CannyEdgePlot.py ImgSegPlot.py algo_factory.py algo_skel_creator.py fit_factory.py fit_skel_creator.py \
 	fit_gaus_creator.py fit_gp1_creator.py fit_gp2_creator.py fit_p1_creator.py fit_p2_creator.py fit_exp_creator.py skel_plot.py kmean_creator.py gmm_creator.py imgseg_creator.py cannye_creator.py \
 	WebWindow.py notebook_process.py logger.py jupyterqtpy_notebook_config.py d3.js SpecialFunctionsGUI.py PyREST.py CopyPropertiesGUI.py \
-	services/__init__.py services/spectrum_store.py services/thread_workers.py
+	services/__init__.py services/spectrum_store.py services/thread_workers.py \
+	services/fit_manager.py services/gate_manager.py services/sum_region_manager.py \
+	services/connection_manager.py services/plot_controller.py
