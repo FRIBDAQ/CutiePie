@@ -23,11 +23,44 @@ class centeredNorm(colors.Normalize):
 class PlotController:
     """Owns all plot rendering, axis control, zoom, and canvas management."""
 
-    def __init__(self, window, wTab, wConf, logger=None):
-        self._w     = window
-        self._wTab  = wTab
-        self._wConf = wConf
-        self.logger = logger or logging.getLogger(__name__)
+    def __init__(self, wTab, wConf, spectra,
+                 get_current_plot, get_geo, set_geo,
+                 get_spectrum_info, set_spectrum_info, get_spectrum_info_dict,
+                 name_from_index, get_enlarged_spectrum,
+                 auto_index, next_index, bind_dynamic_signal,
+                 draw_gate, clean_popup_exit, auto_update_start,
+                 stop_auto_update_thread, cutoff_popup,
+                 min_y, max_y, min_z, max_z,
+                 parent_widget=None, logger=None):
+        self._wTab                    = wTab
+        self._wConf                   = wConf
+        self._spectra                 = spectra
+        self._get_current_plot        = get_current_plot        # () -> wPlot widget
+        self._get_geo                 = get_geo                 # () -> {index: name}
+        self._set_geo                 = set_geo                 # (index, name) -> None
+        self._get_spectrum_info       = get_spectrum_info       # (key, index=) -> value
+        self._set_spectrum_info       = set_spectrum_info       # (key=val, index=) -> None
+        self._get_spectrum_info_dict  = get_spectrum_info_dict  # () -> dict
+        self._name_from_index         = name_from_index         # (index) -> str
+        self._get_enlarged_spectrum   = get_enlarged_spectrum   # () -> spectrum|None
+        self._auto_index              = auto_index              # () -> int
+        self._next_index              = next_index              # () -> int
+        self._bind_dynamic_signal     = bind_dynamic_signal     # () -> None
+        self._draw_gate               = draw_gate               # (index) -> None
+        self._clean_popup_exit        = clean_popup_exit        # (doClose) -> None
+        self._auto_update_start       = auto_update_start       # () -> None
+        self._stop_auto_update_thread = stop_auto_update_thread # threading.Event
+        self._cutoffp                 = cutoff_popup
+        self.minY                     = min_y
+        self.maxY                     = max_y
+        self.minZ                     = min_z
+        self.maxZ                     = max_z
+        self._parent_widget           = parent_widget
+        self.logger                   = logger or logging.getLogger(__name__)
+
+        self.palette          = None
+        self.old_cmap         = None
+        self.geometry_applied = False
 
     # ------------------------------------------------------------------
     # Canvas / layout
@@ -41,9 +74,10 @@ class PlotController:
         self._wTab.layout[indexTab] = [nRow, nCol]
         self._wTab.wPlot[indexTab].InitializeCanvas(nRow, nCol)
         self._wTab.selected_plot_index_bak[indexTab] = None
-        self._w.currentPlot.selected_plot_index = None
-        self._w.currentPlot.next_plot_index = -1
-        self._w.geometry_applied = True
+        cp = self._get_current_plot()
+        cp.selected_plot_index = None
+        cp.next_plot_index     = -1
+        self.geometry_applied  = True
 
     # ------------------------------------------------------------------
     # Axis scaling
@@ -52,21 +86,22 @@ class PlotController:
     def setAxisScale(self, ax, index, *scale):
         self.logger.info('setAxisScale - index: %s', index)
 
-        wPlot = self._w.currentPlot
-        axisIsLog = self._w.getSpectrumInfo("log", index=index)
-        axisIsAutoScale = wPlot.histo_autoscale.isChecked()
+        cp            = self._get_current_plot()
+        axisIsLog     = self._get_spectrum_info("log", index=index)
+        axisIsAutoScale = cp.histo_autoscale.isChecked()
+        name          = self._name_from_index(index)
 
-        if (self._w.getSpectrumInfoREST("dim", index=index) == 1):
-            xmin = self._w.getSpectrumInfo("minx", index=index)
-            xmax = self._w.getSpectrumInfo("maxx", index=index)
+        if self._spectra.get(name, "dim") == 1:
+            xmin = self._get_spectrum_info("minx", index=index)
+            xmax = self._get_spectrum_info("maxx", index=index)
             if "x" in scale and xmin is not None and xmax is not None:
                 ax.set_xlim(xmin, xmax)
             if "y" in scale or "log" in scale:
-                ymin = self._w.getSpectrumInfo("miny", index=index)
-                ymax = self._w.getSpectrumInfo("maxy", index=index)
+                ymin = self._get_spectrum_info("miny", index=index)
+                ymax = self._get_spectrum_info("maxy", index=index)
                 if (not ymin or ymin is None or ymin == 0) and (not ymax or ymax is None or ymax == 0):
-                    ymin = self._w.minY
-                    ymax = self._w.maxY
+                    ymin = self.minY
+                    ymax = self.maxY
                 if axisIsAutoScale:
                     xmin, xmax = ax.get_xlim()
                     ymax = self.getMinMaxInRange(index, xmin=xmin, xmax=xmax)
@@ -74,46 +109,47 @@ class PlotController:
                     if ymin <= 0:
                         ymin = 0.001
                     if ymax <= 0:
-                        self.logger.warning('setAxisScale - all value <0 for : %s - cannot log scale', self._w.nameFromIndex(index))
+                        self.logger.warning('setAxisScale - all value <0 for : %s - cannot log scale',
+                                            self._name_from_index(index))
                     else:
                         ax.set_ylim(ymin, ymax)
                         ax.set_yscale("log")
                 else:
                     ax.set_ylim(ymin, ymax)
                     ax.set_yscale("linear")
-                self._w.setSpectrumInfo(miny=ymin, index=index)
-                self._w.setSpectrumInfo(maxy=ymax, index=index)
+                self._set_spectrum_info(miny=ymin, index=index)
+                self._set_spectrum_info(maxy=ymax, index=index)
         else:
-            xmin = self._w.getSpectrumInfo("minx", index=index)
-            xmax = self._w.getSpectrumInfo("maxx", index=index)
-            ymin = self._w.getSpectrumInfo("miny", index=index)
-            ymax = self._w.getSpectrumInfo("maxy", index=index)
+            xmin = self._get_spectrum_info("minx", index=index)
+            xmax = self._get_spectrum_info("maxx", index=index)
+            ymin = self._get_spectrum_info("miny", index=index)
+            ymax = self._get_spectrum_info("maxy", index=index)
 
             if "x" in scale and xmin is not None and xmax is not None:
                 ax.set_xlim(xmin, xmax)
             if "y" in scale and ymin is not None and ymax is not None:
                 ax.set_ylim(ymin, ymax)
             if "z" in scale or "log" in scale:
-                zmin = self._w.getSpectrumInfo("minz", index=index)
-                zmax = self._w.getSpectrumInfo("maxz", index=index)
-                spectrum = self._w.getSpectrumInfo("spectrum", index=index)
+                zmin     = self._get_spectrum_info("minz", index=index)
+                zmax     = self._get_spectrum_info("maxz", index=index)
+                spectrum = self._get_spectrum_info("spectrum", index=index)
                 if spectrum is None:
                     return
                 if (not zmin or zmin is None or zmin == 0) and (not zmax or zmax is None or zmax == 0):
-                    zmin = self._w.minZ
-                    zmax = self._w.maxZ
+                    zmin = self.minZ
+                    zmax = self.maxZ
                 if axisIsAutoScale:
                     xmin, xmax = ax.get_xlim()
                     ymin, ymax = ax.get_ylim()
                     zmin, zmax = self.getMinMaxInRange(index, xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
-                    self._w.setSpectrumInfo(maxz=zmax, index=index)
-                    self._w.setSpectrumInfo(minz=zmin, index=index)
+                    self._set_spectrum_info(maxz=zmax, index=index)
+                    self._set_spectrum_info(minz=zmin, index=index)
                 spectrum.set_clim(vmin=zmin, vmax=zmax)
                 if axisIsLog:
                     self.setCmapNorm("log", index)
                 else:
                     self.setCmapNorm("linear", index)
-                self._w.setSpectrumInfo(spectrum=spectrum, index=index)
+                self._set_spectrum_info(spectrum=spectrum, index=index)
 
     def setCmapNorm(self, scale, index):
         self.logger.info('setCmapNorm')
@@ -121,13 +157,13 @@ class PlotController:
         if scale not in validScales or index is None:
             self.logger.debug('setCmapNorm - scale not in validScales or index is None')
             return
-        spectrum = self._w.getSpectrumInfo("spectrum", index=index)
+        spectrum = self._get_spectrum_info("spectrum", index=index)
         zmin, zmax = spectrum.get_clim()
 
         if scale is validScales[0]:
             if zmin > zmax:
                 self.logger.warning('setCmapNorm - zmin > zmax')
-                spectrum.set_norm(colors.Normalize(vmin=self._w.minZ, vmax=self._w.maxZ))
+                spectrum.set_norm(colors.Normalize(vmin=self.minZ, vmax=self.maxZ))
             else:
                 spectrum.set_norm(colors.Normalize(vmin=zmin, vmax=zmax))
         elif scale is validScales[1]:
@@ -137,29 +173,30 @@ class PlotController:
             spectrum.set_norm(colors.LogNorm(vmin=zmin, vmax=zmax))
             if zmin > zmax:
                 self.logger.warning('setCmapNorm - zmin > zmax')
-                spectrum.set_norm(colors.LogNorm(vmin=self._w.minZ, vmax=self._w.maxZ))
+                spectrum.set_norm(colors.LogNorm(vmin=self.minZ, vmax=self.maxZ))
         elif scale is validScales[2]:
             palette = copy(plt.cm.jet)
             palette.set_bad(color='white')
-            data = self._w.getSpectrumInfo("data", index=index)
+            data = self._get_spectrum_info("data", index=index)
             spectrum.set_cmap(palette)
             spectrum.set_norm(centeredNorm(data, 50000))
-        if self._w.getEnlargedSpectrum() is None:
+        if self._get_enlarged_spectrum() is None:
             ax = spectrum.axes
             self.removeCb(ax)
             divider = make_axes_locatable(ax)
             cax = divider.append_axes('right', size='5%', pad=0.05)
             label = "colorbar_" + str(index)
             cax.set_label(label)
-            self._w.currentPlot.figure.colorbar(spectrum, cax=cax, orientation='vertical')
+            self._get_current_plot().figure.colorbar(spectrum, cax=cax, orientation='vertical')
 
     def autoScaleAxisBox(self, forIndex):
         self.logger.info('autoScaleAxisBox - forIndex: %s', forIndex)
         try:
+            cp = self._get_current_plot()
             ax = None
-            if self._w.currentPlot.isEnlarged:
-                ax = self._w.getSpectrumInfo("axis", index=0)
-                dim = self._w.getSpectrumInfoREST("dim", index=0)
+            if cp.isEnlarged:
+                ax  = self._get_spectrum_info("axis", index=0)
+                dim = self._spectra.get(self._name_from_index(0), "dim")
                 if ax is None:
                     self.logger.debug('autoScaleAxisBox - isEnlarged TRUE - ax is None ')
                     return
@@ -167,10 +204,10 @@ class PlotController:
                     self.setAxisScale(ax, 0, "y")
                 elif dim == 2:
                     self.setAxisScale(ax, 0, "z")
-                self._w.drawGate(0)
+                self._draw_gate(0)
             elif forIndex is not None:
-                ax = self._w.getSpectrumInfo("axis", index=forIndex)
-                dim = self._w.getSpectrumInfoREST("dim", index=forIndex)
+                ax  = self._get_spectrum_info("axis", index=forIndex)
+                dim = self._spectra.get(self._name_from_index(forIndex), "dim")
                 if ax is None:
                     self.logger.debug('autoScaleAxisBox - forIndex - ax is None ')
                     return
@@ -179,10 +216,10 @@ class PlotController:
                 elif dim == 2:
                     self.setAxisScale(ax, forIndex, "z")
             else:
-                for index, name in self._w.getGeo().items():
+                for index, name in self._get_geo().items():
                     if name:
-                        ax = self._w.getSpectrumInfo("axis", index=index)
-                        dim = self._w.getSpectrumInfoREST("dim", index=index)
+                        ax  = self._get_spectrum_info("axis", index=index)
+                        dim = self._spectra.get(self._name_from_index(index), "dim")
                         if ax is None:
                             self.logger.debug('autoScaleAxisBox - isEnlarged FALSE - ax is None ')
                             return
@@ -190,9 +227,9 @@ class PlotController:
                             self.setAxisScale(ax, index, "y")
                         elif dim == 2:
                             self.setAxisScale(ax, index, "z")
-                        self._w.drawGate(index)
-            self._w.currentPlot.canvas.draw()
-        except:
+                        self._draw_gate(index)
+            cp.canvas.draw()
+        except Exception:
             pass
 
     # ------------------------------------------------------------------
@@ -212,33 +249,34 @@ class PlotController:
             ymin = limits["ymin"]
             ymax = limits["ymax"]
 
-        dim = self._w.getSpectrumInfoREST("dim", index=index)
-        minx = self._w.getSpectrumInfoREST("minx", index=index)
-        maxx = self._w.getSpectrumInfoREST("maxx", index=index)
-        binx = self._w.getSpectrumInfoREST("binx", index=index)
-        data = self._w.getSpectrumInfo("data", index=index)
+        name  = self._name_from_index(index)
+        dim   = self._spectra.get(name, "dim")
+        minx  = self._spectra.get(name, "minx")
+        maxx  = self._spectra.get(name, "maxx")
+        binx  = self._spectra.get(name, "binx")
+        data  = self._get_spectrum_info("data", index=index)
         stepx = (float(maxx) - float(minx)) / float(binx)
         binminx = int((xmin - minx) / stepx)
         binmaxx = int((xmax - minx) / stepx)
         if dim == 1:
             try:
                 result = data[binminx + 1:binmaxx + 2].max() * 1.1
-            except:
+            except Exception:
                 self.logger.debug('getMinMaxInRange - dim == 1 - exception occured', exc_info=True)
-                return self._w.maxY
+                return self.maxY
         elif dim == 2:
             try:
-                miny = self._w.getSpectrumInfoREST("miny", index=index)
-                maxy = self._w.getSpectrumInfoREST("maxy", index=index)
-                biny = self._w.getSpectrumInfoREST("biny", index=index)
+                miny  = self._spectra.get(name, "miny")
+                maxy  = self._spectra.get(name, "maxy")
+                biny  = self._spectra.get(name, "biny")
                 stepy = (float(maxy) - float(miny)) / float(biny)
                 binminy = int((ymin - miny) / stepy)
                 binmaxy = int((ymax - miny) / stepy)
                 minimum, maximum = self.customMinMax(data[binminy:binmaxy + 1, binminx:binmaxx + 1])
                 result = minimum, maximum
-            except:
+            except Exception:
                 self.logger.debug('getMinMaxInRange - dim == 2 - exception occured', exc_info=True)
-                return self._w.minZ, self._w.maxZ
+                return self.minZ, self.maxZ
         return result
 
     def customMinMax(self, data):
@@ -274,9 +312,9 @@ class PlotController:
                     yprev = y
                 xprev = x
             if len(subMin) == 0:
-                minimum = self._w.minZ
+                minimum = self.minZ
             if len(subMax) == 0:
-                minimum = self._w.maxZ
+                minimum = self.maxZ
             elif len(subMin) > 0 and len(subMax) > 0:
                 minimum = min(subMin)
                 maximum = max(subMax)
@@ -285,12 +323,12 @@ class PlotController:
     def getAxisProperties(self, index):
         self.logger.info('getAxisProperties')
         try:
-            ax = self._w.getSpectrumInfo("axis", index=index)
+            ax = self._get_spectrum_info("axis", index=index)
             if ax is None:
                 return None
             else:
                 return list(ax.get_xlim()), list(ax.get_ylim())
-        except:
+        except Exception:
             self.logger.debug('getAxisProperties - exception occured', exc_info=True)
             pass
 
@@ -299,15 +337,15 @@ class PlotController:
     # ------------------------------------------------------------------
 
     def zoomInOut(self, arg):
-        self._w.currentPlot.histo_autoscale.setChecked(False)
         self.logger.info('zoomInOut - arg: %s', arg)
-        index = self._w.autoIndex()
-        ax = None
-        spectrum = self._w.getSpectrumInfo("spectrum", index=index)
+        cp = self._get_current_plot()
+        cp.histo_autoscale.setChecked(False)
+        index = self._auto_index()
+        spectrum = self._get_spectrum_info("spectrum", index=index)
         if spectrum is None:
             return
-        ax = spectrum.axes
-        dim = self._w.getSpectrumInfoREST("dim", index=index)
+        ax  = spectrum.axes
+        dim = self._spectra.get(self._name_from_index(index), "dim")
         if dim == 1:
             ymin, ymax = ax.get_ylim()
             if arg == "in":
@@ -315,9 +353,9 @@ class PlotController:
             elif arg == "out":
                 ymax = ymax * 2
             ax.set_ylim(ymin, ymax)
-            self._w.setSpectrumInfo(miny=ymin, index=index)
-            self._w.setSpectrumInfo(maxy=ymax, index=index)
-            self._w.setSpectrumInfo(spectrum=spectrum, index=index)
+            self._set_spectrum_info(miny=ymin, index=index)
+            self._set_spectrum_info(maxy=ymax, index=index)
+            self._set_spectrum_info(spectrum=spectrum, index=index)
         elif dim == 2:
             zmin, zmax = spectrum.get_clim()
             if arg == "in":
@@ -325,73 +363,75 @@ class PlotController:
             elif arg == "out":
                 zmax = zmax * 2
             spectrum.set_clim(zmin, zmax)
-            self._w.setSpectrumInfo(minz=zmin, index=index)
-            self._w.setSpectrumInfo(maxz=zmax, index=index)
-            self._w.setSpectrumInfo(spectrum=spectrum, index=index)
-        self._w.drawGate(index)
-        self._w.currentPlot.canvas.draw()
+            self._set_spectrum_info(minz=zmin, index=index)
+            self._set_spectrum_info(maxz=zmax, index=index)
+            self._set_spectrum_info(spectrum=spectrum, index=index)
+        self._draw_gate(index)
+        cp.canvas.draw()
 
     def zoomCallback(self, event):
         self.logger.info('zoomCallback')
-        self._w.currentPlot.zoomPress = True
+        self._get_current_plot().zoomPress = True
 
     def customZoomButtonCallback(self):
         self.logger.info('customZoomButtonCallback')
-        self._w.currentPlot.histo_autoscale.setChecked(False)
-        if self._w.currentPlot.zoomPress:
-            self._w.currentPlot.zoom_action.triggered.emit()
-            self._w.currentPlot.zoom_action.setChecked(False)
-            self._w.currentPlot.customZoomButton.setDown(False)
-            self._w.currentPlot.zoomPress = False
+        cp = self._get_current_plot()
+        cp.histo_autoscale.setChecked(False)
+        if cp.zoomPress:
+            cp.zoom_action.triggered.emit()
+            cp.zoom_action.setChecked(False)
+            cp.customZoomButton.setDown(False)
+            cp.zoomPress = False
         else:
-            self._w.currentPlot.zoom_action.triggered.emit()
-            self._w.currentPlot.zoom_action.setChecked(True)
-            self._w.currentPlot.customZoomButton.setDown(True)
+            cp.zoom_action.triggered.emit()
+            cp.zoom_action.setChecked(True)
+            cp.customZoomButton.setDown(True)
 
     def customHomeButtonCallback(self, index=None):
         self.logger.info('customHomeButtonCallback - index: %s', index)
-        index_list = [idx for idx, name in self._w.getGeo().items() if index is None]
+        index_list = [idx for idx, name in self._get_geo().items() if index is None]
         if index is not None:
             index_list = [index]
         for idx in index_list:
-            ax = None
-            spectrum = self._w.getSpectrumInfo("spectrum", index=idx)
+            ax       = None
+            spectrum = self._get_spectrum_info("spectrum", index=idx)
             if spectrum is None:
                 return
-            ax = spectrum.axes
-            dim = self._w.getSpectrumInfoREST("dim", index=idx)
-            xmin = self._w.getSpectrumInfoREST("minx", index=idx)
-            xmax = self._w.getSpectrumInfoREST("maxx", index=idx)
-            ymin = self._w.getSpectrumInfoREST("miny", index=idx)
-            ymax = self._w.getSpectrumInfoREST("maxy", index=idx)
+            ax   = spectrum.axes
+            name = self._name_from_index(idx)
+            dim  = self._spectra.get(name, "dim")
+            xmin = self._spectra.get(name, "minx")
+            xmax = self._spectra.get(name, "maxx")
+            ymin = self._spectra.get(name, "miny")
+            ymax = self._spectra.get(name, "maxy")
 
             ax.set_xlim(xmin, xmax)
             if dim == 1:
                 ymax = self.getMinMaxInRange(idx, xmin=xmin, xmax=xmax)
                 ax.set_ylim(ymin, ymax)
-                if self._w.getSpectrumInfo("log", index=idx):
+                if self._get_spectrum_info("log", index=idx):
                     ax.set_yscale("linear")
             if dim == 2:
                 ax.set_ylim(ymin, ymax)
                 zmin, zmax = self.getMinMaxInRange(idx, xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
                 spectrum.set_clim(vmin=zmin, vmax=zmax)
                 self.setCmapNorm("linear", idx)
-                self._w.setSpectrumInfo(maxz=zmax, index=idx)
-                self._w.setSpectrumInfo(minz=zmin, index=idx)
-            self._w.drawGate(idx)
+                self._set_spectrum_info(maxz=zmax, index=idx)
+                self._set_spectrum_info(minz=zmin, index=idx)
+            self._draw_gate(idx)
 
-            self._w.setSpectrumInfo(log=None, index=idx)
-            self._w.setSpectrumInfo(minx=xmin, index=idx)
-            self._w.setSpectrumInfo(maxx=xmax, index=idx)
-            self._w.setSpectrumInfo(miny=ymin, index=idx)
-            self._w.setSpectrumInfo(maxy=ymax, index=idx)
-            self._w.setSpectrumInfo(spectrum=spectrum, index=idx)
-        self._w.currentPlot.canvas.draw()
+            self._set_spectrum_info(log=None, index=idx)
+            self._set_spectrum_info(minx=xmin, index=idx)
+            self._set_spectrum_info(maxx=xmax, index=idx)
+            self._set_spectrum_info(miny=ymin, index=idx)
+            self._set_spectrum_info(maxy=ymax, index=idx)
+            self._set_spectrum_info(spectrum=spectrum, index=idx)
+        self._get_current_plot().canvas.draw()
 
     def logButtonCallback(self, *arg):
         self.logger.info('logButtonCallback - arg: %s', arg)
-        index = None
-        logAllPlot = False
+        index       = None
+        logAllPlot  = False
         unlogAllPlot = False
         if "logAll" in arg:
             logAllPlot = True
@@ -400,66 +440,66 @@ class PlotController:
         else:
             index = arg[0]
 
-        wPlot = self._w.currentPlot
-        index_list = [idx for idx, name in self._w.getGeo().items() if logAllPlot or unlogAllPlot]
+        cp         = self._get_current_plot()
+        index_list = [idx for idx, name in self._get_geo().items() if logAllPlot or unlogAllPlot]
 
         if index is not None:
             index_list = [index]
         for idx in index_list:
-            ax = None
-            spectrum = self._w.getSpectrumInfo("spectrum", index=idx)
+            ax       = None
+            spectrum = self._get_spectrum_info("spectrum", index=idx)
             if spectrum is None:
                 continue
             ax = spectrum.axes
             if logAllPlot:
-                self._w.setSpectrumInfo(index=idx, log=True)
+                self._set_spectrum_info(index=idx, log=True)
             elif unlogAllPlot:
-                self._w.setSpectrumInfo(index=idx, log=False)
-            elif self._w.getSpectrumInfo("log", index=idx) and not logAllPlot and not unlogAllPlot:
-                self._w.setSpectrumInfo(index=idx, log=False)
-            elif not self._w.getSpectrumInfo("log", index=idx) and not logAllPlot and not unlogAllPlot:
-                self._w.setSpectrumInfo(index=idx, log=True)
+                self._set_spectrum_info(index=idx, log=False)
+            elif self._get_spectrum_info("log", index=idx) and not logAllPlot and not unlogAllPlot:
+                self._set_spectrum_info(index=idx, log=False)
+            elif not self._get_spectrum_info("log", index=idx) and not logAllPlot and not unlogAllPlot:
+                self._set_spectrum_info(index=idx, log=True)
 
             self.setAxisScale(ax, idx, "log")
-        wPlot.canvas.draw()
+        cp.canvas.draw()
 
     def zoom_handle_right_click(self):
         self.logger.info('zoom_handle_right_click')
-        menu = QMenu()
+        menu  = QMenu()
         item1 = menu.addAction("Set Zoom Range Manually")
-        index = self._w.currentPlot.selected_plot_index
+        cp    = self._get_current_plot()
+        index = cp.selected_plot_index
         if index is None:
-            return QMessageBox.about(self._w, "Warning!", "Please add/select a spectrum")
+            return QMessageBox.about(self._parent_widget, "Warning!", "Please add/select a spectrum")
         else:
             item1.triggered.connect(self.cutoffButtonCallback)
-            plotgui = self._w.currentPlot
-            menuPosX = plotgui.mapToGlobal(QtCore.QPoint(0, 0)).x() + plotgui.customZoomButton.geometry().topLeft().x()
-            menuPosY = plotgui.mapToGlobal(QtCore.QPoint(0, 0)).y() + plotgui.customZoomButton.geometry().topLeft().y()
-            menuPos = QtCore.QPoint(menuPosX, menuPosY)
+            menuPosX = cp.mapToGlobal(QtCore.QPoint(0, 0)).x() + cp.customZoomButton.geometry().topLeft().x()
+            menuPosY = cp.mapToGlobal(QtCore.QPoint(0, 0)).y() + cp.customZoomButton.geometry().topLeft().y()
+            menuPos  = QtCore.QPoint(menuPosX, menuPosY)
             menu.exec_(menuPos)
 
     def handle_right_click(self):
         self.logger.info('handle_right_click')
-        menu = QMenu()
+        menu  = QMenu()
         item1 = menu.addAction("Reset all")
         item1.triggered.connect(lambda: self.customHomeButtonCallback())
-        plotgui = self._w.currentPlot
+        plotgui  = self._get_current_plot()
         menuPosX = plotgui.mapToGlobal(QtCore.QPoint(0, 0)).x() + plotgui.customHomeButton.geometry().topLeft().x()
         menuPosY = plotgui.mapToGlobal(QtCore.QPoint(0, 0)).y() + plotgui.customHomeButton.geometry().topLeft().y()
-        menuPos = QtCore.QPoint(menuPosX, menuPosY)
+        menuPos  = QtCore.QPoint(menuPosX, menuPosY)
         menu.exec_(menuPos)
 
     def log_handle_right_click(self):
         self.logger.info('log_handle_right_click')
-        menu = QMenu()
+        menu  = QMenu()
         item1 = menu.addAction("Log all")
         item2 = menu.addAction("unLog all")
         item1.triggered.connect(lambda: self.logButtonCallback("logAll"))
         item2.triggered.connect(lambda: self.logButtonCallback("unlogAll"))
-        plotgui = self._w.currentPlot
+        plotgui  = self._get_current_plot()
         menuPosX = plotgui.mapToGlobal(QtCore.QPoint(0, 0)).x() + plotgui.logButton.geometry().topLeft().x()
         menuPosY = plotgui.mapToGlobal(QtCore.QPoint(0, 0)).y() + plotgui.logButton.geometry().topLeft().y()
-        menuPos = QtCore.QPoint(menuPosX, menuPosY)
+        menuPos  = QtCore.QPoint(menuPosX, menuPosY)
         menu.exec_(menuPos)
 
     # ------------------------------------------------------------------
@@ -468,27 +508,29 @@ class PlotController:
 
     def okCutoff(self):
         self.logger.info('okCutoff')
-        index = self._w.currentPlot.selected_plot_index
+        cp    = self._get_current_plot()
+        index = cp.selected_plot_index
         if index is None:
             self.logger.debug('okCutoff - index is None')
             return
-        spectrum = self._w.getSpectrumInfo("spectrum", index=index)
+        spectrum = self._get_spectrum_info("spectrum", index=index)
         if spectrum is None:
             return
-        ax = self._w.getSpectrumInfo("axis", index=index)
+        ax = self._get_spectrum_info("axis", index=index)
         if ax is None:
             self.logger.debug('okCutoff - ax is None')
             return
 
-        dim = self._w.getSpectrumInfoREST("dim", index=index)
-        rangeXmin = self._w.cutoffp.lineeditXMin.text()
-        rangeXmax = self._w.cutoffp.lineeditXMax.text()
-        rangeYmin = self._w.cutoffp.lineeditYMin.text()
-        rangeYmax = self._w.cutoffp.lineeditYMax.text()
+        name       = self._name_from_index(index)
+        dim        = self._spectra.get(name, "dim")
+        rangeXmin  = self._cutoffp.lineeditXMin.text()
+        rangeXmax  = self._cutoffp.lineeditXMax.text()
+        rangeYmin  = self._cutoffp.lineeditYMin.text()
+        rangeYmax  = self._cutoffp.lineeditYMax.text()
 
-        cutoffVal = [None, None]
-        cutoffMin = self._w.cutoffp.lineeditZMin.text()
-        cutoffMax = self._w.cutoffp.lineeditZMax.text()
+        cutoffVal  = [None, None]
+        cutoffMin  = self._cutoffp.lineeditZMin.text()
+        cutoffMax  = self._cutoffp.lineeditZMax.text()
 
         try:
             rangeXmin = float(rangeXmin)
@@ -500,103 +542,101 @@ class PlotController:
             return
 
         if rangeXmin is not None and rangeXmax is not None and rangeXmax < rangeXmin:
-            buff = rangeXmin
-            rangeXmin = rangeXmax
-            rangeXmax = buff
+            buff = rangeXmin; rangeXmin = rangeXmax; rangeXmax = buff
             self.logger.warning('okCutoff Range - new range X values swapped because min > max')
         if rangeYmin is not None and rangeYmax is not None and rangeYmax < rangeYmin:
-            buff = rangeYmin
-            rangeYmin = rangeYmax
-            rangeYmax = buff
+            buff = rangeYmin; rangeYmin = rangeYmax; rangeYmax = buff
             self.logger.warning('okCutoff Range - new range Y values swapped because min > max')
         if dim == 2:
-            if self._w.cutoffp.lineeditZMin.text() != "" and self._w.cutoffp.lineeditZMin.text().isdigit():
+            if self._cutoffp.lineeditZMin.text() != "" and self._cutoffp.lineeditZMin.text().isdigit():
                 cutoffVal[0] = float(cutoffMin)
-                self._w.setSpectrumInfo(cutoff=cutoffVal, index=index)
-            if self._w.cutoffp.lineeditZMax.text() != "" and self._w.cutoffp.lineeditZMax.text().isdigit():
+                self._set_spectrum_info(cutoff=cutoffVal, index=index)
+            if self._cutoffp.lineeditZMax.text() != "" and self._cutoffp.lineeditZMax.text().isdigit():
                 cutoffVal[1] = float(cutoffMax)
-                self._w.setSpectrumInfo(cutoff=cutoffVal, index=index)
+                self._set_spectrum_info(cutoff=cutoffVal, index=index)
             if cutoffVal[0] is not None and cutoffVal[1] is not None and cutoffVal[1] < cutoffVal[0]:
                 cutoffVal = [cutoffVal[1], cutoffVal[0]]
-                self._w.setSpectrumInfo(cutoff=cutoffVal, index=index)
+                self._set_spectrum_info(cutoff=cutoffVal, index=index)
         try:
-            spectrum = self._w.getSpectrumInfo("spectrum", index=index)
+            spectrum = self._get_spectrum_info("spectrum", index=index)
             ax.set_xlim(float(rangeXmin), float(rangeXmax))
             ax.set_ylim(float(rangeYmin), float(rangeYmax))
-            self._w.setSpectrumInfo(minx=rangeXmin, index=index)
-            self._w.setSpectrumInfo(maxx=rangeXmax, index=index)
-            self._w.setSpectrumInfo(miny=rangeYmin, index=index)
-            self._w.setSpectrumInfo(maxy=rangeYmax, index=index)
+            self._set_spectrum_info(minx=rangeXmin, index=index)
+            self._set_spectrum_info(maxx=rangeXmax, index=index)
+            self._set_spectrum_info(miny=rangeYmin, index=index)
+            self._set_spectrum_info(maxy=rangeYmax, index=index)
             if dim == 2:
                 spectrum.set_clim(cutoffVal[0], cutoffVal[1])
-                self._w.setSpectrumInfo(minz=cutoffVal[0], index=index)
-                self._w.setSpectrumInfo(maxz=cutoffVal[1], index=index)
-                self._w.setSpectrumInfo(spectrum=spectrum, index=index)
-            self._w.setSpectrumInfo(spectrum=spectrum, index=index)
-            self._w.drawGate(index)
-            self._w.currentPlot.canvas.draw()
+                self._set_spectrum_info(minz=cutoffVal[0], index=index)
+                self._set_spectrum_info(maxz=cutoffVal[1], index=index)
+                self._set_spectrum_info(spectrum=spectrum, index=index)
+            self._set_spectrum_info(spectrum=spectrum, index=index)
+            self._draw_gate(index)
+            cp.canvas.draw()
         except NameError as err:
             self.logger.debug('okCutoff - NameError', exc_info=True)
             pass
 
-        self._w.cutoffp.close()
+        self._cutoffp.close()
 
     def cancelCutoff(self):
-        self._w.cutoffp.close()
+        self._cutoffp.close()
 
     def resetCutoff(self, doUpdate):
         self.logger.info('resetCutoff - doUpdate: %s', doUpdate)
-        index = self._w.currentPlot.selected_plot_index
+        index = self._get_current_plot().selected_plot_index
         if index is None:
             return
         cutoffVal = [None, None]
-        self._w.setSpectrumInfo(cutoff=cutoffVal, index=index)
+        self._set_spectrum_info(cutoff=cutoffVal, index=index)
         if doUpdate:
             self.updatePlot()
-        self._w.cutoffp.close()
+        self._cutoffp.close()
 
     def cutoffButtonCallback(self, *arg):
         self.logger.info('cutoffButtonCallback')
-        self._w.currentPlot.histo_autoscale.setChecked(False)
-        index = self._w.currentPlot.selected_plot_index
+        cp    = self._get_current_plot()
+        cp.histo_autoscale.setChecked(False)
+        index = cp.selected_plot_index
         if index is None:
-            return QMessageBox.about(self._w, "Warning!", "Please Add/Select a Spectrum")
-        name = self._w.nameFromIndex(index)
+            return QMessageBox.about(self._parent_widget, "Warning!", "Please Add/Select a Spectrum")
+        name = self._name_from_index(index)
         if name is not None:
-            self._w.cutoffp.setWindowTitle("Set zoom range for: " + name)
+            self._cutoffp.setWindowTitle("Set zoom range for: " + name)
         else:
-            self._w.cutoffp.setWindowTitle("Set zoom range for: ???")
-        self._w.cutoffp.setGeometry(300, 100, 300, 100)
-        if self._w.cutoffp.isVisible():
-            self._w.cutoffp.close()
-        if self._w.getSpectrumInfo("cutoff", index=index) is not None and len(self._w.getSpectrumInfo("cutoff", index=index)) > 0:
-            ax = self._w.getSpectrumInfo("axis", index=index)
-            dim = self._w.getSpectrumInfoREST("dim", index=index)
+            self._cutoffp.setWindowTitle("Set zoom range for: ???")
+        self._cutoffp.setGeometry(300, 100, 300, 100)
+        if self._cutoffp.isVisible():
+            self._cutoffp.close()
+        if self._get_spectrum_info("cutoff", index=index) is not None and len(self._get_spectrum_info("cutoff", index=index)) > 0:
+            ax  = self._get_spectrum_info("axis", index=index)
+            dim = self._spectra.get(name, "dim")
             xmin, xmax = ax.get_xlim()
             ymin, ymax = ax.get_ylim()
-            self._w.cutoffp.lineeditXMin.setText(f"{xmin:.1f}")
-            self._w.cutoffp.lineeditXMax.setText(f"{xmax:.1f}")
-            self._w.cutoffp.lineeditYMin.setText(f"{ymin:.1f}")
-            self._w.cutoffp.lineeditYMax.setText(f"{ymax:.1f}")
+            self._cutoffp.lineeditXMin.setText(f"{xmin:.1f}")
+            self._cutoffp.lineeditXMax.setText(f"{xmax:.1f}")
+            self._cutoffp.lineeditYMin.setText(f"{ymin:.1f}")
+            self._cutoffp.lineeditYMax.setText(f"{ymax:.1f}")
             if dim == 2:
-                spectrum = self._w.getSpectrumInfo("spectrum", index=index)
+                spectrum = self._get_spectrum_info("spectrum", index=index)
                 zmin, zmax = spectrum.get_clim()
-                self._w.cutoffp.lineeditZMin.setText(f"{zmin:.1f}")
-                self._w.cutoffp.lineeditZMax.setText(f"{zmax:.1f}")
+                self._cutoffp.lineeditZMin.setText(f"{zmin:.1f}")
+                self._cutoffp.lineeditZMax.setText(f"{zmax:.1f}")
             if dim == 1:
-                self._w.cutoffp.layout1d()
+                self._cutoffp.layout1d()
             elif dim == 2:
-                self._w.cutoffp.layout2d()
-            self._w.cutoffp.show()
+                self._cutoffp.layout2d()
+            self._cutoffp.show()
         else:
-            QMessageBox.about(self._w, "Warning!", "Please Add/Select a Spectrum")
-            self.logger.warning('cutoffButtonCallback - you broke something really bad - spectrum dict: %s', self._w.getSpectrumInfo("cutoff", index=index))
+            QMessageBox.about(self._parent_widget, "Warning!", "Please Add/Select a Spectrum")
+            self.logger.warning('cutoffButtonCallback - you broke something really bad - spectrum dict: %s',
+                                self._get_spectrum_info("cutoff", index=index))
 
     def updatePlotLimits(self, sleepTime=0):
         self.logger.info('updatePlotLimits - sleepTime: %s', sleepTime)
-        ax = None
-        index = self._w.currentPlot.selected_plot_index
-        ax = self._w.getSpectrumInfo("axis", index=index)
+        cp    = self._get_current_plot()
+        index = cp.selected_plot_index
+        ax    = self._get_spectrum_info("axis", index=index)
         if ax is None:
             self.logger.debug('updatePlotLimits - ax is None')
             return
@@ -605,17 +645,17 @@ class PlotController:
 
         try:
             x_range, y_range = self.getAxisProperties(index)
-            self._w.setSpectrumInfo(minx=x_range[0], index=index)
-            self._w.setSpectrumInfo(maxx=x_range[1], index=index)
-            self._w.setSpectrumInfo(miny=y_range[0], index=index)
-            self._w.setSpectrumInfo(maxy=y_range[1], index=index)
+            self._set_spectrum_info(minx=x_range[0], index=index)
+            self._set_spectrum_info(maxx=x_range[1], index=index)
+            self._set_spectrum_info(miny=y_range[0], index=index)
+            self._set_spectrum_info(maxy=y_range[1], index=index)
 
-            spectrum = self._w.getSpectrumInfo("spectrum", index=index)
+            spectrum = self._get_spectrum_info("spectrum", index=index)
             ax.set_xlim(x_range[0], x_range[1])
             ax.set_ylim(y_range[0], y_range[1])
 
-            self._w.setSpectrumInfo(spectrum=spectrum, index=index)
-            self._w.drawGate(index)
+            self._set_spectrum_info(spectrum=spectrum, index=index)
+            self._draw_gate(index)
         except NameError as err:
             self.logger.debug('updatePlotLimits - NameError', exc_info=True)
             print(err)
@@ -631,13 +671,14 @@ class PlotController:
             try:
                 cb = im[-1].colorbar
                 cb.remove()
-            except:
+            except Exception:
                 self.logger.debug('removeCb - IndexError exception', exc_info=True)
                 pass
 
     def select_plot(self, index):
         self.logger.info('select_plot - index: %s', index)
-        for i, axis in enumerate(self._w.currentPlot.figure.axes):
+        cp = self._get_current_plot()
+        for i, axis in enumerate(cp.figure.axes):
             if (i == index and axis is not None):
                 return axis
 
@@ -658,20 +699,19 @@ class PlotController:
 
     def setupPlot(self, axis, index):
         self.logger.info('setupPlot - index: %s', index)
-        if self._w.nameFromIndex(index):
+        if self._name_from_index(index):
+            name = self._name_from_index(index)
+            dim  = self._spectra.get(name, "dim")
+            minx = self._get_spectrum_info("minx", index=index)
+            maxx = self._get_spectrum_info("maxx", index=index)
+            binx = self._get_spectrum_info("binx", index=index)
+            biny = self._get_spectrum_info("biny", index=index)
+            w    = self._spectra.get(name, "data")
 
-            dim = self._w.getSpectrumInfoREST("dim", index=index)
-            minx = self._w.getSpectrumInfo("minx", index=index)
-            maxx = self._w.getSpectrumInfo("maxx", index=index)
-            binx = self._w.getSpectrumInfo("binx", index=index)
-            biny = self._w.getSpectrumInfo("biny", index=index)
-
-            w = self._w.getSpectrumInfoREST("data", index=index)
-
-            if self._w.getSpectrumInfo("cutoff", index=index) is not None:
-                if len(self._w.getSpectrumInfo("cutoff", index=index)) > 0:
-                    minCutoff = self._w.getSpectrumInfo("cutoff", index=index)[0]
-                    maxCutoff = self._w.getSpectrumInfo("cutoff", index=index)[1]
+            if self._get_spectrum_info("cutoff", index=index) is not None:
+                if len(self._get_spectrum_info("cutoff", index=index)) > 0:
+                    minCutoff = self._get_spectrum_info("cutoff", index=index)[0]
+                    maxCutoff = self._get_spectrum_info("cutoff", index=index)[1]
                     if minCutoff is not None:
                         if dim == 1:
                             w = np.ma.masked_where(w < minCutoff, w)
@@ -682,147 +722,150 @@ class PlotController:
                             w = np.ma.masked_where(w < maxCutoff, w)
                         if dim == 2:
                             w = np.ma.masked_where(w < maxCutoff, w)
-            self._w.setSpectrumInfo(data=w, index=index)
+            self._set_spectrum_info(data=w, index=index)
 
             if dim == 1:
                 axis.set_xlim(minx, maxx)
                 line, = axis.plot([], [], drawstyle='steps')
-                name = self._w.getSpectrumInfo("name", index=index)
-                axis.set_title("{}".format(name))
-                self._w.setSpectrumInfo(spectrum=line, index=index)
+                spec_name = self._get_spectrum_info("name", index=index)
+                axis.set_title("{}".format(spec_name))
+                self._set_spectrum_info(spectrum=line, index=index)
                 if len(w) > 0:
                     X = np.array(self.createRange(binx, minx, maxx))
                     line.set_data(X, w)
-                    self._w.setSpectrumInfo(spectrum=line, index=index)
+                    self._set_spectrum_info(spectrum=line, index=index)
             else:
-                minxREST = self._w.getSpectrumInfoREST("minx", index=index)
-                maxxREST = self._w.getSpectrumInfoREST("maxx", index=index)
-                minyREST = self._w.getSpectrumInfoREST("miny", index=index)
-                maxyREST = self._w.getSpectrumInfoREST("maxy", index=index)
+                minxREST = self._spectra.get(name, "minx")
+                maxxREST = self._spectra.get(name, "maxx")
+                minyREST = self._spectra.get(name, "miny")
+                maxyREST = self._spectra.get(name, "maxy")
 
                 if w is None:
                     w = np.zeros((int(binx), int(biny)))
 
-                self._w.palette = copy(plt.cm.plasma)
+                self.palette = copy(plt.cm.plasma)
                 w = np.ma.masked_where(w == 0, w)
-                self._w.palette.set_bad(color='white')
+                self.palette.set_bad(color='white')
 
                 spectrum = axis.imshow(w,
                                        interpolation='none',
-                                       extent=[float(minxREST), float(maxxREST), float(minyREST), float(maxyREST)],
+                                       extent=[float(minxREST), float(maxxREST),
+                                               float(minyREST), float(maxyREST)],
                                        aspect='auto',
                                        origin='lower',
-                                       vmin=float(self._w.minZ), vmax=float(self._w.maxZ),
-                                       cmap=self._w.palette)
-                self._w.setSpectrumInfo(spectrum=spectrum, index=index)
+                                       vmin=float(self.minZ), vmax=float(self.maxZ),
+                                       cmap=self.palette)
+                self._set_spectrum_info(spectrum=spectrum, index=index)
 
-                name = self._w.getSpectrumInfo("name", index=index)
-                axis.set_title("{}".format(name))
+                spec_name = self._get_spectrum_info("name", index=index)
+                axis.set_title("{}".format(spec_name))
 
                 if w is not None:
                     spectrum.set_data(w)
-                    self._w.setSpectrumInfo(spectrum=spectrum, index=index)
+                    self._set_spectrum_info(spectrum=spectrum, index=index)
 
-                if self._w.getEnlargedSpectrum() is None:
+                if self._get_enlarged_spectrum() is None:
                     divider = make_axes_locatable(axis)
                     cax = divider.append_axes('right', size='5%', pad=0.05)
                     label = "colorbar_" + str(index)
                     cax.set_label(label)
-                    self._w.currentPlot.figure.colorbar(spectrum, cax=cax, orientation='vertical')
+                    self._get_current_plot().figure.colorbar(spectrum, cax=cax, orientation='vertical')
 
     def add(self, index):
         self.logger.info('add - index: %s', index)
-        a = None
-        if self._w.currentPlot.isEnlarged:
-            a = self._w.currentPlot.figure.get_axes()[0]
+        cp = self._get_current_plot()
+        a  = None
+        if cp.isEnlarged:
+            a = cp.figure.get_axes()[0]
         else:
             a = self.select_plot(index)
         try:
             self.removeCb(a)
-        except:
+        except Exception:
             pass
         a.clear()
         self.setupPlot(a, index)
 
     def addPlot(self):
         self.logger.info('addPlot')
-        if not self._w.geometry_applied:
+        if not self.geometry_applied:
             print("addPlot: Apply Geometry first!, return")
             return
 
+        cp = self._get_current_plot()
         if self._wConf.histo_list.count() == 0:
-            QMessageBox.about(self._w, "Warning", 'Please click on "Connection" and fill in the information')
+            QMessageBox.about(self._parent_widget, "Warning",
+                              'Please click on "Connection" and fill in the information')
 
         try:
-            if self._w.currentPlot.isLoaded:
-                self.logger.debug('addPlot - isLoaded TRUE - getGeo: %s', self._w.getGeo())
-                self._w.currentPlot.histo_autoscale.setChecked(True)
-                for key, value in self._w.getGeo().items():
-                    if self._w.getSpectrumInfoREST("dim", name=value) is None:
+            if cp.isLoaded:
+                self.logger.debug('addPlot - isLoaded TRUE - getGeo: %s', self._get_geo())
+                cp.histo_autoscale.setChecked(True)
+                for key, value in self._get_geo().items():
+                    if self._spectra.get(value, "dim") is None:
                         continue
                     self.add(key)
                     self.autoScaleAxisBox(key)
             else:
-                index = self._w.nextIndex()
-                name = str(self._wConf.histo_list.currentText())
+                index = self._next_index()
+                name  = str(self._wConf.histo_list.currentText())
                 self.logger.debug('addPlot - isLoaded FALSE - index, name: %s, %s', index, name)
 
-                if self._w.getSpectrumInfoREST("dim", name=name) is None:
+                if self._spectra.get(name, "dim") is None:
                     self.logger.debug('addPlot - isLoaded FALSE - dim is None')
                     return
 
-                self._w.setSpectrumInfo(cutoff=None, index=index)
-                self._w.setGeo(index, name)
+                self._set_spectrum_info(cutoff=None, index=index)
+                self._set_geo(index, name)
                 self.add(index)
 
-                self._w.currentPlot.histo_autoscale.setChecked(True)
+                cp.histo_autoscale.setChecked(True)
                 self.autoScaleAxisBox(index)
 
-                dim = self._w.getSpectrumInfoREST("dim", index=index)
-                ax = self._w.getSpectrumInfo("axis", index=index)
+                dim = self._spectra.get(self._name_from_index(index), "dim")
+                ax  = self._get_spectrum_info("axis", index=index)
                 xmin, xmax = ax.get_xlim()
 
                 if dim == 1:
-                    ymin = self._w.getSpectrumInfo("miny", index=index)
+                    ymin = self._get_spectrum_info("miny", index=index)
                     ymax = self.getMinMaxInRange(index, xmin=xmin, xmax=xmax)
                     ax.set_ylim(ymin, ymax)
                 else:
                     ymin, ymax = ax.get_xlim()
                     zmin, zmax = self.getMinMaxInRange(index, xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
-                    self._w.setSpectrumInfo(maxz=zmax, index=index)
-                    self._w.setSpectrumInfo(minz=zmin, index=index)
-                    spectrum = self._w.getSpectrumInfo("spectrum", index=index)
+                    self._set_spectrum_info(maxz=zmax, index=index)
+                    self._set_spectrum_info(minz=zmin, index=index)
+                    spectrum = self._get_spectrum_info("spectrum", index=index)
                     spectrum.set_clim(vmin=zmin, vmax=zmax)
-                    self._w.setSpectrumInfo(spectrum=spectrum, index=index)
+                    self._set_spectrum_info(spectrum=spectrum, index=index)
 
-                self._w.currentPlot.logButton.setDown(False)
-                self._w.setSpectrumInfo(log=False, index=index)
-                self._w.drawGate(index)
+                cp.logButton.setDown(False)
+                self._set_spectrum_info(log=False, index=index)
+                self._draw_gate(index)
 
                 self.removeRectangle()
-                self._w.currentPlot.recDashed = self.createDashedRectangle(
-                    self._w.currentPlot.figure.axes[self._w.currentPlot.next_plot_index])
+                cp.recDashed = self.createDashedRectangle(cp.figure.axes[cp.next_plot_index])
 
                 try:
-                    self._w.currentPlot.figure.tight_layout()
+                    cp.figure.tight_layout()
                 except ValueError:
                     self.logger.debug('addPlot - ValueError exception', exc_info=True)
                     pass
 
-                self._w.currentPlot.canvas.draw_idle()
-                self._w.currentPlot.isSelected = False
+                cp.canvas.draw_idle()
+                cp.isSelected = False
         except NameError:
             raise
 
-        if self._w.stopAutoUpdateThread.is_set():
-            self._w.autoUpdateStart()
+        if self._stop_auto_update_thread.is_set():
+            self._auto_update_start()
 
         if not self._wTab.countClickTab[self._wTab.currentIndex()]:
-            self._w.bindDynamicSignal()
+            self._bind_dynamic_signal()
 
     def createRange(self, bins, vmin, vmax):
         self.logger.info('createRange')
-        x = []
+        x    = []
         step = (float(vmax) - float(vmin)) / float(bins)
         for i in np.arange(float(vmin), float(vmax), step):
             x.append(i + step)
@@ -831,19 +874,18 @@ class PlotController:
 
     def plotPlot(self, index, cmap=None):
         self.logger.info('plotPlot - index: %s', index)
-        currentPlot = self._w.currentPlot
+        name     = self._name_from_index(index)
+        dim      = self._spectra.get(name, "dim")
+        minx     = self._spectra.get(name, "minx")
+        maxx     = self._spectra.get(name, "maxx")
+        binx     = self._spectra.get(name, "binx")
+        spectrum = self._get_spectrum_info("spectrum", index=index)
+        w        = self._spectra.get(name, "data")
 
-        dim = self._w.getSpectrumInfoREST("dim", index=index)
-        minx = self._w.getSpectrumInfoREST("minx", index=index)
-        maxx = self._w.getSpectrumInfoREST("maxx", index=index)
-        binx = self._w.getSpectrumInfoREST("binx", index=index)
-        spectrum = self._w.getSpectrumInfo("spectrum", index=index)
-        w = self._w.getSpectrumInfoREST("data", index=index)
-
-        if self._w.getSpectrumInfo("cutoff", index=index) is not None:
-            if len(self._w.getSpectrumInfo("cutoff", index=index)) > 0:
-                minCutoff = self._w.getSpectrumInfo("cutoff", index=index)[0]
-                maxCutoff = self._w.getSpectrumInfo("cutoff", index=index)[1]
+        if self._get_spectrum_info("cutoff", index=index) is not None:
+            if len(self._get_spectrum_info("cutoff", index=index)) > 0:
+                minCutoff = self._get_spectrum_info("cutoff", index=index)[0]
+                maxCutoff = self._get_spectrum_info("cutoff", index=index)[1]
                 if minCutoff is not None:
                     if dim == 1:
                         w = np.ma.masked_where(w < minCutoff, w)
@@ -857,7 +899,7 @@ class PlotController:
         if w is None or len(w) <= 0:
             self.logger.debug('plotPlot - w is None or len(w) <= 0')
             return
-        self._w.setSpectrumInfo(data=w, index=index)
+        self._set_spectrum_info(data=w, index=index)
 
         if dim == 1:
             X = np.array(self.createRange(binx, minx, maxx))
@@ -867,83 +909,83 @@ class PlotController:
             spectrum.set_data(w)
             if cmap is not None:
                 spectrum.set_cmap(cmap)
-            elif self._w.old_cmap is not None:
-                spectrum.set_cmap(self._w.old_cmap)
-            elif hasattr(self._w, "palette") and self._w.palette is not None:
-                spectrum.set_cmap(self._w.palette)
+            elif self.old_cmap is not None:
+                spectrum.set_cmap(self.old_cmap)
+            elif self.palette is not None:
+                spectrum.set_cmap(self.palette)
             else:
                 spectrum.set_cmap(plt.get_cmap("viridis"))
 
-        self._w.setSpectrumInfo(spectrum=spectrum, index=index)
-        self._w.currentPlot = currentPlot
+        self._set_spectrum_info(spectrum=spectrum, index=index)
 
     @pyqtSlot()
     def _updatePlotOnGui(self):
         self.updatePlot()
 
     def updatePlot(self):
-        auto_scale_status = self._w.currentPlot.histo_autoscale.isChecked()
-        self._w.currentPlot.histo_autoscale.setChecked(auto_scale_status)
+        cp = self._get_current_plot()
+        auto_scale_status = cp.histo_autoscale.isChecked()
+        cp.histo_autoscale.setChecked(auto_scale_status)
         self.logger.info('updatePlot')
 
-        self._w.cleanPopupExit(False)
+        self._clean_popup_exit(False)
 
         try:
-            if self._w.currentPlot.isEnlarged:
-                index = self._w.autoIndex()
-                name = self._w.nameFromIndex(index)
-                if index is None or self._w.getSpectrumInfoREST("dim", name=name) is None:
+            if cp.isEnlarged:
+                index = self._auto_index()
+                name  = self._name_from_index(index)
+                if index is None or self._spectra.get(name, "dim") is None:
                     self.logger.debug('updatePlot - index is None or dim is None')
                     return
                 self.logger.debug('updatePlot - self.currentPlot.isEnlarged TRUE')
-                ax = self._w.getSpectrumInfo("axis", index=0)
+                ax = self._get_spectrum_info("axis", index=0)
                 if ax is None:
                     self.logger.debug('updatePlot - ax is None')
-                    if len(self._w.getSpectrumInfoDict()) == 0:
-                        return QMessageBox.about(self._w, "Warning!", "Configuration file has probably changed, please reset the window geometry (add plots or load geo file)")
+                    if len(self._get_spectrum_info_dict()) == 0:
+                        return QMessageBox.about(self._parent_widget, "Warning!", "Configuration file has probably changed, please reset the window geometry (add plots or load geo file)")
                     return
                 self.plotPlot(index)
-                dim = self._w.getSpectrumInfoREST("dim", index=0)
+                dim = self._spectra.get(self._name_from_index(0), "dim")
                 if auto_scale_status:
                     if dim == 1:
                         self.setAxisScale(ax, 0, "x", "y")
                 if dim == 2:
                     self.setAxisScale(ax, 0, "x", "y", "z")
 
-                    spectrum = self._w.getSpectrumInfo("spectrum", index=index)
+                    spectrum = self._get_spectrum_info("spectrum", index=index)
                     if spectrum is not None and dim == 2:
                         if ax:
                             divider = make_axes_locatable(ax)
                             cax = divider.append_axes("right", size="5%", pad=0.05)
-                            self._w.currentPlot.figure.colorbar(spectrum, cax=cax, orientation="vertical")
-                            self._w.currentPlot.figure.tight_layout(rect=[0, 0, 0.95, 1])
-                            self._w.currentPlot.canvas.draw_idle()
+                            cp.figure.colorbar(spectrum, cax=cax, orientation="vertical")
+                            cp.figure.tight_layout(rect=[0, 0, 0.95, 1])
+                            cp.canvas.draw_idle()
 
                 try:
                     self.removeCb(ax)
-                except:
+                except Exception:
                     pass
-                self._w.drawGate(0)
+                self._draw_gate(0)
             else:
                 self.logger.debug('updatePlot - self.currentPlot.isEnlarged FALSE')
-                for index, value in self._w.getGeo().items():
-                    ax = self._w.getSpectrumInfo("axis", index=index)
+                for index, value in self._get_geo().items():
+                    ax = self._get_spectrum_info("axis", index=index)
                     if ax is None:
                         self.logger.debug('updatePlot - ax is None')
-                        if len(self._w.getSpectrumInfoDict()) == 0:
-                            return QMessageBox.about(self._w, "Warning!", "Configuration file has probably changed, please reset the window geometry (add plots or load geo file)")
+                        if len(self._get_spectrum_info_dict()) == 0:
+                            return QMessageBox.about(self._parent_widget, "Warning!", "Configuration file has probably changed, please reset the window geometry (add plots or load geo file)")
                         continue
                     self.plotPlot(index)
-                    dim = self._w.getSpectrumInfoREST("dim", index=index)
+                    dim = self._spectra.get(self._name_from_index(index), "dim")
                     if auto_scale_status:
                         if dim == 1:
                             self.setAxisScale(ax, index, "x", "y")
                         elif dim == 2:
                             self.setAxisScale(ax, index, "x", "y", "z")
-                    self._w.drawGate(index)
+                    self._draw_gate(index)
 
-            self._w.currentPlot.figure.tight_layout()
-            self._w.currentPlot.canvas.draw()
+            cp.figure.tight_layout()
+            cp.canvas.draw()
         except NameError:
             self.logger.debug('updatePlot - NameError exception', exc_info=True)
             pass
@@ -951,14 +993,15 @@ class PlotController:
     def onColormapChange(self, cmap_name: str):
         self.logger.info("onColormapChange - cmap: %s", cmap_name)
 
-        if not self._w.getGeo():
+        if not self._get_geo():
             self.logger.debug("onColormapChange - no active plots")
             return
 
         try:
+            cp = self._get_current_plot()
             if cmap_name.lower() == "custom":
                 QMessageBox.information(
-                    self._w,
+                    self._parent_widget,
                     "Custom Colormap Format from a .txt File",
                     "Each line should be:\n<low> <high> <red> <green> <blue>\n"
                     "Example:\n0.0 0.5 0 1 0\n0.5 0.7 1 0 0\n0.7 1.0 0 0 1\n\n"
@@ -967,13 +1010,13 @@ class PlotController:
                     "<red>, <green>, and <blue> are RGB values between 0 and 1."
                 )
                 filename, _ = QFileDialog.getOpenFileName(
-                    self._w, "Open Custom Colormap", "", "Text Files (*.txt)"
+                    self._parent_widget, "Open Custom Colormap", "", "Text Files (*.txt)"
                 )
                 if not filename:
                     self.logger.debug("No file selected for custom cmap")
                     return
 
-                bounds = []
+                bounds     = []
                 color_list = []
                 with open(filename) as f:
                     for line in f:
@@ -987,25 +1030,25 @@ class PlotController:
                     bounds.append(hi)
                     color_list.append((r, g, b))
 
-                self._w.palette = colors.LinearSegmentedColormap.from_list(
+                self.palette = colors.LinearSegmentedColormap.from_list(
                     "custom_cmap", list(zip(bounds, color_list)), N=256
                 )
-                self._w.palette.set_bad(color="white")
+                self.palette.set_bad(color="white")
             else:
-                self._w.palette = copy(plt.get_cmap(cmap_name))
-                self._w.palette.set_bad(color="white")
+                self.palette = copy(plt.get_cmap(cmap_name))
+                self.palette.set_bad(color="white")
 
-            for index, _ in self._w.getGeo().items():
-                if self._w.getSpectrumInfoREST("dim", index=index) != 2:
+            for index, _ in self._get_geo().items():
+                if self._spectra.get(self._name_from_index(index), "dim") != 2:
                     continue
-                spectrum = self._w.getSpectrumInfo("spectrum", index=index)
+                spectrum = self._get_spectrum_info("spectrum", index=index)
                 if spectrum is None:
                     continue
-                spectrum.set_cmap(self._w.palette)
-                self._w.setSpectrumInfo(spectrum=spectrum, index=index)
-                if self._w.currentPlot.isEnlarged:
-                    self._w.old_cmap = spectrum.get_cmap()
-                ax = self._w.getSpectrumInfo("axis", index=index)
+                spectrum.set_cmap(self.palette)
+                self._set_spectrum_info(spectrum=spectrum, index=index)
+                if cp.isEnlarged:
+                    self.old_cmap = spectrum.get_cmap()
+                ax = self._get_spectrum_info("axis", index=index)
                 if ax is not None:
                     try:
                         self.removeCb(ax)
@@ -1013,9 +1056,9 @@ class PlotController:
                         pass
                     divider = make_axes_locatable(ax)
                     cax = divider.append_axes("right", size="5%", pad=0.05)
-                    self._w.currentPlot.figure.colorbar(spectrum, cax=cax, orientation="vertical")
+                    cp.figure.colorbar(spectrum, cax=cax, orientation="vertical")
 
-            self._w.currentPlot.canvas.draw_idle()
+            cp.canvas.draw_idle()
 
         except Exception as e:
             self.logger.error("onColormapChange - exception: %s", str(e), exc_info=True)
@@ -1041,17 +1084,18 @@ class PlotController:
     def removeRectangle(self):
         self.logger.info('removeRectangle')
         try:
-            for ax in self._w.currentPlot.figure.axes:
+            cp = self._get_current_plot()
+            for ax in cp.figure.axes:
                 for child in ax.get_children():
                     if type(child) == matplotlib.patches.Rectangle:
                         if child.get_ls() == ":" and child.get_lw() == 2:
-                            if self._w.currentPlot.recDashed is not None:
-                                self._w.currentPlot.recDashed.remove()
-                                self._w.currentPlot.recDashed = None
+                            if cp.recDashed is not None:
+                                cp.recDashed.remove()
+                                cp.recDashed = None
                         elif child.get_ls() == "-" and child.get_lw() == 2:
-                            if self._w.currentPlot.rec is not None:
-                                self._w.currentPlot.rec.remove()
-                                self._w.currentPlot.rec = None
+                            if cp.rec is not None:
+                                cp.rec.remove()
+                                cp.rec = None
         except NameError:
             raise
 
@@ -1061,7 +1105,8 @@ class PlotController:
 
     def axesChilds(self):
         try:
-            for ax in self._w.currentPlot.figure.axes:
+            cp = self._get_current_plot()
+            for ax in cp.figure.axes:
                 print("Simon - axes ---------------------------- ", ax)
                 for child in ax.get_children():
                     print("Simon - axesChilds - ", child)

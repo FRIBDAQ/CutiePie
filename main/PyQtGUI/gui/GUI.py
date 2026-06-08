@@ -292,9 +292,23 @@ class MainWindow(QMainWindow):
         )
 
         self.gate_manager = GateManager(
-            window=self,
             spectra=self.spectra,
+            name_from_index=self.nameFromIndex,
+            get_spectrum_info=self.getSpectrumInfo,
+            get_is_enlarged=lambda: self.currentPlot.isEnlarged,
+            get_geo=self.getGeo,
+            get_sum_region=lambda index, name: self.sum_region_manager.getSumRegion(index, name),
+            get_current_canvas=lambda: self.wTab.wPlot[self.wTab.currentIndex()].canvas,
+            integrate_popup=self.integratePopup,
+            get_integrate_copy=lambda: getattr(self, 'sidTableIntegrateCopy', None),
+            gate_hide_cb=self.extraPopup.options.gateHide,
+            gate_annotation_cb=self.extraPopup.options.gateAnnotation,
+            gate_edit_disable_cb=self.extraPopup.options.gateEditDisable,
+            sum_region_popup=self.sumRegionPopup,
+            skip_auto=self.skipAutoUpdateThread,
+            get_rest=lambda: self.rest,
             gate_popup=self.gatePopup,
+            parent_widget=self,
             logger=self.logger,
         )
         self.sum_region_manager = SumRegionManager(
@@ -304,8 +318,8 @@ class MainWindow(QMainWindow):
             histo_list=self.wConf.histo_list,
             integrate_popup=self.integratePopup,
             skip_auto=self.skipAutoUpdateThread,
-            add_line=self.addLine,
-            remove_prev_line=self.removePrevLine,
+            add_line=lambda *a, **kw: self.gate_manager.addLine(*a, mode="sum_region", **kw),
+            remove_prev_line=lambda: self.gate_manager.removePrevLine(mode="sum_region"),
             get_rest=lambda: self.rest,
             check_and_cancel_gate=self._check_and_cancel_gate,
             sum_popup=self.sumRegionPopup,
@@ -324,13 +338,6 @@ class MainWindow(QMainWindow):
             skip_auto=self.skipAutoUpdateThread,
             logger=self.logger,
         )
-        self.plot_controller = PlotController(
-            window=self,
-            wTab=self.wTab,
-            wConf=self.wConf,
-            logger=self.logger,
-        )
-
         # default min/max for x,y
         self.minX = 0
         self.maxX = 1024
@@ -339,6 +346,34 @@ class MainWindow(QMainWindow):
         # default gradient for 2d plots
         self.minZ = 0.001
         self.maxZ = 256
+
+        self.plot_controller = PlotController(
+            wTab=self.wTab,
+            wConf=self.wConf,
+            spectra=self.spectra,
+            get_current_plot=lambda: self.currentPlot,
+            get_geo=self.getGeo,
+            set_geo=self.setGeo,
+            get_spectrum_info=self.getSpectrumInfo,
+            set_spectrum_info=self.setSpectrumInfo,
+            get_spectrum_info_dict=self.getSpectrumInfoDict,
+            name_from_index=self.nameFromIndex,
+            get_enlarged_spectrum=self.getEnlargedSpectrum,
+            auto_index=self.autoIndex,
+            next_index=self.nextIndex,
+            bind_dynamic_signal=self.bindDynamicSignal,
+            draw_gate=self.drawGate,
+            clean_popup_exit=self.cleanPopupExit,
+            auto_update_start=self.autoUpdateStart,
+            stop_auto_update_thread=self.stopAutoUpdateThread,
+            cutoff_popup=self.cutoffp,
+            min_y=self.minY,
+            max_y=self.maxY,
+            min_z=self.minZ,
+            max_z=self.maxZ,
+            parent_widget=self,
+            logger=self.logger,
+        )
 
         # for peak finding
         self.datax = None
@@ -463,8 +498,8 @@ class MainWindow(QMainWindow):
         
         #### Bashir added
         self.wConf.cmapSelector.currentTextChanged.connect(self.onColormapChange)
-        self.old_cmap = None  # to store the previous colormap
-        self.geometry_applied = False
+        # palette, old_cmap, and geometry_applied live on PlotController
+
         # self.wConf.darkModeButton.clicked.connect(self.toggleDarkMode)
 
 
@@ -478,14 +513,22 @@ class MainWindow(QMainWindow):
         ####################################################################
 
 
-        self.wConf.createGate.clicked.connect(self.gate_manager.createGate)
+        self.wConf.createGate.clicked.connect(
+            lambda: self.gate_manager.createGate(self.currentPlot.selected_plot_index))
         self.wConf.createGate.setEnabled(False)
         self.gatePopup.ok.clicked.connect(self.gate_manager.okGate)
         self.gatePopup.cancel.clicked.connect(self.gate_manager.cancelGate)
-        self.gatePopup.gateActionCreate.clicked.connect(self.gate_manager.createGate)
+        self.gatePopup.gateActionCreate.clicked.connect(
+            lambda: self.gate_manager.createGate(self.currentPlot.selected_plot_index))
         self.gatePopup.gateActionEdit.clicked.connect(self.gate_manager.editGate)
         self.gatePopup.clearInfoSignal.connect(self.gatePopup.clearInfo)
-        self.gatePopup.clearInfoSignal.connect(self.autoUpdateResume) 
+        self.gatePopup.clearInfoSignal.connect(self.autoUpdateResume)
+        self.gate_manager.canvasDrawRequested.connect(self._on_gm_canvas_draw)
+        self.gate_manager.canvasDrawIdleRequested.connect(self._on_gm_canvas_draw_idle)
+        self.gate_manager.updatePlotRequested.connect(self.updatePlot)
+        self.gate_manager.gateCreationStarted.connect(self._on_gate_creation_started)
+        self.gate_manager.gateEditingStarted.connect(self._on_gate_editing_started)
+        self.gate_manager.gateEnded.connect(self._on_gate_ended)
 
         # summing region
         self.wConf.createSumRegionButton.clicked.connect(
@@ -1106,7 +1149,7 @@ class MainWindow(QMainWindow):
                 dim = self.getSpectrumInfoREST("dim", index=idx)
                 if dim == 2:
                     spectrum_old = self.getSpectrumInfo("spectrum", index=idx)
-                    self.old_cmap = spectrum_old.get_cmap()
+                    self.plot_controller.old_cmap = spectrum_old.get_cmap()
 
                 elif dim == 1:
                     # Save current y-limits of the target axes to restore later (when autoscale is OFF)
@@ -1141,7 +1184,7 @@ class MainWindow(QMainWindow):
 
                     if spectrum is not None:
                         # print("Reusing color map for enlarged spectrum...")
-                        spectrum.set_cmap(self.old_cmap)
+                        spectrum.set_cmap(self.plot_controller.old_cmap)
                         if ax:
                             divider = make_axes_locatable(ax)
                             cax = divider.append_axes("right", size="5%", pad=0.05)
@@ -1212,8 +1255,8 @@ class MainWindow(QMainWindow):
                                     self.setAxisScale(ax, index, "x", "y")
 
                         elif dim == 2:
-                            self.plotPlot(index, self.old_cmap)
-                            self.setSpectrumInfo(cmap=self.old_cmap, index=idx)
+                            self.plotPlot(index, self.plot_controller.old_cmap)
+                            self.setSpectrumInfo(cmap=self.plot_controller.old_cmap, index=idx)
                             # if autoscale_status:
                             self.setAxisScale(ax, index, "x", "y", "z")
                         self.drawGate(index)
@@ -1639,6 +1682,29 @@ class MainWindow(QMainWindow):
     @pyqtSlot(object)
     def _on_side_table_conn_updated(self, conn):
         self.sidTableIntegrateCopy = conn
+
+    @pyqtSlot()
+    def _on_gm_canvas_draw(self):
+        self.currentPlot.canvas.draw()
+
+    @pyqtSlot()
+    def _on_gm_canvas_draw_idle(self):
+        self.currentPlot.canvas.draw_idle()
+
+    @pyqtSlot(int)
+    def _on_gate_creation_started(self, index):
+        self.currentPlot.toCreateGate = True
+        self.currentPlot.toEditGate   = False
+
+    @pyqtSlot()
+    def _on_gate_editing_started(self):
+        self.currentPlot.toEditGate   = True
+        self.currentPlot.toCreateGate = False
+
+    @pyqtSlot()
+    def _on_gate_ended(self):
+        self.currentPlot.toCreateGate = False
+        self.currentPlot.toEditGate   = False
 
     @pyqtSlot(str)
     def _on_spectrum_removed_rest(self, name):

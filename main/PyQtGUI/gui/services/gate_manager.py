@@ -7,25 +7,55 @@ import matplotlib.lines as mlines
 import matplotlib.pyplot as plt
 import numpy as np
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QObject, pyqtSignal
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QCompleter, QComboBox, QMessageBox, QShortcut,
 )
 
 
-class GateManager:
+class GateManager(QObject):
     """Owns gate CRUD, gate drawing, REST push, and mouse interactions."""
 
-    def __init__(self, window, spectra, gate_popup, logger=None):
-        self._w       = window      # bridge: rest, wTab, currentPlot, extraPopup, etc.
-        self._spectra = spectra
-        self._popup   = gate_popup
-        self.logger   = logger or logging.getLogger(__name__)
+    canvasDrawRequested     = pyqtSignal()
+    canvasDrawIdleRequested = pyqtSignal()
+    updatePlotRequested     = pyqtSignal()
+    gateCreationStarted     = pyqtSignal(int)   # sets currentPlot.toCreateGate=True, toEditGate=False
+    gateEditingStarted      = pyqtSignal()      # sets toEditGate=True, toCreateGate=False
+    gateEnded               = pyqtSignal()      # sets both flags to False
+
+    def __init__(self, spectra, name_from_index, get_spectrum_info,
+                 get_is_enlarged, get_geo, get_sum_region, get_current_canvas,
+                 integrate_popup, get_integrate_copy,
+                 gate_hide_cb, gate_annotation_cb, gate_edit_disable_cb,
+                 sum_region_popup, skip_auto, get_rest,
+                 gate_popup, parent_widget=None, logger=None):
+        super().__init__()
+        self._spectra              = spectra
+        self._name_from_index      = name_from_index        # (index) -> str
+        self._get_spectrum_info    = get_spectrum_info      # (key, index=) -> value
+        self._get_is_enlarged      = get_is_enlarged        # () -> bool
+        self._get_geo              = get_geo                # () -> {index: name}
+        self._get_sum_region       = get_sum_region         # (index, name) -> list|None
+        self._get_current_canvas   = get_current_canvas     # () -> canvas
+        self._integrate_popup      = integrate_popup
+        self._get_integrate_copy   = get_integrate_copy     # () -> connection|None
+        self._gate_hide_cb         = gate_hide_cb           # QCheckBox
+        self._gate_annotation_cb   = gate_annotation_cb     # QCheckBox
+        self._gate_edit_disable_cb = gate_edit_disable_cb   # QCheckBox
+        self._sum_region_popup     = sum_region_popup
+        self._skip_auto            = skip_auto              # threading.Event
+        self._get_rest             = get_rest               # () -> PyREST|None
+        self._popup                = gate_popup
+        self._parent_widget        = parent_widget
+        self.logger                = logger or logging.getLogger(__name__)
 
         self.gateColor      = {}
         self.gateAnnotation = {}
-        self.epsilon        = 5     # max pixel distance to count as a vertex hit
+        self.epsilon        = 5
+
+        self._creating_gate = False
+        self._editing_gate  = False
 
     # ------------------------------------------------------------------
     # Gate drawing
@@ -33,13 +63,13 @@ class GateManager:
 
     def drawGate(self, index):
         self.logger.info('drawGate - index: %s', index)
-        spectrumName = self._w.nameFromIndex(index)
+        spectrumName = self._name_from_index(index)
         if not spectrumName:
             self.logger.debug("drawGate: no name for index %s; skipping", index)
             return
-        spectrumType = self._w.getSpectrumInfoREST("type", name=spectrumName)
-        dim          = self._w.getSpectrumInfoREST("dim",  name=spectrumName)
-        parameters   = self._w.getSpectrumInfoREST("parameters", name=spectrumName)
+        spectrumType = self._spectra.get(spectrumName, "type")
+        dim          = self._spectra.get(spectrumName, "dim")
+        parameters   = self._spectra.get(spectrumName, "parameters")
         if not spectrumType or parameters is None:
             self.logger.debug("drawGate: blank canvas/missing metadata for '%s'; skipping", spectrumName)
             return
@@ -53,7 +83,7 @@ class GateManager:
             parameters = parametersFormat
         self.logger.debug('drawGate - spectrumName, spectrumType, dim, paramters: %s, %s, %s, %s',
                           spectrumName, spectrumType, dim, parameters)
-        ax = self._w.getSpectrumInfo("axis", index=index)
+        ax = self._get_spectrum_info("axis", index=index)
         if ax is None:
             self.logger.debug('drawGate - ax is None')
             return
@@ -68,7 +98,10 @@ class GateManager:
             "m2": ["NotDefinedYet"],
             "s":  ["NotDefinedYet"],
         }
-        gateList = [d for d in self._w.rest.listGate()
+        rest = self._get_rest()
+        if rest is None:
+            return
+        gateList = [d for d in rest.listGate()
                     if "type" in d and "parameters" in d
                     and d["type"] in drawableTypes[spectrumType]
                     and d["parameters"] == parameters]
@@ -84,7 +117,7 @@ class GateManager:
                                 and gl.get_label() == lineLabel]
                     for lr in toRemove:
                         lr.remove()
-                    if self._w.extraPopup.options.gateHide.isChecked():
+                    if self._gate_hide_cb.isChecked():
                         continue
                     line = mlines.Line2D([xlim[iLine], xlim[iLine]],
                                         [ylim[0], ylim[1]],
@@ -98,7 +131,7 @@ class GateManager:
                             and lineLabel in gl.get_label()]
                 for lr in toRemove:
                     lr.remove()
-                if self._w.extraPopup.options.gateHide.isChecked():
+                if self._gate_hide_cb.isChecked():
                     continue
                 if spectrumType not in ["s"]:
                     xPoints = [pd["x"] for pd in gate["points"]]
@@ -110,13 +143,13 @@ class GateManager:
                                         picker=5, color='red', label=lineLabel)
                     ax.add_line(line)
 
-            if (self._w.extraPopup.options.gateAnnotation.isChecked()
-                    and not self._w.extraPopup.options.gateHide.isChecked()):
+            if (self._gate_annotation_cb.isChecked()
+                    and not self._gate_hide_cb.isChecked()):
                 self.setGateAnnotation(index, True)
             else:
                 self.setGateAnnotation(index, False)
 
-        lineListSumReg = self._w.getSumRegion(index)
+        lineListSumReg = self._get_sum_region(index, spectrumName)
         if lineListSumReg is None:
             return
         for sumRegionLine in lineListSumReg:
@@ -140,23 +173,23 @@ class GateManager:
 
     def gateAnnotationCallBack(self):
         self.logger.info('gateAnnotationCallBack - isChecked: %s',
-                         self._w.extraPopup.options.gateAnnotation.isChecked())
-        doAnnotate = self._w.extraPopup.options.gateAnnotation.isChecked()
-        if self._w.currentPlot.isEnlarged:
+                         self._gate_annotation_cb.isChecked())
+        doAnnotate = self._gate_annotation_cb.isChecked()
+        if self._get_is_enlarged():
             self.setGateAnnotation(0, doAnnotate)
         else:
-            for index, name in self._w.getGeo().items():
+            for index, name in self._get_geo().items():
                 if name:
                     self.setGateAnnotation(index, doAnnotate)
-        self._w.currentPlot.canvas.draw()
+        self.canvasDrawRequested.emit()
 
     def setGateAnnotation(self, index, doAnnotate):
         self.logger.info('setGateAnnotation - index, doAnnotate: %s, %s', index, doAnnotate)
-        ax = self._w.getSpectrumInfo("axis", index=index)
+        ax = self._get_spectrum_info("axis", index=index)
         if ax is None:
             self.logger.debug('setGateAnnotation - ax is None')
             return
-        dim = self._w.getSpectrumInfoREST("dim", index=index)
+        dim = self._spectra.get(self._name_from_index(index), "dim")
 
         for child in ax.get_children():
             if type(child) == matplotlib.lines.Line2D:
@@ -186,7 +219,7 @@ class GateManager:
 
                         if doAnnotate:
                             xy = self.getXYAnnotation(
-                                self._w.getSpectrumInfo("name", index=index),
+                                self._name_from_index(index),
                                 gateName,
                                 (positionX + offsetX, positionY),
                             )
@@ -255,12 +288,18 @@ class GateManager:
     def pushGateToREST(self, gateName, gateType):
         self.logger.info('pushGateToREST')
         if gateName is None or gateName == "None":
-            self.logger.debug('pushGateToREST - gateName is None or gateName == "None"')
+            self.logger.debug('pushGateToREST - gateName is None or "None"')
             return
 
-        dim          = self._w.getSpectrumInfo("dim", index=self._popup.gateSpectrumIndex)
-        parameters   = self._w.getSpectrumInfoREST("parameters", index=self._popup.gateSpectrumIndex)
-        spectrumType = self._w.getSpectrumInfoREST("type", index=self._popup.gateSpectrumIndex)
+        rest = self._get_rest()
+        if rest is None:
+            self.logger.warning('pushGateToREST - REST client not available')
+            return
+
+        dim          = self._get_spectrum_info("dim", index=self._popup.gateSpectrumIndex)
+        name         = self._name_from_index(self._popup.gateSpectrumIndex)
+        parameters   = self._spectra.get(name, "parameters")
+        spectrumType = self._spectra.get(name, "type")
 
         if spectrumType == "gd":
             parametersFormat = []
@@ -289,7 +328,7 @@ class GateManager:
             return
 
         boundaries = []
-        if self._w.currentPlot.toEditGate:
+        if self._editing_gate:
             points = self.formatGatePopupPointText(dim)
             if points is None:
                 return
@@ -308,7 +347,7 @@ class GateManager:
                     if boundaries[0] > boundaries[1]:
                         boundaries.sort()
                         self.logger.warning(
-                            'pushGateToREST - 1d - found boundaries[0] > boundaries[1] so sorted the boundaries')
+                            'pushGateToREST - 1d - found boundaries[0] > boundaries[1] so sorted')
             else:
                 for iline, line in enumerate(self._popup.listRegionLine):
                     if line.get_label() != "closing_segment":
@@ -321,12 +360,12 @@ class GateManager:
                                                "y": line.get_ydata()[1]})
 
         if spectrumType == "m2":
-            for name, par in parametersFormat.items():
-                self._w.rest.createGate(name, gateType, par, boundaries)
+            for subname, par in parametersFormat.items():
+                rest.createGate(subname, gateType, par, boundaries)
             subGateNameList = list(parametersFormat.keys())
-            self._w.rest.createGate(gateName, "+", subGateNameList, None)
+            rest.createGate(gateName, "+", subGateNameList, None)
         else:
-            self._w.rest.createGate(gateName, gateType, parameters, boundaries)
+            rest.createGate(gateName, gateType, parameters, boundaries)
 
     def formatGatePopupPointText(self, dim):
         self.logger.info('formatGatePopupPointText - dim: %s', dim)
@@ -349,7 +388,7 @@ class GateManager:
             posX = re.search(r'X(\s*[=]\s*)([-+]?(?:\d*\.*\d+))', line)
             if dim == 1 and not posX:
                 self.logger.warning(
-                    'formatGatePopupPointText - 1d spectrum - Line format is: i: X=f1 where i is integer and f1, f2 floats (no sci notation)')
+                    'formatGatePopupPointText - 1d spectrum - Line format is: i: X=f1')
                 return None
             try:
                 posX = float(posX.group(2))
@@ -361,7 +400,7 @@ class GateManager:
             posY = re.search(r'Y(\s*[=]\s*)([-+]?(?:\d*\.*\d+))', line)
             if dim == 2 and not posY:
                 self.logger.warning(
-                    'formatGatePopupPointText - 2d spectrum - Line format is: i: X=f1 Y=f2 where i is integer and f1, f2 floats (no sci notation)')
+                    'formatGatePopupPointText - 2d spectrum - Line format is: i: X=f1 Y=f2')
                 return None
             elif dim == 2 and posY:
                 posY = float(posY.group(2))
@@ -382,12 +421,15 @@ class GateManager:
 
     def okGate(self):
         self.logger.info('okGate')
+        rest = self._get_rest()
+        if rest is None:
+            return
         gateName     = self._popup.gateNameList.currentText()
-        gateNameList = [gate["name"] for gate in self._w.rest.listGate()]
-        if not self._w.currentPlot.toEditGate:
+        gateNameList = [gate["name"] for gate in rest.listGate()]
+        if not self._editing_gate:
             if gateName in gateNameList:
                 self.logger.debug('okGate - gateName: %s already exists', gateName)
-                msgBox = QMessageBox(self._w)
+                msgBox = QMessageBox(self._parent_widget)
                 msgBox.setIcon(QMessageBox.Warning)
                 msgBox.setWindowFlag(Qt.WindowStaysOnTopHint, True)
                 msgBox.setText("Gate name already exists.")
@@ -401,8 +443,8 @@ class GateManager:
                 elif ret == QMessageBox.Cancel:
                     return
             elif "_-_" in gateName:
-                self.logger.debug('okGate - gateName has _-_ in its name')
-                msgBox = QMessageBox(self._w)
+                self.logger.debug('okGate - gateName has _-_ in name')
+                msgBox = QMessageBox(self._parent_widget)
                 msgBox.setIcon(QMessageBox.Warning)
                 msgBox.setWindowFlag(Qt.WindowStaysOnTopHint, True)
                 msgBox.setText('Gate name must not include "_-_"')
@@ -417,28 +459,30 @@ class GateManager:
 
     def cancelGate(self, doClose=True):
         self.logger.info('cancelGate')
-        self._w.currentPlot.toCreateGate = False
-        self._w.currentPlot.toEditGate   = False
+        self._creating_gate = False
+        self._editing_gate  = False
+        self.gateEnded.emit()
         self.disconnectGateSignals()
         if doClose:
             self._popup.close()
-        self._w.updatePlot()
+        self.updatePlotRequested.emit()
 
     def disconnectGateSignals(self):
         self.logger.info('disconnectGateSignals')
+        canvas = self._get_current_canvas()
         try:
             if hasattr(self, 'gateReleaser'):
-                self._w.wTab.wPlot[self._w.wTab.currentIndex()].canvas.mpl_disconnect(self.gateReleaser)
+                canvas.mpl_disconnect(self.gateReleaser)
         except TypeError:
             pass
         try:
             if hasattr(self, 'gateFollower'):
-                self._w.wTab.wPlot[self._w.wTab.currentIndex()].canvas.mpl_disconnect(self.gateFollower)
+                canvas.mpl_disconnect(self.gateFollower)
         except TypeError:
             pass
         try:
             if hasattr(self, 'sid'):
-                self._w.wTab.wPlot[self._w.wTab.currentIndex()].canvas.mpl_disconnect(self.sid)
+                canvas.mpl_disconnect(self.sid)
         except TypeError:
             pass
         try:
@@ -461,22 +505,22 @@ class GateManager:
                 self.shortcutInsertRegionPoint.setEnabled(False)
         except TypeError:
             pass
-        try:
-            if hasattr(self._w, 'sidTableIntegrateCopy'):
-                self._w.integratePopup.resultsText.itemSelectionChanged.disconnect(
-                    self._w.sidTableIntegrateCopy)
-        except TypeError:
-            pass
+        conn = self._get_integrate_copy()
+        if conn is not None:
+            try:
+                self._integrate_popup.resultsText.itemSelectionChanged.disconnect(conn)
+            except TypeError:
+                pass
 
     # ------------------------------------------------------------------
     # Gate creation
     # ------------------------------------------------------------------
 
-    def createGate(self):
+    def createGate(self, index):
         self.logger.info('createGate')
-        self._w.skipAutoUpdateThread.set()
+        self._skip_auto.set()
         self._popup.gateActionCreate.setChecked(True)
-        if self._w.extraPopup.options.gateEditDisable.isChecked():
+        if self._gate_edit_disable_cb.isChecked():
             self._popup.gateActionEdit.setChecked(False)
             self._popup.gateActionEdit.setEnabled(False)
         else:
@@ -493,8 +537,8 @@ class GateManager:
         self._popup.gateNameList.setInsertPolicy(QComboBox.NoInsert)
         self._popup.gateNameList.setCurrentText("gate-001")
 
-        if self._w.currentPlot.selected_plot_index is None:
-            return QMessageBox.about(self._w, "Warning!", "Please add at least one spectrum")
+        if index is None:
+            return QMessageBox.about(self._parent_widget, "Warning!", "Please add at least one spectrum")
 
         gateTypesDict = {
             "b":  ["NotDefinedYet"],
@@ -507,8 +551,7 @@ class GateManager:
             "m2": ["c", "b"],
             "s":  ["NotDefinedYet"],
         }
-        spectrumType = self._w.getSpectrumInfoREST("type",
-                                                    index=self._w.currentPlot.selected_plot_index)
+        spectrumType = self._spectra.get(self._name_from_index(index), "type")
         if spectrumType is None:
             return
 
@@ -519,7 +562,7 @@ class GateManager:
         for gtype in gateTypesList:
             if gtype == "NotDefinedYet":
                 self.logger.debug('createGate - gate type NotDefinedYet')
-                msgBox = QMessageBox(self._w)
+                msgBox = QMessageBox(self._parent_widget)
                 msgBox.setIcon(QMessageBox.Warning)
                 msgBox.setWindowFlag(Qt.WindowStaysOnTopHint, True)
                 msgBox.setText('No gate type available for "' + spectrumType + '" spectrum')
@@ -529,23 +572,25 @@ class GateManager:
                 return
             self._popup.listGateType.addItem(gtype)
 
-        self._w.currentPlot.toCreateGate = True
-        self._w.currentPlot.toEditGate   = False
+        self._creating_gate = True
+        self._editing_gate  = False
+        self.gateCreationStarted.emit(index)
 
         self.sidGateTypeListChanged = self._popup.listGateType.currentIndexChanged.connect(
             self.gateTypeListChanged)
 
-        self._popup.gateSpectrumIndex = self._w.currentPlot.selected_plot_index
+        self._popup.gateSpectrumIndex = index
 
-        self._populateGateNameListFromAxis(self._popup.gateSpectrumIndex)
+        self._populateGateNameListFromAxis(index)
         self._popup.gateNameList.setCurrentText(self._nextGateName())
 
         self._popup.show()
 
     def _populateGateNameListFromAxis(self, spec_index):
-        ax  = self._w.getSpectrumInfo("axis", index=spec_index)
-        dim = self._w.getSpectrumInfoREST("dim", index=spec_index)
-        cb  = self._popup.gateNameList
+        ax   = self._get_spectrum_info("axis", index=spec_index)
+        name = self._name_from_index(spec_index)
+        dim  = self._spectra.get(name, "dim")
+        cb   = self._popup.gateNameList
         cb.clear()
         if ax is None or dim is None:
             return
@@ -575,11 +620,12 @@ class GateManager:
 
     def onGatePopupPreview(self):
         self.logger.info('onGatePopupPreview')
-        ax = self._w.getSpectrumInfo("axis", index=self._popup.gateSpectrumIndex)
+        ax = self._get_spectrum_info("axis", index=self._popup.gateSpectrumIndex)
         if ax is None:
             self.logger.debug('onGatePopupPreview - ax is None')
             return
-        dim    = self._w.getSpectrumInfoREST("dim", index=self._popup.gateSpectrumIndex)
+        name   = self._name_from_index(self._popup.gateSpectrumIndex)
+        dim    = self._spectra.get(name, "dim")
         points = self.formatGatePopupPointText(dim)
         if points is None:
             self.logger.debug('onGatePopupPreview - points is None')
@@ -615,20 +661,18 @@ class GateManager:
                 lineX.append(points[0][0])
                 lineY.append(points[0][1])
             self.editThisGateLine.set_data(lineX, lineY)
-        self._w.currentPlot.canvas.draw()
+        self.canvasDrawRequested.emit()
 
     def checkConnections(self):
-        if self._w.wTab.wPlot[self._w.wTab.currentIndex()].canvas.callbacks.callbacks:
-            for event_name, callbacks_dict in (
-                self._w.wTab.wPlot[self._w.wTab.currentIndex()].canvas.callbacks.callbacks.items()
-            ):
+        canvas = self._get_current_canvas()
+        if canvas.callbacks.callbacks:
+            for event_name, callbacks_dict in canvas.callbacks.callbacks.items():
                 print(f"Event: {event_name}, Callbacks: {callbacks_dict}")
 
     def find_callbacks(self):
+        canvas = self._get_current_canvas()
         callbacks_for_gate_manager = []
-        for event_name, callbacks_dict in (
-            self._w.wTab.wPlot[self._w.wTab.currentIndex()].canvas.callbacks.callbacks.items()
-        ):
+        for event_name, callbacks_dict in canvas.callbacks.callbacks.items():
             for callback_id, callback_func in callbacks_dict.items():
                 if hasattr(callback_func, '__self__') and callback_func.__self__ is self:
                     callbacks_for_gate_manager.append((event_name, callback_func))
@@ -649,19 +693,20 @@ class GateManager:
         except TypeError:
             pass
 
-        self.sid = self._w.wTab.wPlot[self._w.wTab.currentIndex()].canvas.mpl_connect(
+        self.sid = self._get_current_canvas().mpl_connect(
             'pick_event', self.clickOnGateLine)
 
-        self.shortcutInsertRegionPoint = QShortcut(QKeySequence("Alt+E"), self._w)
+        self.shortcutInsertRegionPoint = QShortcut(
+            QKeySequence("Alt+E"), self._parent_widget)
         self.shortcutInsertRegionPoint.activated.connect(self.onKeyActivateEditGate)
 
         if self._popup.gateSpectrumIndex is None:
             self.logger.debug('editGate - gateSpectrumIndex is None')
-            return QMessageBox.about(self._w, "Warning!", "Please add at least one spectrum")
+            return QMessageBox.about(self._parent_widget, "Warning!", "Please add at least one spectrum")
 
-        spectrumName = self._w.nameFromIndex(self._popup.gateSpectrumIndex)
-        dim = self._w.getSpectrumInfoREST("dim", name=spectrumName)
-        ax  = self._w.getSpectrumInfo("axis", index=self._popup.gateSpectrumIndex)
+        spectrumName = self._name_from_index(self._popup.gateSpectrumIndex)
+        dim = self._spectra.get(spectrumName, "dim")
+        ax  = self._get_spectrum_info("axis", index=self._popup.gateSpectrumIndex)
         if ax is None:
             self.logger.debug('editGate - ax is None')
             return
@@ -685,9 +730,10 @@ class GateManager:
         self.sidGateNameListChanged = self._popup.gateNameList.currentTextChanged.connect(
             self.gateNameListChanged)
 
-        self._w.currentPlot.toEditGate   = True
-        self.altPressed                   = False
-        self._w.currentPlot.toCreateGate  = False
+        self._creating_gate = False
+        self._editing_gate  = True
+        self.gateEditingStarted.emit()
+        self.altPressed = False
         self._popup.regionPoint.setReadOnly(False)
 
     def gateTypeListChanged(self):
@@ -704,7 +750,7 @@ class GateManager:
 
     def gateNameListChanged(self):
         self.logger.info('gateNameListChanged')
-        ax = self._w.getSpectrumInfo("axis", index=self._popup.gateSpectrumIndex)
+        ax = self._get_spectrum_info("axis", index=self._popup.gateSpectrumIndex)
         if ax is None:
             self.logger.debug('gateNameListChanged - ax is None')
             return
@@ -719,14 +765,17 @@ class GateManager:
         lines = [child for child in ax.get_children()
                  if type(child) == matplotlib.lines.Line2D
                  and gateIdentifier in child.get_label()]
-        gate = [d for d in self._w.rest.listGate() if d["name"] == gateName]
+        rest = self._get_rest()
+        if rest is None:
+            return
+        gate = [d for d in rest.listGate() if d["name"] == gateName]
         self._popup.gateNameList.setCurrentText(gateName)
         self._popup.listGateType.addItem(gate[0]["type"])
         self.updateTextGatePopup(lines)
         for line in lines:
             line.set_marker(marker='o')
             line.set_color("green")
-        self._w.currentPlot.canvas.draw()
+        self.canvasDrawRequested.emit()
 
     # ------------------------------------------------------------------
     # Mouse interaction helpers
@@ -734,9 +783,9 @@ class GateManager:
 
     def on_singleclick_gate(self, event, index):
         self.logger.info('on_singleclick_gate - index: %s', index)
-        if not self._w.currentPlot.isEnlarged:
+        if not self._get_is_enlarged():
             return
-        dim      = self._w.getSpectrumInfoREST("dim", index=index)
+        dim      = self._spectra.get(self._name_from_index(index), "dim")
         gateType = self._popup.listGateType.currentText()
         if dim == 1:
             l = self.addLine(float(event.xdata), 0, index)
@@ -783,13 +832,13 @@ class GateManager:
                 if l is not None:
                     self._popup.listRegionLine.append(l)
 
-        self._w.currentPlot.canvas.draw()
+        self.canvasDrawRequested.emit()
 
     def on_singleclick_gate_right(self, index):
         self.logger.info('on_singleclick_gate_right - index: %s', index)
-        if not self._w.currentPlot.isEnlarged:
+        if not self._get_is_enlarged():
             return
-        dim          = self._w.getSpectrumInfoREST("dim", index=index)
+        dim          = self._spectra.get(self._name_from_index(index), "dim")
         gateType     = self._popup.listGateType.currentText()
         gateTypeList1 = ["c", "gc"]
         gateTypeList2 = ["b"]
@@ -841,12 +890,13 @@ class GateManager:
             self._popup.regionPoint.clear()
             self._popup.regionPoint.insertPlainText(lineText)
 
-        self._w.currentPlot.canvas.draw()
+        self.canvasDrawRequested.emit()
 
     def on_singleclick_gate_edit(self, event):
         self.logger.info('on_singleclick_gate_edit')
-        dim = self._w.getSpectrumInfoREST("dim", index=self._popup.gateSpectrumIndex)
-        ax  = self._w.getSpectrumInfo("axis", index=self._popup.gateSpectrumIndex)
+        name = self._name_from_index(self._popup.gateSpectrumIndex)
+        dim  = self._spectra.get(name, "dim")
+        ax   = self._get_spectrum_info("axis", index=self._popup.gateSpectrumIndex)
         if ax is None:
             self.logger.debug('on_singleclick_gate_edit - ax is None')
             return
@@ -858,22 +908,23 @@ class GateManager:
         if event.button == 3:
             if hasattr(self, 'altPressed') and self.altPressed:
                 self.deletePointGate(event)
-            self._w.currentPlot.canvas.draw()
+            self.canvasDrawRequested.emit()
         self.altPressed = False
 
     def on_dblclick_gate_edit(self, event, index):
         self.logger.info('on_dblclick_gate_edit')
-        dim = self._w.getSpectrumInfoREST("dim", index=self._popup.gateSpectrumIndex)
+        name = self._name_from_index(self._popup.gateSpectrumIndex)
+        dim  = self._spectra.get(name, "dim")
         if dim == 2:
             self._popup.gateEditOption = "2d_move_all"
-            self.gateReleaser = self._w.wTab.wPlot[self._w.wTab.currentIndex()].canvas.mpl_connect(
+            self.gateReleaser = self._get_current_canvas().mpl_connect(
                 "button_press_event", self.releaseonclick)
 
-    def addLine(self, posx, posy, index, label=None):
+    def addLine(self, posx, posy, index, label=None, mode="gate"):
         self.logger.info('addLine - posx, posy, index, label: %s, %s, %s, %s',
                          posx, posy, index, label)
-        spectrum = self._w.getSpectrumInfo("spectrum", index=index)
-        dim      = self._w.getSpectrumInfo("dim", index=index)
+        spectrum = self._get_spectrum_info("spectrum", index=index)
+        dim      = self._get_spectrum_info("dim", index=index)
         if spectrum is None:
             self.logger.debug('addLine - spectrum is None')
             return
@@ -885,16 +936,18 @@ class GateManager:
             l = mlines.Line2D([posx, posx], [ymin, ymax], picker=5, label=label)
             ax.add_line(l)
         elif dim == 2:
-            if self._w.currentPlot.toCreateGate:
+            if mode == "gate":
                 xyPrev = self._popup.prevPoint
                 self._popup.prevPoint = [posx, posy]
                 if label == "closing_segment":
                     self._popup.prevPoint = xyPrev
-            elif self._w.currentPlot.toCreateSumRegion:
-                xyPrev = self._w.sumRegionPopup.prevPoint
-                self._w.sumRegionPopup.prevPoint = [posx, posy]
+            elif mode == "sum_region":
+                xyPrev = self._sum_region_popup.prevPoint
+                self._sum_region_popup.prevPoint = [posx, posy]
                 if label == "closing_segment":
-                    self._w.sumRegionPopup.prevPoint = xyPrev
+                    self._sum_region_popup.prevPoint = xyPrev
+            else:
+                return
             if xyPrev is None or len(xyPrev) == 0:
                 return
             l = mlines.Line2D([xyPrev[0], posx], [xyPrev[1], posy], picker=5, label=label)
@@ -903,19 +956,17 @@ class GateManager:
         if l is None:
             self.logger.debug('addLine - l is None')
             return
-        if self._w.currentPlot.toCreateSumRegion:
-            l.set_color('b')
-        else:
-            l.set_color('r')
+        l.set_color('b' if mode == "sum_region" else 'r')
         return l
 
-    def removePrevLine(self):
+    def removePrevLine(self, mode="gate"):
         self.logger.info('removePrevLine')
-        popup = None
-        if self._w.currentPlot.toCreateGate:
+        if mode == "gate":
             popup = self._popup
-        elif self._w.currentPlot.toCreateSumRegion:
-            popup = self._w.sumRegionPopup
+        elif mode == "sum_region":
+            popup = self._sum_region_popup
+        else:
+            return
         if popup is not None:
             l = popup.listRegionLine[0]
             l.remove()
@@ -923,14 +974,15 @@ class GateManager:
 
     def releaseonclick(self, event):
         self.logger.info('releaseonclick')
+        canvas = self._get_current_canvas()
         try:
             if hasattr(self, 'gateReleaser'):
-                self._w.wTab.wPlot[self._w.wTab.currentIndex()].canvas.mpl_disconnect(self.gateReleaser)
+                canvas.mpl_disconnect(self.gateReleaser)
         except TypeError:
             pass
         try:
             if hasattr(self, 'gateFollower'):
-                self._w.wTab.wPlot[self._w.wTab.currentIndex()].canvas.mpl_disconnect(self.gateFollower)
+                canvas.mpl_disconnect(self.gateFollower)
         except TypeError:
             pass
         self._popup.gateEditOption = None
@@ -938,16 +990,16 @@ class GateManager:
         self.movingMarker = []
 
     def onKeyActivateEditGate(self):
-        self.logger.info('onKeyActivateEditGate - toEditGate: %s',
-                         self._w.currentPlot.toEditGate)
-        if not self._w.currentPlot.toEditGate:
+        self.logger.info('onKeyActivateEditGate - _editing_gate: %s', self._editing_gate)
+        if not self._editing_gate:
             return
         self.altPressed = True
 
     def insertPointGate(self, event):
         self.logger.info('insertPointGate')
-        dim = self._w.getSpectrumInfoREST("dim", index=self._popup.gateSpectrumIndex)
-        ax  = self._w.getSpectrumInfo("axis", index=self._popup.gateSpectrumIndex)
+        name = self._name_from_index(self._popup.gateSpectrumIndex)
+        dim  = self._spectra.get(name, "dim")
+        ax   = self._get_spectrum_info("axis", index=self._popup.gateSpectrumIndex)
         if ax is None or dim != 2:
             self.logger.debug('insertPointGate - ax is None or dim!=2: %s', dim)
             return
@@ -968,12 +1020,13 @@ class GateManager:
             lineX.insert(insertAt + 1, ax.transData.inverted().transform((event.x, event.y))[0])
             lineY.insert(insertAt + 1, ax.transData.inverted().transform((event.x, event.y))[1])
             self.editThisGateLine.set_data(lineX, lineY)
-            self._w.currentPlot.canvas.draw_idle()
+            self.canvasDrawIdleRequested.emit()
 
     def deletePointGate(self, event):
         self.logger.info('deletePointGate')
-        dim = self._w.getSpectrumInfoREST("dim", index=self._popup.gateSpectrumIndex)
-        ax  = self._w.getSpectrumInfo("axis", index=self._popup.gateSpectrumIndex)
+        name = self._name_from_index(self._popup.gateSpectrumIndex)
+        dim  = self._spectra.get(name, "dim")
+        ax   = self._get_spectrum_info("axis", index=self._popup.gateSpectrumIndex)
         if ax is None or dim != 2:
             self.logger.debug('deletePointGate - ax is None or dim!=2: %s', dim)
             return
@@ -995,7 +1048,7 @@ class GateManager:
             lineY.pop(markerIdx[0])
             self.editThisGateLine.set_data(lineX, lineY)
             self.updateTextGatePopup([self.editThisGateLine])
-            self._w.currentPlot.canvas.draw_idle()
+            self.canvasDrawIdleRequested.emit()
 
     def followmouse(self, event):
         if self._popup.gateEditOption == "1d_move_line":
@@ -1020,7 +1073,7 @@ class GateManager:
             else:
                 markerPos = np.array([lineX, lineY])
                 try:
-                    ax = self._w.getSpectrumInfo("axis", index=self._popup.gateSpectrumIndex)
+                    ax = self._get_spectrum_info("axis", index=self._popup.gateSpectrumIndex)
                     if ax is None:
                         return
                     distances      = np.linalg.norm(markerPos - self.xyRef.reshape(2, -1), axis=0)
@@ -1039,19 +1092,19 @@ class GateManager:
                             lineY[mIdx] = event.ydata
                             self.movingMarker.append(mIdx)
                         self.editThisGateLine.set_data(lineX, lineY)
-                        self.gateReleaser = self._w.wTab.wPlot[
-                            self._w.wTab.currentIndex()
-                        ].canvas.mpl_connect("button_press_event", self.releaseonclick)
+                        self.gateReleaser = self._get_current_canvas().mpl_connect(
+                            "button_press_event", self.releaseonclick)
                 except NameError:
                     raise
-        self._w.currentPlot.canvas.draw_idle()
+        self.canvasDrawIdleRequested.emit()
 
     def pixel_to_data_distance(self, pixel_distance, axis_limits, plotting_area_size):
         axis_range = axis_limits[1] - axis_limits[0]
         return pixel_distance * (axis_range / plotting_area_size)
 
     def updateTextGatePopup(self, gateList):
-        dim = self._w.getSpectrumInfoREST("dim", index=self._popup.gateSpectrumIndex)
+        name = self._name_from_index(self._popup.gateSpectrumIndex)
+        dim  = self._spectra.get(name, "dim")
         if dim == 1:
             lineText = ""
             for nbLine in range(len(gateList)):
@@ -1075,8 +1128,9 @@ class GateManager:
         if event.mouseevent.button != 1:
             return
         self.editThisGateLine = None
-        dim = self._w.getSpectrumInfoREST("dim", index=self._popup.gateSpectrumIndex)
-        ax  = self._w.getSpectrumInfo("axis", index=self._popup.gateSpectrumIndex)
+        name = self._name_from_index(self._popup.gateSpectrumIndex)
+        dim  = self._spectra.get(name, "dim")
+        ax   = self._get_spectrum_info("axis", index=self._popup.gateSpectrumIndex)
         if ax is None:
             self.logger.debug('clickOnGateLine - ax is None')
             return
@@ -1095,7 +1149,10 @@ class GateManager:
             self.logger.debug('clickOnGateLine - lineLabel has not the expected format')
             return
         gateName = labelSplit[1]
-        gate     = [d for d in self._w.rest.listGate() if d["name"] == gateName]
+        rest = self._get_rest()
+        if rest is None:
+            return
+        gate = [d for d in rest.listGate() if d["name"] == gateName]
 
         self._popup.gateNameList.setCurrentText(gateName)
         self._popup.listGateType.clear()
@@ -1107,16 +1164,17 @@ class GateManager:
                      and gateIdentifier in child.get_label()]
         self.updateTextGatePopup(gateLines)
 
-        self.gateFollower = self._w.wTab.wPlot[self._w.wTab.currentIndex()].canvas.mpl_connect(
+        canvas = self._get_current_canvas()
+        self.gateFollower = canvas.mpl_connect(
             "motion_notify_event", self.followmouse)
         if dim == 1:
             self._popup.gateEditOption = "1d_move_line"
-            self.gateReleaser = self._w.wTab.wPlot[self._w.wTab.currentIndex()].canvas.mpl_connect(
+            self.gateReleaser = canvas.mpl_connect(
                 "button_press_event", self.releaseonclick)
         elif dim == 2:
             self.editThisGateLine.set_marker(marker='o')
             self.editThisGateLine.set_color("green")
-            self._w.currentPlot.canvas.draw()
+            self.canvasDrawRequested.emit()
             self._popup.gateEditOption = "2d_move_point"
 
     # ------------------------------------------------------------------
