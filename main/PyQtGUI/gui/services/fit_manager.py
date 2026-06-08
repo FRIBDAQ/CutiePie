@@ -373,10 +373,6 @@ class FitManager:
 
                     fitResultsText = QTextEdit()
                     print(f"... Fitting {fit_funct} ...")
-                    if not use_csv:
-                        print(f"  [diag] spectrum={spectrumName!r}  binx={binx}  x_REST=[{minxREST}, {maxxREST}]")
-                        print(f"  [diag] fit range xmin={xmin:.4g}  xmax={xmax:.4g}")
-                        print(f"  [diag] data points n={len(x)}  sum_y={float(np.sum(y)):.1f}  max_y={float(np.max(y)) if len(y) else 0:.1f}")
 
                     fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
 
