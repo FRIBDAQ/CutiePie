@@ -2,31 +2,41 @@ import logging
 
 import CPyConverter as cpy
 
-from PyQt5.QtCore import QThread, QElapsedTimer, pyqtSlot
+from PyQt5.QtCore import QThread, QElapsedTimer, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import QComboBox, QCompleter
 from PyQt5 import QtCore
 
 from PyREST import PyREST
+from services.spectrum_store import SpectrumStore
 from services.thread_workers import RestWorker, AutoUpdateWorker
 
 
 class ConnectionManager(QtCore.QObject):
     """Owns REST connection lifecycle, trace polling, and auto-update thread."""
 
-    def __init__(self, window, wConf, connect_config,
+    connectionEstablished = pyqtSignal()
+    spectrumRemoved       = pyqtSignal(str)
+    spectrumListChanged   = pyqtSignal()
+    updatePlotRequested   = pyqtSignal()
+
+    def __init__(self, wConf, connect_config, spectra,
+                 update_intervals, update_intervals_user,
                  stop_rest, stop_auto, skip_auto, logger=None):
         super().__init__()
-        self._w              = window
-        self._wConf          = wConf
-        self._connect_config = connect_config
-        self.stopRestThread       = stop_rest
-        self.stopAutoUpdateThread = stop_auto
-        self.skipAutoUpdateThread = skip_auto
+        self._wConf              = wConf
+        self._connect_config     = connect_config
+        self._spectra            = spectra
+        self._update_intervals      = update_intervals
+        self._update_intervals_user = update_intervals_user
+        self.stopRestThread         = stop_rest
+        self.stopAutoUpdateThread   = stop_auto
+        self.skipAutoUpdateThread   = skip_auto
         self.logger = logger or logging.getLogger(__name__)
-        self._rest_thread  = None
-        self._rest_worker  = None
-        self._auto_thread  = None
-        self._auto_worker  = None
+        self._rest        = None
+        self._rest_thread = None
+        self._rest_worker = None
+        self._auto_thread = None
+        self._auto_worker = None
 
     # ------------------------------------------------------------------
     # Connection popup callbacks
@@ -59,25 +69,25 @@ class ConnectionManager(QtCore.QObject):
             self.logger.debug('connectShMem - host: %s -- user: %s -- RESTPort: %s -- MirrorPort: %s',
                                hostname, user, port, mirror)
 
-            if getattr(self._w, 'rest', None):
+            if self._rest is not None:
                 try:
-                    self._w.rest.reconfigure(hostname, port)
+                    self._rest.reconfigure(hostname, port)
                 except Exception:
-                    self._w.rest = PyREST(self.logger, hostname, port)
+                    self._rest = PyREST(self.logger, hostname, port)
             else:
-                self._w.rest = PyREST(self.logger, hostname, port)
+                self._rest = PyREST(self.logger, hostname, port)
 
             self._wConf.connectButton.setStyleSheet("background-color:rgb(252, 48, 3);")
             self._wConf.connectButton.setText("Disconnected")
 
-            if self._w.rest.checkSpecTclREST() == False:
+            if self._rest.checkSpecTclREST() == False:
                 self.logger.debug('connectShMem - invalid URL for SpecTclREST')
                 return
             else:
                 self.logger.debug("connectShMem - could make REST request of server")
                 self._stop_rest_thread()
                 self.stopRestThread.clear()
-                self._rest_worker = RestWorker(self._w.rest, 6, self.stopRestThread)
+                self._rest_worker = RestWorker(self._rest, 6, self.stopRestThread)
                 self._rest_thread = QThread(self)
                 self._rest_worker.moveToThread(self._rest_thread)
                 self._rest_thread.started.connect(self._rest_worker.run)
@@ -120,14 +130,14 @@ class ConnectionManager(QtCore.QObject):
                     self.logger.debug("Setting spectrum info")
                     # -- begin -- for auto x-axis definition summary spec
                     if "s" in otherInfo[name]["type"]:
-                        self._w.setSpectrumInfoREST(
+                        self._spectra.set(
                             name, dim=s[2][i], binx=s[3][i]-2, minx=minx, maxx=maxx,
                             biny=s[6][i]-2, miny=s[7][i], maxy=s[8][i],
                             data=data, parameters=otherInfo[name]["parameters"],
                             type=otherInfo[name]["type"],
                         )
                     else:
-                        self._w.setSpectrumInfoREST(
+                        self._spectra.set(
                             name, dim=s[2][i], binx=s[3][i]-2, minx=s[4][i], maxx=s[5][i],
                             biny=s[6][i]-2, miny=s[7][i], maxy=s[8][i],
                             data=data, parameters=otherInfo[name]["parameters"],
@@ -154,12 +164,13 @@ class ConnectionManager(QtCore.QObject):
         if len(t_bind) > 0:
             for str in t_bind:
                 action, name, bindingIdx = str.split(" ")
-                if action == "remove" and name in self._w.getSpectrumInfoRESTDict():
-                    self._w.removeSpectrum(name=name, mode="definitive")
+                if action == "remove" and name in self._spectra.as_dict():
+                    self._spectra.remove(name)
+                    self.spectrumRemoved.emit(name)
                     self.updateSpectrumList()
-                    self._w.refreshSpectrumSumRegionDict()
-                elif action == "add" and name not in self._w.getSpectrumInfoRESTDict():
-                    info = self._w.rest.listSpectrum(name)
+                    self.spectrumListChanged.emit()
+                elif action == "add" and name not in self._spectra.as_dict():
+                    info = self._rest.listSpectrum(name)
                     if not info:
                         self.logger.warning('updateFromTraces - listSpectrum returned empty for %s', name)
                         return
@@ -187,7 +198,7 @@ class ConnectionManager(QtCore.QObject):
                             data[0] = 0
                         except Exception:
                             self.logger.debug("updateFromTraces - nameIndex not in shmem np array for: %s", name, exc_info=True)
-                        self._w.setSpectrumInfoREST(name, dim=dim, binx=binx, minx=minx, maxx=maxx,
+                        self._spectra.set(name, dim=dim, binx=binx, minx=minx, maxx=maxx,
                                                     biny=biny, miny=miny, maxy=maxy,
                                                     parameters=info[0]["parameters"],
                                                     type=info[0]["type"], data=data)
@@ -200,7 +211,7 @@ class ConnectionManager(QtCore.QObject):
                         minx = 9e+6
                         maxx = 0
                         for par in info[0]["parameters"]:
-                            ipar = self._w.getLastDigitParam(par)
+                            ipar = self._get_last_digit_param(par)
                             if ipar < minx:
                                 minx = ipar
                             if ipar > maxx:
@@ -212,7 +223,7 @@ class ConnectionManager(QtCore.QObject):
                             data = s[9][nameIndex][1:-1, 1:-1]
                         except Exception:
                             self.logger.debug("updateFromTraces - nameIndex not in shmem np array for: %s", name, exc_info=True)
-                        self._w.setSpectrumInfoREST(name, dim=dim, binx=binx, minx=minx, maxx=maxx,
+                        self._spectra.set(name, dim=dim, binx=binx, minx=minx, maxx=maxx,
                                                     biny=biny, miny=miny, maxy=maxy,
                                                     parameters=info[0]["parameters"],
                                                     type=info[0]["type"], data=data)
@@ -226,7 +237,7 @@ class ConnectionManager(QtCore.QObject):
                             data = s[9][nameIndex][1:-1, 1:-1]
                         except Exception:
                             self.logger.debug("updateFromTraces - nameIndex not in shmem np array for: %s", name, exc_info=True)
-                        self._w.setSpectrumInfoREST(name, dim=dim, binx=binx, minx=minx, maxx=maxx,
+                        self._spectra.set(name, dim=dim, binx=binx, minx=minx, maxx=maxx,
                                                     biny=biny, miny=miny, maxy=maxy,
                                                     parameters=info[0]["parameters"],
                                                     type=info[0]["type"], data=data)
@@ -239,8 +250,8 @@ class ConnectionManager(QtCore.QObject):
     def getSpectrumInfoFromReST(self):
         self.logger.info('getSpectrumInfoFromReST')
         outDict  = {}
-        inpDict  = self._w.rest.listSpectrum()
-        bindList = self._w.rest.listsbind("*")
+        inpDict  = self._rest.listSpectrum()
+        bindList = self._rest.listsbind("*")
         bindings = {}
         for d in bindList:
             bindings[d["name"]] = d["binding"]
@@ -258,7 +269,7 @@ class ConnectionManager(QtCore.QObject):
         self.logger.info('updateSpectrumList')
         self._wConf.histo_list.clear()
         self._wConf.histo_list.setEditText("")
-        for name in sorted(self._w.getSpectrumInfoRESTDict()):
+        for name in sorted(self._spectra.as_dict()):
             if self._wConf.histo_list.findText(name) == -1:
                 self._wConf.histo_list.addItem(name)
         if init:
@@ -266,6 +277,20 @@ class ConnectionManager(QtCore.QObject):
             self._wConf.histo_list.setInsertPolicy(QComboBox.NoInsert)
             self._wConf.histo_list.completer().setCompletionMode(QCompleter.PopupCompletion)
             self._wConf.histo_list.completer().setFilterMode(QtCore.Qt.MatchContains)
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _get_last_digit_param(parameter_name):
+        parts = parameter_name.split(".")
+        if not any(part.isdigit() for part in parts):
+            return None
+        try:
+            return int(parts[-1])
+        except ValueError:
+            return None
 
     # ------------------------------------------------------------------
     # Thread lifecycle
@@ -294,7 +319,7 @@ class ConnectionManager(QtCore.QObject):
         self.logger.info('_on_rest_connected')
         self._wConf.connectButton.setStyleSheet("background-color:#bcee68;")
         self._wConf.connectButton.setText("Connected")
-        self._w.setCanvasLayout()
+        self.connectionEstablished.emit()
 
     @pyqtSlot()
     def _on_rest_disconnected(self):
@@ -318,8 +343,8 @@ class ConnectionManager(QtCore.QObject):
     def autoUpdateStart(self):
         self.logger.info('autoUpdateStart')
         val_auto = self._wConf.autoUpdate2.value()
-        updateInterval     = self._w.autoUpdateIntervals[val_auto]
-        updateIntervalUser = self._w.autoUpdateIntervalsUser[val_auto]
+        updateInterval     = self._update_intervals[val_auto]
+        updateIntervalUser = self._update_intervals_user[val_auto]
         try:
             self._stop_auto_thread()
             self.stopAutoUpdateThread.clear()
@@ -329,7 +354,7 @@ class ConnectionManager(QtCore.QObject):
             self._auto_thread = QThread(self)
             self._auto_worker.moveToThread(self._auto_thread)
             self._auto_thread.started.connect(self._auto_worker.run)
-            self._auto_worker.updateTriggered.connect(self._w._updatePlotOnGui)
+            self._auto_worker.updateTriggered.connect(self.updatePlotRequested)
             self._auto_thread.start()
         except ValueError:
             self.logger.debug('autoUpdateStart - ValueError exception', exc_info=True)

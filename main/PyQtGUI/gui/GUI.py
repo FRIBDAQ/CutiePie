@@ -303,9 +303,12 @@ class MainWindow(QMainWindow):
             logger=self.logger,
         )
         self.connection_manager = ConnectionManager(
-            window=self,
             wConf=self.wConf,
             connect_config=self.connectConfig,
+            spectra=self.spectra,
+            update_intervals=[1, 5, 10, 30, 60, 180, 300, 600, 9e9],
+            update_intervals_user=["1 sec", "5 secs", "10 secs", "30 secs",
+                                   "1 min", "3 mins", "5 mins", "10 mins", "Inf."],
             stop_rest=self.stopRestThread,
             stop_auto=self.stopAutoUpdateThread,
             skip_auto=self.skipAutoUpdateThread,
@@ -358,6 +361,10 @@ class MainWindow(QMainWindow):
         self.wConf.connectButton.clicked.connect(self.connection_manager.connectPopup)
         self.connectConfig.ok.clicked.connect(self.connection_manager.okConnect)
         self.connectConfig.cancel.clicked.connect(self.connection_manager.closeConnect)
+        self.connection_manager.connectionEstablished.connect(self.setCanvasLayout)
+        self.connection_manager.spectrumRemoved.connect(self._on_spectrum_removed_rest)
+        self.connection_manager.spectrumListChanged.connect(self.refreshSpectrumSumRegionDict)
+        self.connection_manager.updatePlotRequested.connect(self._updatePlotOnGui)
 
         ### Bashir added to auto select connect button if ports are default
         rest_text   = self.connectConfig.rest.text().strip()
@@ -1580,6 +1587,27 @@ class MainWindow(QMainWindow):
     #Remove spectrum from self.wTab.spectrum_dict:
     #important: only functions that delete item in spectrum_dict and self.spectra
     #important: should not be triggered by user, for now used only in updateFromTraces, because of the way it deletes local spectrumInfo entries.
+    @property
+    def rest(self):
+        """REST client owned by ConnectionManager; exposed here for backward compat."""
+        cm = getattr(self, 'connection_manager', None)
+        return cm._rest if cm is not None else None
+
+    @pyqtSlot(str)
+    def _on_spectrum_removed_rest(self, name):
+        """Display-side cleanup when ConnectionManager removes a spectrum from REST binding."""
+        for tabIdx, plotVal in self.wTab.wPlot.items():
+            to_delete = [key for key, value in plotVal.h_dict_geo.items() if name in value]
+            for key in to_delete:
+                if key in self.wTab.spectrum_dict[tabIdx]:
+                    spectrum = self.wTab.spectrum_dict[tabIdx][key]["spectrum"]
+                    if hasattr(spectrum, 'axes'):
+                        ax = spectrum.axes
+                        self.removeCb(ax)
+                        ax.clear()
+                    plotVal.h_dict_geo[key] = "empty"
+                    del spectrum
+
     def removeSpectrum(self, **identifier):
         self.logger.info('removeSpectrum - identifier: %s', identifier)
         name = None
