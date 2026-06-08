@@ -127,6 +127,7 @@ from services.thread_workers import RestWorker, AutoUpdateWorker
 from services.fit_manager import FitManager
 from services.gate_manager import GateManager
 from services.sum_region_manager import SumRegionManager
+from services.connection_manager import ConnectionManager
 from CopyPropertiesGUI import CopyProperties
 from connectConfigGUI import ConnectConfiguration #class for the connection configuration popup
 from MenuGate import MenuGate #class for the gate creation/edition popup
@@ -204,15 +205,11 @@ class MainWindow(QMainWindow):
 
         self.stopAutoUpdateThread = threading.Event()
         self.skipAutoUpdateThread = threading.Event()
-        self._auto_thread  = None
-        self._auto_worker  = None
 
         # Bashir, make the first `addPlot()` call your starter
         self.stopAutoUpdateThread.set()
 
         self.stopRestThread = threading.Event()
-        self._rest_thread  = None
-        self._rest_worker  = None
 
         #######################
         # 1) Main layout GUI
@@ -304,6 +301,15 @@ class MainWindow(QMainWindow):
             sum_popup=self.sumRegionPopup,
             logger=self.logger,
         )
+        self.connection_manager = ConnectionManager(
+            window=self,
+            wConf=self.wConf,
+            connect_config=self.connectConfig,
+            stop_rest=self.stopRestThread,
+            stop_auto=self.stopAutoUpdateThread,
+            skip_auto=self.skipAutoUpdateThread,
+            logger=self.logger,
+        )
 
         # default min/max for x,y
         self.minX = 0
@@ -342,9 +348,9 @@ class MainWindow(QMainWindow):
         #################
 
         # top menu signals
-        self.wConf.connectButton.clicked.connect(self.connectPopup)
-        self.connectConfig.ok.clicked.connect(self.okConnect)
-        self.connectConfig.cancel.clicked.connect(self.closeConnect)
+        self.wConf.connectButton.clicked.connect(self.connection_manager.connectPopup)
+        self.connectConfig.ok.clicked.connect(self.connection_manager.okConnect)
+        self.connectConfig.cancel.clicked.connect(self.connection_manager.closeConnect)
 
         ### Bashir added to auto select connect button if ports are default
         rest_text   = self.connectConfig.rest.text().strip()
@@ -1493,144 +1499,6 @@ class MainWindow(QMainWindow):
     #############################################
 
 
-    #callback for the configuration popup of REST/MIRROR ports
-    def connectPopup(self):
-        self.logger.info('callback connectPopup')
-        self.connectConfig.show()
-
-
-    #callback to close configuration popup
-    def closeConnect(self):
-        self.logger.info('closeConnect callback')
-        self.connectConfig.close()
-
-
-    #callback to attempt a connection to REST/MIRROR
-    def okConnect(self):
-        self.logger.info('okConnect')
-        self.connectShMem()
-        self.closeConnect()
-    
-
-    #Start ReST traces on a separated thread
-    #Check for traces updates (poll) periodically, with period time < retention time.
-    #Excecuted periodially (period defined in restThread)
-    #Update various list and dict according to the trace.
-    def updateFromTraces(self, tracesDetails):
-        self.logger.info('updateFromTraces - tracesDetails: %s',tracesDetails)
-        t_para = tracesDetails.get("parameter") or []
-        t_spec = tracesDetails.get("spectrum") or []
-        t_gate = tracesDetails.get("gate") or []
-        t_bind = tracesDetails.get("binding") or []
-        if len(t_bind) > 0:
-            for str in t_bind:
-                action, name, bindingIdx = str.split(" ") #list with 3 items: add/remove histoName bindingIndex
-                if action == "remove" and name in self.getSpectrumInfoRESTDict():
-                    #if only "remove" action, want to clear axis, update the spectrum and summing region dictionnaries
-                    # if len(t_bind) == 1:
-                    #     self.removeSpectrum(name=name, mode="definitive")
-                    #     self.updateSpectrumList()
-                    #     self.refreshSpectrumSumRegionDict()
-                    # else:
-                    #     self.removeSpectrum(name=name, mode="update")
-                    #     self.updateSpectrumList()
-                    #For now dont ditinguish if it is just an update or definitive removal
-                    #had trouble redrawing efficiently the updated spectrum, see comments at end of action=="add"
-                    self.removeSpectrum(name=name, mode="definitive")
-                    self.updateSpectrumList()
-                    self.refreshSpectrumSumRegionDict()
-                elif action == "add" and name not in self.getSpectrumInfoRESTDict():
-                    #get spectrum info from ReST but not the data, need to query shmem for that (connect button).
-                    #dont need to check the binding, given the definition of this trace...
-                    info = self.rest.listSpectrum(name)
-                    if not info:
-                        self.logger.warning('updateFromTraces - listSpectrum returned empty for %s', name)
-                        return
-                    #info[0] because expect only one element in the list with the name filter
-
-                    #get the data in shmem ... maybe not the best to do it here
-                    #server info are already checked at this point
-                    hostname = self.connectConfig.server.text()
-                    port = self.connectConfig.rest.text()
-                    user = self.connectConfig.user.text()
-                    mirror = self.connectConfig.mirror.text()
-                    s = cpy.CPyConverter().Update(bytes(hostname, encoding='utf-8'), bytes(port, encoding='utf-8'), bytes(mirror, encoding='utf-8'), bytes(user, encoding='utf-8'))
-                    data = []
-                    binx = info[0]["axes"][0]["bins"]
-                    minx = info[0]["axes"][0]["low"]
-                    maxx = info[0]["axes"][0]["high"]
-                    if "1" in info[0]["type"] or "b" in info[0]["type"] or "g1" in info[0]["type"] :
-                        dim = 1
-                        biny = miny = maxy = None
-                        nameIndex = s[1].index(name)
-                        try :
-                            data = s[9][nameIndex][0:-1]
-                            data[0] = 0
-                        except:
-                            debugstring = "updateFromTraces - nameIndex not in shmem np array for :" + name
-                            self.logger.debug(debugstring, exc_info=True)
-                            # print("updateFromTraces - nameIndex not in shmem np array for : ", name)
-                        self.setSpectrumInfoREST(name, dim=dim, binx=binx, minx=minx, maxx=maxx, biny=biny, miny=miny, maxy=maxy, parameters=info[0]["parameters"], type=info[0]["type"], data=data)
-                    elif "s" in info[0]["type"] :
-                        dim = 2
-                        # only the y axis in info[0]["axes"]
-                        biny = binx
-                        miny = minx
-                        maxy = maxx
-                        # get x axis from parameters list
-                        binx = 0
-                        minx = 9e+6
-                        maxx = 0
-                        for par in info[0]["parameters"]:
-                            ipar = self.getLastDigitParam(par)
-                            if ipar < minx :
-                                minx = ipar
-                            if ipar > maxx :
-                                maxx = ipar
-                        nameIndex = s[1].index(name)
-                        maxx += 1
-                        # Assuming 1 parameter per bin
-                        # ! maybe different than the binning chosen by user !
-                        # Because compared to shmem for summary spec the x binning is not provided.
-                        # If want the same auto x axis definition at connection to shmem, see commented lines in connectShMem
-                        binx = maxx - minx
-                        try :
-                            #print("Simon - data - min, max, binx ", s[9][nameIndex][:,:],minx,maxx, binx)
-                            data = s[9][nameIndex][1:-1, 1:-1]
-                            # data = s[9][nameIndex][0:-1]
-                        except:
-                            debugstring = "updateFromTraces - nameIndex not in shmem np array for :" + name
-                            self.logger.debug(debugstring, exc_info=True)
-                        self.setSpectrumInfoREST(name, dim=dim, binx=binx, minx=minx, maxx=maxx, biny=biny, miny=miny, maxy=maxy, parameters=info[0]["parameters"], type=info[0]["type"], data=data)
-                    else :
-                        dim = 2
-                        biny = info[0]["axes"][1]["bins"]
-                        miny = info[0]["axes"][1]["low"]
-                        maxy = info[0]["axes"][1]["high"]
-                        nameIndex = s[1].index(name)
-                        try :
-                            data = s[9][nameIndex][1:-1, 1:-1]
-                        except:
-                            debugstring = "updateFromTraces - nameIndex not in shmem np array for :" + name
-                            self.logger.debug(debugstring, exc_info=True)
-                            # print("updateFromTraces - nameIndex not in shmem np array for : ", name)
-                        self.setSpectrumInfoREST(name, dim=dim, binx=binx, minx=minx, maxx=maxx, biny=biny, miny=miny, maxy=maxy, parameters=info[0]["parameters"], type=info[0]["type"], data=data)
-                    self.updateSpectrumList()
-                    #update an existing spectrum definition (binning, parameters...)
-                    #this part is not working properly, need to correct if this is really needed
-                    # if len(t_bind) == 2:
-                    #     for plotVal in self.wTab.wPlot.values():
-                    #         idx_to_update = [key for key, value in plotVal.h_dict_geo.items() if name in value]
-                    #         print("Simon - removeSpectrum idx_to_update-",  idx_to_update)
-                    #         # trick, set temporarily currentPlot to plotVal, because currentPlot is used in add 
-                    #         self.currentPlot = plotVal
-                    #         for plotIdx in idx_to_update:
-                    #             self.add(plotIdx)
-                    #     self.currentPlot = self.wTab.wPlot[self.wTab.currentIndex()]
-                else:
-                    return 
-
-
     #Set spectrum info from ReST in self.spectra (identified by histo name and can update multiple info at once)
     #self.spectra is used to keep track of the treegui definition (fixed)
     def setSpectrumInfoREST(self, name, **info):
@@ -1841,47 +1709,7 @@ class MainWindow(QMainWindow):
 
 
     #get histo name, type and parameters from REST
-    def getSpectrumInfoFromReST(self):
-        self.logger.info('getSpectrumInfoFromReST')
-        outDict = {}
-        inpDict = self.rest.listSpectrum()
-        bindList = self.rest.listsbind("*")
-        # Dictionary of bindings, keyed by spectrum name
-        bindings = {}
-        for d in bindList:
-            bindings[d["name"]] = d["binding"]
-        for el in inpDict:
-            if el["name"] in bindings:
-                outDict[el["name"]] = {
-                    "parameters": el["parameters"],
-                    "type": el["type"],
-                    "binding": bindings[el["name"]],
-                }
-            else:
-                pass
-        self.logger.info('getSpectrumInfoFromReST - return: %s', outDict)
-        return outDict
-
-
-    # update spectrum list for GUI, the widget histo_list is set only here
-    def updateSpectrumList(self, init=False):
-        self.logger.info('updateSpectrumList')
-        self.wConf.histo_list.clear()
-        self.wConf.histo_list.setEditText("")
-        #Sort because otherwise when ReST update the modified spectrum is append at the end of the list
-        for name in sorted(self.getSpectrumInfoRESTDict()):
-            if self.wConf.histo_list.findText(name) == -1:
-                self.wConf.histo_list.addItem(name)
-
-        if init:
-            self.wConf.histo_list.setEditable(True)
-            self.wConf.histo_list.setInsertPolicy(QComboBox.NoInsert)
-            self.wConf.histo_list.completer().setCompletionMode(QCompleter.PopupCompletion)
-            self.wConf.histo_list.completer().setFilterMode(QtCore.Qt.MatchContains)
-
-
-
-    #About the gates: unlike spectrum, there is no internal gate dictionnary 
+    #About the gates: unlike spectrum, there is no internal gate dictionnary
     #which means everytime one gets/sets gate info, one uses the ReST interface, like for the name here:
     #return the gate name applied to a spectrum (identified by index or name)
     def getAppliedGateName(self, **identifier):
@@ -1906,135 +1734,6 @@ class MainWindow(QMainWindow):
             return gateName
 
 
-    ##########################################
-    # 6) Accessing the ShMem
-    ##########################################
-
-
-    def connectShMem(self):
-        self.logger.info('connectShMem')
-        # trying to access the shared memory through SpecTcl Mirror Client
-        try:
-            # update host name and port, mirror port, and user name from GUI
-            hostname = str(self.connectConfig.server.text())
-            port = str(self.connectConfig.rest.text())
-            user = str(self.connectConfig.user.text())
-            mirror = str(self.connectConfig.mirror.text())
-            self.logger.debug('connectShMem - host: %s -- user: %s -- RESTPort: %s -- MirrorPort: %s', hostname, user, port, mirror)
-
-            # configuration of the REST plugin
-            ###### Bashir changed here to allow reconfigure of existing client
-            # reuse existing client if present; otherwise create
-            if getattr(self, 'rest', None):
-                try:
-                    self.rest.reconfigure(hostname, port)
-                except Exception:
-                    self.rest = PyREST(self.logger, hostname, port)
-            else:
-                self.rest = PyREST(self.logger, hostname, port)
-
-            # self.rest = PyREST(self.logger,hostname,port)
-            ####################################################################
-            self.wConf.connectButton.setStyleSheet("background-color:rgb(252, 48, 3);")
-            self.wConf.connectButton.setText("Disconnected")
-            # check if thread already exists, if yes reset, and set traces
-            # self.stopRestThread.set()
-            # self.endThread(self.threadRest)
-            # self.threadRest = threading.Thread(target=self.restThread, args=(6,))
-            # self.threadRest.start()
-
-            # way to stop connectShMem, url checks are done on trace thread but if find issue it wont be communicated here
-            if self.rest.checkSpecTclREST() == False:
-                self.logger.debug('connectShMem - invalid URL for SpecTclREST')
-                return
-            else:
-                self.logger.debug("connectShMem - could make REST request of server")
-                self._stop_rest_thread()
-                self.stopRestThread.clear()
-                self._rest_worker = RestWorker(self.rest, 6, self.stopRestThread)
-                self._rest_thread = QThread(self)
-                self._rest_worker.moveToThread(self._rest_thread)
-                self._rest_thread.started.connect(self._rest_worker.run)
-                self._rest_worker.connected.connect(self._on_rest_connected)
-                self._rest_worker.disconnected.connect(self._on_rest_disconnected)
-                self._rest_worker.tracesReady.connect(self.updateFromTraces)
-                self._rest_thread.start()
-            timer1 = QElapsedTimer()
-            timer1.start()
-
-            self.logger.debug("connectShMem - attempting update from CPYConverter.")
-            s = cpy.CPyConverter().Update(bytes(hostname, encoding='utf-8'), bytes(port, encoding='utf-8'), bytes(mirror, encoding='utf-8'), bytes(user, encoding='utf-8'))
-            self.logger.debug("connectShMem CPyConverter updated without failure")
-
-            # creates a dataframe for spectrum info
-            # use the spectrum name to merge both sources (REST and shared memory) of spectrum info
-            # info = {"id":[],"names":[],"dim":[],"binx":[],"minx":[],"maxx":[],"biny":[],"miny":[],"maxy":[],"data":[],"parameters":[],"type":[]}
-
-            otherInfo = self.getSpectrumInfoFromReST()
-            self.logger.debug("connectShMem Got spectrum information from REST")
-            for i, name in enumerate(s[1]):
-                self.logger.debug("Looking at: %s", name)
-                if name in otherInfo:
-                    self.logger.debug("It's in otherinfo.")
-                    if s[2][i] == 2:
-                        self.logger.debug("s[2][i] == 2")
-                        data = s[9][i][ 1:-1, 1:-1]
-                        # -- begin -- for auto x-axis definition summary spec
-                        if "s" in otherInfo[name]["type"]:
-                            minx = s[4][i]
-                            maxx = s[5][i] + 1
-                        # # get x axis from parameters list
-                        # binx = 0
-                        # minx = 9e+6
-                        # maxx = 0
-                        # for par in otherInfo[name]["parameters"]:
-                        #     ipar = self.getLastDigitParam(par)
-                        #     if ipar < minx :
-                        #         minx = ipar
-                        #     if ipar > maxx :
-                        #         maxx = ipar
-                        # maxx += 1
-                        # # Assuming 1 parameter per bin
-                        # binx = maxx - minx
-                        # -- end -- for auto x-axis definition summary spec
-                    else:
-                        self.logger.debug("s[2][i] != 2 ")
-                        data = s[9][i][0:-1]
-                        data[0] = 0
-
-
-
-
-                    # print("Simon connectShMem ", name, s[2][i], s[3][i], s[4][i], s[5][i], s[6][i], s[7][i], s[8][i],otherInfo[name]["type"])
-                    self.logger.debug("Setting spectrum info")
-                    # -- begin -- for auto x-axis definition summary spec
-                    if "s" in otherInfo[name]["type"]:
-                        self.setSpectrumInfoREST(name, dim=s[2][i], binx=s[3][i]-2, minx=minx, maxx=maxx, biny=s[6][i]-2, miny=s[7][i], maxy=s[8][i], data=data, parameters=otherInfo[name]["parameters"], type=otherInfo[name]["type"])
-                    else:
-                        self.setSpectrumInfoREST(name, dim=s[2][i], binx=s[3][i]-2, minx=s[4][i], maxx=s[5][i], biny=s[6][i]-2, miny=s[7][i], maxy=s[8][i], data=data, parameters=otherInfo[name]["parameters"], type=otherInfo[name]["type"])
-                    # -- end -- for auto x-axis definition summary spec
-                    # self.setSpectrumInfoREST(name, dim=s[2][i], binx=s[3][i]-2, minx=s[4][i], maxx=s[5][i], biny=s[6][i]-2, miny=s[7][i], maxy=s[8][i], data=data, parameters=otherInfo[name]["parameters"], type=otherInfo[name]["type"])
-                    self.logger.debug('-------------------')
-
-            # update and create parameter, spectrum, and gate lists
-            # updateSpectrumList has True flag/arg only here, to define searchable list
-            self.logger.debug("connectShMem Updating spectrumlist")
-            self.updateSpectrumList(True)
-
-            '''
-            # update Modify menu
-            gate_list = [self.wConf.listGate.itemText(i) for i in range(self.wConf.listGate.count())]
-            print("gate_list", gate_list)
-            for gate in gate_list:
-                self.wConf.submenuD.addAction(gate, lambda:self.wConf.drag(gate))
-                self.wConf.submenuE.addAction(gate, lambda:self.wConf.edit(gate))
-            '''
-            self.logger.debug("connectShMem existing")
-        except Exception as e:
-            self.logger.exception('connectShMem - Exception')
-            raise
-        # except:
-        #     QMessageBox.about(self, "Warning", "The rest interface for SpecTcl was not started or hostname/port/mirror are not configured!")
 
 
     ##########################################
@@ -3869,6 +3568,18 @@ class MainWindow(QMainWindow):
     def setPrecisionIntegrationResult(self, d):  return self.sum_region_manager.setPrecisionIntegrationResult(d)
     def integrateGateLocal(self, idx, lines):    return self.sum_region_manager.integrateGateLocal(idx, lines)
 
+    # -- ConnectionManager shims --
+    def connectShMem(self):              return self.connection_manager.connectShMem()
+    def connectPopup(self):              return self.connection_manager.connectPopup()
+    def okConnect(self):                 return self.connection_manager.okConnect()
+    def closeConnect(self):              return self.connection_manager.closeConnect()
+    def autoUpdateStart(self):           return self.connection_manager.autoUpdateStart()
+    def autoUpdateResume(self):          return self.connection_manager.autoUpdateResume()
+    def updateSpectrumList(self, init=False): return self.connection_manager.updateSpectrumList(init)
+    def updateFromTraces(self, d):       return self.connection_manager.updateFromTraces(d)
+    def _stop_auto_thread(self):         return self.connection_manager._stop_auto_thread()
+    def _stop_rest_thread(self):         return self.connection_manager._stop_rest_thread()
+
 
 
     ############################
@@ -4255,86 +3966,9 @@ class MainWindow(QMainWindow):
     # Override close method of main window
     def closeEvent(self, event):
         self.logger.info('closeEvent - MainWindow')
-        # end threads (auto update, poll rest interface)
-        self._stop_auto_thread()
-        self._stop_rest_thread()
+        self.connection_manager._stop_auto_thread()
+        self.connection_manager._stop_rest_thread()
         event.accept()
-
-    
-    def _stop_rest_thread(self):
-        self.logger.info('_stop_rest_thread')
-        self.stopRestThread.set()
-        if self._rest_thread is not None:
-            self._rest_thread.quit()
-            self._rest_thread.wait()
-            self._rest_thread = None
-            self._rest_worker = None
-
-    def _stop_auto_thread(self):
-        self.logger.info('_stop_auto_thread')
-        self.stopAutoUpdateThread.set()
-        if self._auto_thread is not None:
-            self._auto_thread.quit()
-            self._auto_thread.wait()
-            self._auto_thread = None
-            self._auto_worker = None
-
-    @pyqtSlot()
-    def _on_rest_connected(self):
-        self.logger.info('_on_rest_connected')
-        self.wConf.connectButton.setStyleSheet("background-color:#bcee68;")
-        self.wConf.connectButton.setText("Connected")
-        self.setCanvasLayout()
-
-    @pyqtSlot()
-    def _on_rest_disconnected(self):
-        self.logger.info('_on_rest_disconnected')
-        self.wConf.connectButton.setStyleSheet("background-color:rgb(252, 48, 3);")
-        self.wConf.connectButton.setText("Disconnected")
-        # quit() the thread when the worker exits naturally (pollTraces failure, etc.)
-        # _stop_rest_thread() already sets _rest_thread = None before this slot runs;
-        # the None guard prevents a double quit/wait in that path.
-        if self._rest_thread is not None:
-            self._rest_thread.quit()
-            self._rest_thread.wait()
-        self._rest_thread = None
-        self._rest_worker = None
-
-
-    # Gate and summing region popup close is connected to that, resume auto update
-    def autoUpdateResume(self):
-        self.logger.info('autoUpdateResume')
-        self.skipAutoUpdateThread.clear()
-
-
-    # Triggered when auto update slider value change 
-    def autoUpdateStart(self):
-        self.logger.info('autoUpdateStart')
-        # Get interval from QSlider and update label
-        ###### Bashir changed to bring autoupdate to the front #####
-        """
-        updateInterval = self.extraPopup.options.autoUpdateIntervals[self.extraPopup.options.autoUpdate.value()]
-        updateIntervalUser = self.extraPopup.options.autoUpdateIntervalsUser[self.extraPopup.options.autoUpdate.value()]
-        self.extraPopup.options.autoUpdateLabel.setText("Update every: {}".format(updateIntervalUser))
-        """
-        val_auto = self.wConf.autoUpdate2.value()
-        updateInterval = self.autoUpdateIntervals[val_auto]
-        updateIntervalUser = self.autoUpdateIntervalsUser[val_auto]
-        # self.wConf.autoUpdateLabel2.setText("Update every: {}".format(updateIntervalUser))
-        ######################################################################
-        try:
-            self._stop_auto_thread()
-            self.stopAutoUpdateThread.clear()
-            self.skipAutoUpdateThread.clear()
-            self._auto_worker = AutoUpdateWorker(updateInterval, self.stopAutoUpdateThread, self.skipAutoUpdateThread)
-            self._auto_thread = QThread(self)
-            self._auto_worker.moveToThread(self._auto_thread)
-            self._auto_thread.started.connect(self._auto_worker.run)
-            self._auto_worker.updateTriggered.connect(self._updatePlotOnGui)
-            self._auto_thread.start()
-        except ValueError:
-            self.logger.debug('autoUpdateStart - ValueError exception', exc_info=True)
-
 
     def createRectangle(self, plot):
         self.logger.info('createRectangle')

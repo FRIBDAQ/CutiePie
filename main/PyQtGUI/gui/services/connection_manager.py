@@ -1,0 +1,335 @@
+import logging
+
+import CPyConverter as cpy
+
+from PyQt5.QtCore import QThread, QElapsedTimer, pyqtSlot
+from PyQt5.QtWidgets import QComboBox, QCompleter
+from PyQt5 import QtCore
+
+from PyRESTSpecTcl import PyREST
+from services.thread_workers import RestWorker, AutoUpdateWorker
+
+
+class ConnectionManager(QtCore.QObject):
+    """Owns REST connection lifecycle, trace polling, and auto-update thread."""
+
+    def __init__(self, window, wConf, connect_config,
+                 stop_rest, stop_auto, skip_auto, logger=None):
+        super().__init__()
+        self._w              = window
+        self._wConf          = wConf
+        self._connect_config = connect_config
+        self.stopRestThread       = stop_rest
+        self.stopAutoUpdateThread = stop_auto
+        self.skipAutoUpdateThread = skip_auto
+        self.logger = logger or logging.getLogger(__name__)
+        self._rest_thread  = None
+        self._rest_worker  = None
+        self._auto_thread  = None
+        self._auto_worker  = None
+
+    # ------------------------------------------------------------------
+    # Connection popup callbacks
+    # ------------------------------------------------------------------
+
+    def connectPopup(self):
+        self.logger.info('callback connectPopup')
+        self._connect_config.show()
+
+    def closeConnect(self):
+        self.logger.info('closeConnect callback')
+        self._connect_config.close()
+
+    def okConnect(self):
+        self.logger.info('okConnect')
+        self.connectShMem()
+        self.closeConnect()
+
+    # ------------------------------------------------------------------
+    # REST + shared memory connection
+    # ------------------------------------------------------------------
+
+    def connectShMem(self):
+        self.logger.info('connectShMem')
+        try:
+            hostname = str(self._connect_config.server.text())
+            port     = str(self._connect_config.rest.text())
+            user     = str(self._connect_config.user.text())
+            mirror   = str(self._connect_config.mirror.text())
+            self.logger.debug('connectShMem - host: %s -- user: %s -- RESTPort: %s -- MirrorPort: %s',
+                               hostname, user, port, mirror)
+
+            if getattr(self._w, 'rest', None):
+                try:
+                    self._w.rest.reconfigure(hostname, port)
+                except Exception:
+                    self._w.rest = PyREST(self.logger, hostname, port)
+            else:
+                self._w.rest = PyREST(self.logger, hostname, port)
+
+            self._wConf.connectButton.setStyleSheet("background-color:rgb(252, 48, 3);")
+            self._wConf.connectButton.setText("Disconnected")
+
+            if self._w.rest.checkSpecTclREST() == False:
+                self.logger.debug('connectShMem - invalid URL for SpecTclREST')
+                return
+            else:
+                self.logger.debug("connectShMem - could make REST request of server")
+                self._stop_rest_thread()
+                self.stopRestThread.clear()
+                self._rest_worker = RestWorker(self._w.rest, 6, self.stopRestThread)
+                self._rest_thread = QThread(self)
+                self._rest_worker.moveToThread(self._rest_thread)
+                self._rest_thread.started.connect(self._rest_worker.run)
+                self._rest_worker.connected.connect(self._on_rest_connected)
+                self._rest_worker.disconnected.connect(self._on_rest_disconnected)
+                self._rest_worker.tracesReady.connect(self.updateFromTraces)
+                self._rest_thread.start()
+
+            timer1 = QElapsedTimer()
+            timer1.start()
+
+            self.logger.debug("connectShMem - attempting update from CPYConverter.")
+            s = cpy.CPyConverter().Update(
+                bytes(hostname, encoding='utf-8'),
+                bytes(port,     encoding='utf-8'),
+                bytes(mirror,   encoding='utf-8'),
+                bytes(user,     encoding='utf-8'),
+            )
+            self.logger.debug("connectShMem CPyConverter updated without failure")
+
+            otherInfo = self.getSpectrumInfoFromReST()
+            self.logger.debug("connectShMem Got spectrum information from REST")
+            for i, name in enumerate(s[1]):
+                self.logger.debug("Looking at: %s", name)
+                if name in otherInfo:
+                    self.logger.debug("It's in otherinfo.")
+                    if s[2][i] == 2:
+                        self.logger.debug("s[2][i] == 2")
+                        data = s[9][i][1:-1, 1:-1]
+                        # -- begin -- for auto x-axis definition summary spec
+                        if "s" in otherInfo[name]["type"]:
+                            minx = s[4][i]
+                            maxx = s[5][i] + 1
+                        # -- end -- for auto x-axis definition summary spec
+                    else:
+                        self.logger.debug("s[2][i] != 2 ")
+                        data = s[9][i][0:-1]
+                        data[0] = 0
+
+                    self.logger.debug("Setting spectrum info")
+                    # -- begin -- for auto x-axis definition summary spec
+                    if "s" in otherInfo[name]["type"]:
+                        self._w.setSpectrumInfoREST(
+                            name, dim=s[2][i], binx=s[3][i]-2, minx=minx, maxx=maxx,
+                            biny=s[6][i]-2, miny=s[7][i], maxy=s[8][i],
+                            data=data, parameters=otherInfo[name]["parameters"],
+                            type=otherInfo[name]["type"],
+                        )
+                    else:
+                        self._w.setSpectrumInfoREST(
+                            name, dim=s[2][i], binx=s[3][i]-2, minx=s[4][i], maxx=s[5][i],
+                            biny=s[6][i]-2, miny=s[7][i], maxy=s[8][i],
+                            data=data, parameters=otherInfo[name]["parameters"],
+                            type=otherInfo[name]["type"],
+                        )
+                    # -- end -- for auto x-axis definition summary spec
+                    self.logger.debug('-------------------')
+
+            self.logger.debug("connectShMem Updating spectrumlist")
+            self.updateSpectrumList(True)
+
+            self.logger.debug("connectShMem existing")
+        except Exception:
+            self.logger.exception('connectShMem - Exception')
+            raise
+
+    # ------------------------------------------------------------------
+    # Trace updates from REST worker
+    # ------------------------------------------------------------------
+
+    def updateFromTraces(self, tracesDetails):
+        self.logger.info('updateFromTraces - tracesDetails: %s', tracesDetails)
+        t_bind = tracesDetails.get("binding") or []
+        if len(t_bind) > 0:
+            for str in t_bind:
+                action, name, bindingIdx = str.split(" ")
+                if action == "remove" and name in self._w.getSpectrumInfoRESTDict():
+                    self._w.removeSpectrum(name=name, mode="definitive")
+                    self.updateSpectrumList()
+                    self._w.refreshSpectrumSumRegionDict()
+                elif action == "add" and name not in self._w.getSpectrumInfoRESTDict():
+                    info = self._w.rest.listSpectrum(name)
+                    if not info:
+                        self.logger.warning('updateFromTraces - listSpectrum returned empty for %s', name)
+                        return
+
+                    hostname = self._connect_config.server.text()
+                    port     = self._connect_config.rest.text()
+                    user     = self._connect_config.user.text()
+                    mirror   = self._connect_config.mirror.text()
+                    s = cpy.CPyConverter().Update(
+                        bytes(hostname, encoding='utf-8'),
+                        bytes(port,     encoding='utf-8'),
+                        bytes(mirror,   encoding='utf-8'),
+                        bytes(user,     encoding='utf-8'),
+                    )
+                    data = []
+                    binx = info[0]["axes"][0]["bins"]
+                    minx = info[0]["axes"][0]["low"]
+                    maxx = info[0]["axes"][0]["high"]
+                    if "1" in info[0]["type"] or "b" in info[0]["type"] or "g1" in info[0]["type"]:
+                        dim  = 1
+                        biny = miny = maxy = None
+                        nameIndex = s[1].index(name)
+                        try:
+                            data = s[9][nameIndex][0:-1]
+                            data[0] = 0
+                        except Exception:
+                            self.logger.debug("updateFromTraces - nameIndex not in shmem np array for: %s", name, exc_info=True)
+                        self._w.setSpectrumInfoREST(name, dim=dim, binx=binx, minx=minx, maxx=maxx,
+                                                    biny=biny, miny=miny, maxy=maxy,
+                                                    parameters=info[0]["parameters"],
+                                                    type=info[0]["type"], data=data)
+                    elif "s" in info[0]["type"]:
+                        dim  = 2
+                        biny = binx
+                        miny = minx
+                        maxy = maxx
+                        binx = 0
+                        minx = 9e+6
+                        maxx = 0
+                        for par in info[0]["parameters"]:
+                            ipar = self._w.getLastDigitParam(par)
+                            if ipar < minx:
+                                minx = ipar
+                            if ipar > maxx:
+                                maxx = ipar
+                        nameIndex = s[1].index(name)
+                        maxx += 1
+                        binx = maxx - minx
+                        try:
+                            data = s[9][nameIndex][1:-1, 1:-1]
+                        except Exception:
+                            self.logger.debug("updateFromTraces - nameIndex not in shmem np array for: %s", name, exc_info=True)
+                        self._w.setSpectrumInfoREST(name, dim=dim, binx=binx, minx=minx, maxx=maxx,
+                                                    biny=biny, miny=miny, maxy=maxy,
+                                                    parameters=info[0]["parameters"],
+                                                    type=info[0]["type"], data=data)
+                    else:
+                        dim  = 2
+                        biny = info[0]["axes"][1]["bins"]
+                        miny = info[0]["axes"][1]["low"]
+                        maxy = info[0]["axes"][1]["high"]
+                        nameIndex = s[1].index(name)
+                        try:
+                            data = s[9][nameIndex][1:-1, 1:-1]
+                        except Exception:
+                            self.logger.debug("updateFromTraces - nameIndex not in shmem np array for: %s", name, exc_info=True)
+                        self._w.setSpectrumInfoREST(name, dim=dim, binx=binx, minx=minx, maxx=maxx,
+                                                    biny=biny, miny=miny, maxy=maxy,
+                                                    parameters=info[0]["parameters"],
+                                                    type=info[0]["type"], data=data)
+                    self.updateSpectrumList()
+
+    # ------------------------------------------------------------------
+    # Spectrum list helpers
+    # ------------------------------------------------------------------
+
+    def getSpectrumInfoFromReST(self):
+        self.logger.info('getSpectrumInfoFromReST')
+        outDict  = {}
+        inpDict  = self._w.rest.listSpectrum()
+        bindList = self._w.rest.listsbind("*")
+        bindings = {}
+        for d in bindList:
+            bindings[d["name"]] = d["binding"]
+        for el in inpDict:
+            if el["name"] in bindings:
+                outDict[el["name"]] = {
+                    "parameters": el["parameters"],
+                    "type":       el["type"],
+                    "binding":    bindings[el["name"]],
+                }
+        self.logger.info('getSpectrumInfoFromReST - return: %s', outDict)
+        return outDict
+
+    def updateSpectrumList(self, init=False):
+        self.logger.info('updateSpectrumList')
+        self._wConf.histo_list.clear()
+        self._wConf.histo_list.setEditText("")
+        for name in sorted(self._w.getSpectrumInfoRESTDict()):
+            if self._wConf.histo_list.findText(name) == -1:
+                self._wConf.histo_list.addItem(name)
+        if init:
+            self._wConf.histo_list.setEditable(True)
+            self._wConf.histo_list.setInsertPolicy(QComboBox.NoInsert)
+            self._wConf.histo_list.completer().setCompletionMode(QCompleter.PopupCompletion)
+            self._wConf.histo_list.completer().setFilterMode(QtCore.Qt.MatchContains)
+
+    # ------------------------------------------------------------------
+    # Thread lifecycle
+    # ------------------------------------------------------------------
+
+    def _stop_rest_thread(self):
+        self.logger.info('_stop_rest_thread')
+        self.stopRestThread.set()
+        if self._rest_thread is not None:
+            self._rest_thread.quit()
+            self._rest_thread.wait()
+            self._rest_thread = None
+            self._rest_worker = None
+
+    def _stop_auto_thread(self):
+        self.logger.info('_stop_auto_thread')
+        self.stopAutoUpdateThread.set()
+        if self._auto_thread is not None:
+            self._auto_thread.quit()
+            self._auto_thread.wait()
+            self._auto_thread = None
+            self._auto_worker = None
+
+    @pyqtSlot()
+    def _on_rest_connected(self):
+        self.logger.info('_on_rest_connected')
+        self._wConf.connectButton.setStyleSheet("background-color:#bcee68;")
+        self._wConf.connectButton.setText("Connected")
+        self._w.setCanvasLayout()
+
+    @pyqtSlot()
+    def _on_rest_disconnected(self):
+        self.logger.info('_on_rest_disconnected')
+        self._wConf.connectButton.setStyleSheet("background-color:rgb(252, 48, 3);")
+        self._wConf.connectButton.setText("Disconnected")
+        if self._rest_thread is not None:
+            self._rest_thread.quit()
+            self._rest_thread.wait()
+        self._rest_thread = None
+        self._rest_worker = None
+
+    # ------------------------------------------------------------------
+    # Auto-update
+    # ------------------------------------------------------------------
+
+    def autoUpdateResume(self):
+        self.logger.info('autoUpdateResume')
+        self.skipAutoUpdateThread.clear()
+
+    def autoUpdateStart(self):
+        self.logger.info('autoUpdateStart')
+        val_auto = self._wConf.autoUpdate2.value()
+        updateInterval     = self._w.autoUpdateIntervals[val_auto]
+        updateIntervalUser = self._w.autoUpdateIntervalsUser[val_auto]
+        try:
+            self._stop_auto_thread()
+            self.stopAutoUpdateThread.clear()
+            self.skipAutoUpdateThread.clear()
+            self._auto_worker = AutoUpdateWorker(
+                updateInterval, self.stopAutoUpdateThread, self.skipAutoUpdateThread)
+            self._auto_thread = QThread(self)
+            self._auto_worker.moveToThread(self._auto_thread)
+            self._auto_thread.started.connect(self._auto_worker.run)
+            self._auto_worker.updateTriggered.connect(self._w._updatePlotOnGui)
+            self._auto_thread.start()
+        except ValueError:
+            self.logger.debug('autoUpdateStart - ValueError exception', exc_info=True)
