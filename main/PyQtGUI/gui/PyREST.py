@@ -6,10 +6,13 @@ import urllib.parse
 # Python class to interface SpecTcl REST plugin
 
 class PyREST:
+    _HTTP_TIMEOUT = 5  # seconds; prevents GUI/worker thread hang on dead SpecTcl
+
     def __init__(self, loggerMain, server, rest):
         self.server = server
         self.rest = rest
         self.logger = loggerMain
+        self._http = httplib2.Http(timeout=self._HTTP_TIMEOUT)
 
 
     #### Bashir added so the REST client can switch to whatever they type in the Connect window #################
@@ -1026,7 +1029,7 @@ class PyREST:
             ### Bashur added #################
             self.logger.debug("REST GET %s", url)
             ##################################
-            status, content = httplib2.Http().request(url, method="GET") # SpecTclREST only takes GET methods.
+            status, content = self._http.request(url, method="GET") # SpecTclREST only takes GET methods.
             #May have other bad keywords
             badKeyWords = ["bad parameter", "Invalid gate"]
             for kw in badKeyWords :
@@ -1039,21 +1042,10 @@ class PyREST:
             self.logger.error('sendRequest -- check Server/User/REST Port/Mirror Port')
             return None
 
-    ''' # Bashir commented out
-     #check if url is valid
-    def checkSpecTclREST(self):
-        url = "http://"+self.server+":"+self.rest+"/spectcl"
-        try:
-            response = httplib2.Http().request(url, method="GET") # SpecTclREST only takes GET methods.
-            return True
-        except Exception :
-            return False
-    '''
-
     def checkSpecTclREST(self):
         url = f"http://{self.server}:{self.rest}/spectcl/spectrum/list?filter=*"
         try:
-            status, content = httplib2.Http().request(url, method="GET")
+            status, content = self._http.request(url, method="GET")
             data = json.loads(content.decode())
             ok = isinstance(data, dict) and data.get("status") == "OK"
             self.logger.info(f"[PyREST] REST health {'OK' if ok else 'FAIL'} via {url}")

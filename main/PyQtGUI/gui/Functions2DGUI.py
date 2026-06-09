@@ -5,9 +5,11 @@ matplotlib.use("Qt5Agg")
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
-from PyQt5 import QtCore, QtGui
-from PyQt5.QtWidgets import *
-import CPyConverter as cpy
+from PyQt5 import QtCore
+from PyQt5.QtWidgets import (
+    QComboBox, QDialog, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
+    QLineEdit, QPushButton, QSlider, QToolButton, QVBoxLayout,
+)
 
 # import joystick widget for moving an image
 from JoystickGUI import Joystick

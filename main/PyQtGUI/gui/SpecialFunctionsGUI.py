@@ -5,9 +5,10 @@ matplotlib.use("Qt5Agg")
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
-from PyQt5 import QtCore
-from PyQt5.QtWidgets import *
-import CPyConverter as cpy
+from PyQt5.QtWidgets import (
+    QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
+    QLineEdit, QPushButton, QTextEdit, QVBoxLayout, QWidget,
+)
 from Functions1DGUI import Fncts1D  # popup peak finder window
 from Functions2DGUI import Fncts2D  # popup clustering and overlaying an image window
 from otherOptions import options     # popup clustering and overlaying an image window

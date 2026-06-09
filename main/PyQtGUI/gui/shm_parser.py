@@ -19,7 +19,7 @@ try:
         args = cleaning(sys.argv)
         h = args[1]
         p = args[2]
-    except:
+    except Exception:
         h = os.environ['RESThost']
         p = os.environ['RESTport']
 

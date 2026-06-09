@@ -14,7 +14,9 @@ def test_connection_manager_constructor_params():
     import inspect
     sig = inspect.signature(ConnectionManager.__init__)
     params = list(sig.parameters)
-    for p in ('window', 'wConf', 'connect_config', 'stop_rest', 'stop_auto', 'skip_auto', 'logger'):
+    for p in ('wConf', 'connect_config', 'spectra',
+              'update_intervals', 'update_intervals_user',
+              'stop_rest', 'stop_auto', 'skip_auto'):
         assert p in params, f"Missing: {p}"
 
 def test_connection_manager_has_connect():

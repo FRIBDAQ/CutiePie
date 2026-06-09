@@ -28,32 +28,26 @@ Cm-244:
 '''
 
 import sys, os, csv
-from datetime import datetime 
+from datetime import datetime
 sys.path.append(os.getcwd())
+
+_here = os.path.dirname(os.path.abspath(__file__))
+if _here not in sys.path:
+    sys.path.insert(0, _here)
 
 import numpy as np
 from lmfit import Model, Parameters, fit_report
 from scipy.special import erfcx
 
 import fit_factory  # keep import so the factory can discover this module
+
+from fit_alpha_base import _GL7_T, _GL7_W, _INV_SQRT2
 try:
     from PyQt5.QtWidgets import QApplication
 except Exception:
     QApplication = None
 
 
-# 7-point Gauss–Legendre nodes/weights on [-1, 1]
-_GL7_T = np.array([0.0,
-                   -0.4058451513773972,  0.4058451513773972,
-                   -0.7415311855993945,  0.7415311855993945,
-                   -0.9491079123427585,  0.9491079123427585], dtype=float)
-_GL7_W = np.array([0.4179591836734694,
-                   0.3818300505051189,  0.3818300505051189,
-                   0.2797053914892766,  0.2797053914892766,
-                   0.1294849661688697,  0.1294849661688697], dtype=float)
-
-# At module top:
-_INV_SQRT2 = 1.0 / np.sqrt(2.0)
 
 def _emg_tail_mixture(x, A, mu, sigma, tau1, tau2, eta):
     x = np.asarray(x)  # preserve dtype of input

@@ -4,8 +4,7 @@ matplotlib.use("Qt5Agg")
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
-from PyQt5 import QtCore
-from PyQt5.QtWidgets import *
+from PyQt5.QtWidgets import (QCheckBox, QDialog, QGridLayout, QGroupBox, QPushButton, QVBoxLayout)
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -128,7 +127,7 @@ class ImgSegPlot(QDialog):
             if btn.isChecked() == False:
                 try:
                     self.isChecked[i] = False
-                except:
+                except Exception:
                     pass
             else:
                 if self.isChecked[i] == False:

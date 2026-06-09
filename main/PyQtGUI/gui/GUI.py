@@ -758,7 +758,7 @@ class MainWindow(QMainWindow):
                 self.currentPlot.gateLabel.setText("Gate applied: "+gateName+"\n") 
             else :
                 self.currentPlot.gateLabel.setText("Gate applied: \n") 
-        except:
+        except Exception:
             # self.logger.debug('histoHover - exception', exc_info=True)
             self.currentPlot.histoLabel.setText("Spectrum: \nX: Y:")
             self.currentPlot.pointerLabel.setText(f"Pointer:\nX: Y: Count: ")
@@ -1428,7 +1428,7 @@ class MainWindow(QMainWindow):
                         if ax is not None :
                             self.autoUpdateStart()
                             break
-            except:
+            except Exception:
                 self.logger.debug('clickedTab - exception occured', exc_info=True)
                 pass
         
@@ -1476,7 +1476,7 @@ class MainWindow(QMainWindow):
                         if ax is not None :
                             self.autoUpdateStart()
                             break
-            except:
+            except Exception:
                 self.logger.debug('clickedTab - exception occured', exc_info=True)
                 pass
     """
@@ -1950,7 +1950,7 @@ class MainWindow(QMainWindow):
                     x_range, y_range = self.getAxisProperties(index)
                     scale = True if self.getSpectrumInfo("log", index=index) else False
                     properties[index] = {"name": h_name, "x": x_range, "y": y_range, "scale": scale}
-                except:
+                except Exception:
                     properties[index] = {"name": '', "x": None, "y": None, "scale": None}
                     pass
             ##### Bashir changed to examine the apply button
@@ -2122,9 +2122,7 @@ class MainWindow(QMainWindow):
     def cutoffButtonCallback(self, *arg):        return self.plot_controller.cutoffButtonCallback(*arg)
 
     #Used in zoomCallBack to save the new axis limits
-    #sleepTime is a small delay to ensure this function is executed after on_release
-    #seems necessary to get the updated axis limits (zoom toolbar action ends on_release)
-    def updatePlotLimits(self, sleepTime=0):     return self.plot_controller.updatePlotLimits(sleepTime)
+    def updatePlotLimits(self):                  return self.plot_controller.updatePlotLimits()
 
 
     ##################################
@@ -2384,7 +2382,7 @@ class MainWindow(QMainWindow):
                     self.setSpectrumInfo(minz=zlim_src[0], index=index)
                     self.setSpectrumInfo(maxz=zlim_src[1], index=index)
             self.updatePlot()
-        except:
+        except Exception:
             self.logger.debug('applyCopy - exception occured', exc_info=True)
             pass
 
@@ -2605,7 +2603,7 @@ class MainWindow(QMainWindow):
                 try:
                     self.removePeak(i)
                     self.isChecked[i] = False
-                except:
+                except Exception:
                     pass
             else:
                 if self.isChecked[i] == False:
@@ -2621,7 +2619,7 @@ class MainWindow(QMainWindow):
                 self.isChecked[i] = False
                 self.extraPopup.peak.peak_cbox[i].stateChanged.connect(self.peakState)
                 self.extraPopup.peak.peak_cbox[i].setChecked(True)
-        except:
+        except Exception:
             pass
 
     def peakAnalClear(self):
@@ -2654,7 +2652,7 @@ class MainWindow(QMainWindow):
             for i in range(len(self.peaks)):
                 self.extraPopup.peak.peak_cbox[i].setChecked(False)
                 self.isChecked[i] = False
-        except:
+        except Exception:
             pass
 
         self.currentPlot.canvas.draw()
@@ -2716,7 +2714,7 @@ class MainWindow(QMainWindow):
             self.update_peak_output(self.peaks, self.properties)
             self.create_peak_signals(self.peaks)
 
-        except:
+        except Exception:
             pass
 
 
@@ -2743,7 +2741,7 @@ class MainWindow(QMainWindow):
             if os.path.isfile(fileName):
                 self.LISEpic = cv2.imread(fileName, 0)
                 cv2.resize(self.LISEpic, (200, 100))
-        except:
+        except Exception:
             pass
 
     def fineUpMove(self):
@@ -2781,7 +2779,7 @@ class MainWindow(QMainWindow):
             else:
                 self.xstart += self.extraPopup.imaging.joystick.distance*0.03
             self.drawFigure()
-        except:
+        except Exception:
             pass
 
     def indexToStartPosition(self, index):
@@ -2834,7 +2832,7 @@ class MainWindow(QMainWindow):
         try:
             self.deleteFigure()
             self.drawFigure()
-        except:
+        except Exception:
             pass
 
     def zoomFigureX(self):
@@ -2843,7 +2841,7 @@ class MainWindow(QMainWindow):
         try:
             self.deleteFigure()
             self.drawFigure()
-        except:
+        except Exception:
             pass
 
     def zoomFigureY(self):
@@ -2852,7 +2850,7 @@ class MainWindow(QMainWindow):
         try:
             self.deleteFigure()
             self.drawFigure()
-        except:
+        except Exception:
             pass
 
     def addFigure(self):
@@ -2893,7 +2891,7 @@ class MainWindow(QMainWindow):
                     formatedDict[keyInfo].append(valInfo)
             df = pd.DataFrame.from_dict(formatedDict)
             df.to_csv(self.extraPopup.peak.jup_df_filename.text(), index=False, compression='gzip')
-        except:
+        except Exception:
             pass
 
     def jupyterStop(self):

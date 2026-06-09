@@ -6,9 +6,11 @@ matplotlib.use("Qt5Agg")
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
-from PyQt5.QtCore import *
-from PyQt5.QtWidgets import *
 from PyQt5 import QtCore
+from PyQt5.QtWidgets import (
+    QComboBox, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+    QPushButton, QToolButton,
+)
 
 
 class Configuration(QGridLayout):
@@ -21,7 +23,7 @@ class Configuration(QGridLayout):
                     host = os.environ["RESThost"]
                     port = os.environ["RESTport"]
                     mirrorport = os.environ["MIRRORport"]
-            except:
+            except Exception:
                     os.environ['RESThost'] = "localhost"
                     os.environ["RESTport"] = "<port>"
                     os.environ["MIRRORport"] = "<mirror>"

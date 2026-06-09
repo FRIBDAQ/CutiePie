@@ -8,8 +8,9 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
 from PyQt5 import QtCore
-from PyQt5.QtWidgets import *
-import CPyConverter as cpy
+from PyQt5.QtWidgets import (
+    QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QWidget,
+)
 
 class ConnectConfiguration(QWidget):
     def __init__(self, *args, **kwargs):
@@ -22,7 +23,7 @@ class ConnectConfiguration(QWidget):
                     host = os.environ["RESThost"]
                     port = os.environ["RESTport"]
                     mirrorport = os.environ["MIRRORport"]
-            except:
+            except Exception:
                     os.environ['RESThost'] = "localhost"
                     os.environ["RESTport"] = "<port>"
                     os.environ["MIRRORport"] = "<mirror>"

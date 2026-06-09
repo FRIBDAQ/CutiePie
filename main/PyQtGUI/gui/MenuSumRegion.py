@@ -6,8 +6,11 @@ matplotlib.use("Qt5Agg")
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
-from PyQt5.QtCore import *
-from PyQt5.QtWidgets import *
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtWidgets import (
+    QComboBox, QGridLayout, QHBoxLayout, QLabel, QPushButton,
+    QTextEdit, QWidget,
+)
 
 class MenuSumRegion(QWidget):
 

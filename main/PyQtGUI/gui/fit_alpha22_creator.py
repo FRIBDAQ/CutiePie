@@ -15,8 +15,12 @@
 # wmode: 0=unweighted, 1=Poisson(data), 2=Poisson(model, 1-step IRLS)
 
 import sys, os, csv
-from datetime import datetime 
+from datetime import datetime
 sys.path.append(os.getcwd())
+
+_here = os.path.dirname(os.path.abspath(__file__))
+if _here not in sys.path:
+    sys.path.insert(0, _here)
 
 import numpy as np
 from lmfit import Model, Parameters, fit_report
@@ -29,20 +33,7 @@ try:
 except Exception:
     QApplication = None
 
-
-# 7-point Gauss–Legendre on [-1, 1]
-_GL7_T = np.array(
-    [0.0,
-     -0.4058451513773972,  0.4058451513773972,
-     -0.7415311855993945,  0.7415311855993945,
-     -0.9491079123427585,  0.9491079123427585], dtype=float)
-_GL7_W = np.array(
-    [0.4179591836734694,
-     0.3818300505051189,  0.3818300505051189,
-     0.2797053914892766,  0.2797053914892766,
-     0.1294849661688697,  0.1294849661688697], dtype=float)
-
-_INV_SQRT2 = 1.0 / np.sqrt(2.0)
+from fit_alpha_base import _GL7_T, _GL7_W, _INV_SQRT2
 
 def _peak_binned(x, A, mu, s, t1, t2, eta, bw):
     """Single EMG (two-tail) with the same GL7 bin integration used by the total."""

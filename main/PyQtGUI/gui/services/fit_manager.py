@@ -519,7 +519,7 @@ class FitManager:
             self._cal.MU.pop(); self._cal.E.pop()
             for a in self._cal.artists.pop():
                 try: a.remove()
-                except: pass
+                except Exception: pass
             ax.figure.canvas.draw_idle()
             _update_status()
 
@@ -562,7 +562,7 @@ class FitManager:
             for arts in list(self._cal.artists):
                 for a in arts:
                     try: a.remove()
-                    except: pass
+                    except Exception: pass
             ax.figure.canvas.draw_idle()
             self._cal = None
 

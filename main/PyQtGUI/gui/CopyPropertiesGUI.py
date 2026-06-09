@@ -6,8 +6,10 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
 from PyQt5 import QtCore
-from PyQt5.QtWidgets import *
-import CPyConverter as cpy
+from PyQt5.QtWidgets import (
+    QCheckBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
+    QPushButton, QVBoxLayout, QWidget,
+)
 
 class CopyProperties(QWidget):
     def __init__(self, *args, **kwargs):

@@ -41,8 +41,6 @@ elif os.path.exists(os.path.join(cwd, "fit_skel_creator.py")) and os.path.exists
 #scriptdir = mydir + '/../Script'   # SpecTcl install
 #sys.path.append(scriptdir)
 
-import CPyConverter as cpy
-
 #  If we are in windows, we need to allow DLL's to be loaded
 #  from our script dir so:
 #
@@ -67,8 +65,7 @@ import CPyConverter as cpy
 #Script is append after USERDIR or cwd so if those are defined the priority is to them not to Script
 #sys.path.append(instPath + "/Script")
 
-from PyQt5 import QtCore
-from PyQt5.QtWidgets import *
+from PyQt5.QtWidgets import QApplication
 
 import cv2
 

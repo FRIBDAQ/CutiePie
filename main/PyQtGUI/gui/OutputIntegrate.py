@@ -6,8 +6,10 @@ matplotlib.use("Qt5Agg")
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
-from PyQt5.QtCore import *
-from PyQt5.QtWidgets import *
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import (
+    QGridLayout, QHBoxLayout, QPushButton, QTableWidget, QWidget,
+)
 
 class OutputIntegratePopup(QWidget):
     def __init__(self, parent=None):

@@ -28,8 +28,8 @@ class SpectrumStore:
         return record.get(key)
 
     def remove(self, name: str) -> None:
-        """Delete entry. Raises KeyError if absent (mirrors prior `del` behaviour)."""
-        del self._store[name]
+        """Delete entry. No-op if absent — callers always guard with `in` first."""
+        self._store.pop(name, None)
 
     def contains(self, name: str) -> bool:
         return name in self._store

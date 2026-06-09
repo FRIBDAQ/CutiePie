@@ -5,10 +5,9 @@ matplotlib.use("Qt5Agg")
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
-from PyQt5 import QtCore, QtGui
-from PyQt5.QtWidgets import *
-import CPyConverter as cpy
+from PyQt5 import QtCore
 from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import (QCheckBox, QDialog, QGridLayout, QGroupBox)
 
 class options(QDialog):
 

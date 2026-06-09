@@ -1,5 +1,4 @@
 import logging
-import time
 
 import numpy as np
 import matplotlib
@@ -573,8 +572,8 @@ class PlotController:
             self._set_spectrum_info(spectrum=spectrum, index=index)
             self._draw_gate(index)
             cp.canvas.draw()
-        except NameError as err:
-            self.logger.debug('okCutoff - NameError', exc_info=True)
+        except Exception:
+            self.logger.debug('okCutoff - exception', exc_info=True)
             pass
 
         self._cutoffp.close()
@@ -632,16 +631,14 @@ class PlotController:
             self.logger.warning('cutoffButtonCallback - you broke something really bad - spectrum dict: %s',
                                 self._get_spectrum_info("cutoff", index=index))
 
-    def updatePlotLimits(self, sleepTime=0):
-        self.logger.info('updatePlotLimits - sleepTime: %s', sleepTime)
+    def updatePlotLimits(self):
+        self.logger.info('updatePlotLimits')
         cp    = self._get_current_plot()
         index = cp.selected_plot_index
         ax    = self._get_spectrum_info("axis", index=index)
         if ax is None:
             self.logger.debug('updatePlotLimits - ax is None')
             return
-
-        time.sleep(sleepTime)
 
         try:
             x_range, y_range = self.getAxisProperties(index)
@@ -656,10 +653,8 @@ class PlotController:
 
             self._set_spectrum_info(spectrum=spectrum, index=index)
             self._draw_gate(index)
-        except NameError as err:
-            self.logger.debug('updatePlotLimits - NameError', exc_info=True)
-            print(err)
-            pass
+        except Exception:
+            self.logger.debug('updatePlotLimits - exception', exc_info=True)
 
     # ------------------------------------------------------------------
     # Colorbar / canvas helpers
@@ -986,9 +981,8 @@ class PlotController:
 
             cp.figure.tight_layout()
             cp.canvas.draw()
-        except NameError:
-            self.logger.debug('updatePlot - NameError exception', exc_info=True)
-            pass
+        except Exception:
+            self.logger.debug('updatePlot - exception', exc_info=True)
 
     def onColormapChange(self, cmap_name: str):
         self.logger.info("onColormapChange - cmap: %s", cmap_name)

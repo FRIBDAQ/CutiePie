@@ -68,7 +68,7 @@ class FitFunction:
             for i in range(len(result.x)):
                 s = 'Par['+str(i)+']: '+str(round(result.x[i],6))+'+/-'+str(round(np.sqrt(result.hess_inv[i][i]),6))
                 fit_results.append(s)
-        except:
+        except Exception:
             pass # Can't plot, ignored
         
         return fitln
