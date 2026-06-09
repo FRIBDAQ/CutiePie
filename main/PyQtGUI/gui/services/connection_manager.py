@@ -212,10 +212,11 @@ class ConnectionManager(QtCore.QObject):
                         maxx = 0
                         for par in info[0]["parameters"]:
                             ipar = self._get_last_digit_param(par)
-                            if ipar < minx:
-                                minx = ipar
-                            if ipar > maxx:
-                                maxx = ipar
+                            if ipar is not None:
+                                if ipar < minx:
+                                    minx = ipar
+                                if ipar > maxx:
+                                    maxx = ipar
                         nameIndex = s[1].index(name)
                         maxx += 1
                         binx = maxx - minx

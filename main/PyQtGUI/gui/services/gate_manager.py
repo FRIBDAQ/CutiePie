@@ -1,6 +1,7 @@
 import logging
 import math
 import re
+import time
 
 import matplotlib
 import matplotlib.lines as mlines
@@ -57,6 +58,10 @@ class GateManager(QObject):
         self._creating_gate = False
         self._editing_gate  = False
 
+        self._gate_cache     = []
+        self._gate_cache_ts  = 0.0
+        self._GATE_CACHE_TTL = 30.0
+
     # ------------------------------------------------------------------
     # Gate drawing
     # ------------------------------------------------------------------
@@ -101,7 +106,11 @@ class GateManager(QObject):
         rest = self._get_rest()
         if rest is None:
             return
-        gateList = [d for d in rest.listGate()
+        now = time.monotonic()
+        if now - self._gate_cache_ts > self._GATE_CACHE_TTL:
+            self._gate_cache    = rest.listGate()
+            self._gate_cache_ts = now
+        gateList = [d for d in self._gate_cache
                     if "type" in d and "parameters" in d
                     and d["type"] in drawableTypes[spectrumType]
                     and d["parameters"] == parameters]
@@ -454,6 +463,7 @@ class GateManager(QObject):
                 if ret == QMessageBox.Ok:
                     pass
         self.pushGateToREST(gateName, self._popup.listGateType.currentText())
+        self._gate_cache_ts = 0.0   # invalidate so new/edited gate shows on next draw
         self._popup.clearInfo()
         self.cancelGate()
 
