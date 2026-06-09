@@ -87,13 +87,15 @@ class ConnectionManager(QtCore.QObject):
                 self.logger.debug("connectShMem - could make REST request of server")
                 self._stop_rest_thread()
                 self.stopRestThread.clear()
-                self._rest_worker = RestWorker(self._rest, 6, self.stopRestThread)
+                self._rest_worker = RestWorker(self._rest, 6, self.stopRestThread,
+                                               hostname, port, mirror, user)
                 self._rest_thread = QThread(self)
                 self._rest_worker.moveToThread(self._rest_thread)
                 self._rest_thread.started.connect(self._rest_worker.run)
                 self._rest_worker.connected.connect(self._on_rest_connected)
                 self._rest_worker.disconnected.connect(self._on_rest_disconnected)
                 self._rest_worker.tracesReady.connect(self.updateFromTraces)
+                self._rest_worker.spectrumAdded.connect(self._on_spectrum_added)
                 self._rest_thread.start()
 
             timer1 = QElapsedTimer()
@@ -160,89 +162,21 @@ class ConnectionManager(QtCore.QObject):
 
     def updateFromTraces(self, tracesDetails):
         self.logger.info('updateFromTraces - tracesDetails: %s', tracesDetails)
-        t_bind = tracesDetails.get("binding") or []
-        if len(t_bind) > 0:
-            for str in t_bind:
-                action, name, bindingIdx = str.split(" ")
-                if action == "remove" and name in self._spectra.as_dict():
-                    self._spectra.remove(name)
-                    self.spectrumRemoved.emit(name)
-                    self.updateSpectrumList()
-                    self.spectrumListChanged.emit()
-                elif action == "add" and name not in self._spectra.as_dict():
-                    info = self._rest.listSpectrum(name)
-                    if not info:
-                        self.logger.warning('updateFromTraces - listSpectrum returned empty for %s', name)
-                        return
+        for entry in (tracesDetails.get("binding") or []):
+            action, name, _ = entry.split(" ")
+            if action == "remove" and name in self._spectra.as_dict():
+                self._spectra.remove(name)
+                self.spectrumRemoved.emit(name)
+                self.updateSpectrumList()
+                self.spectrumListChanged.emit()
 
-                    hostname = self._connect_config.server.text()
-                    port     = self._connect_config.rest.text()
-                    user     = self._connect_config.user.text()
-                    mirror   = self._connect_config.mirror.text()
-                    s = cpy.CPyConverter().Update(
-                        bytes(hostname, encoding='utf-8'),
-                        bytes(port,     encoding='utf-8'),
-                        bytes(mirror,   encoding='utf-8'),
-                        bytes(user,     encoding='utf-8'),
-                    )
-                    data = []
-                    binx = info[0]["axes"][0]["bins"]
-                    minx = info[0]["axes"][0]["low"]
-                    maxx = info[0]["axes"][0]["high"]
-                    if "1" in info[0]["type"] or "b" in info[0]["type"] or "g1" in info[0]["type"]:
-                        dim  = 1
-                        biny = miny = maxy = None
-                        nameIndex = s[1].index(name)
-                        try:
-                            data = s[9][nameIndex][0:-1]
-                            data[0] = 0
-                        except Exception:
-                            self.logger.debug("updateFromTraces - nameIndex not in shmem np array for: %s", name, exc_info=True)
-                        self._spectra.set(name, dim=dim, binx=binx, minx=minx, maxx=maxx,
-                                                    biny=biny, miny=miny, maxy=maxy,
-                                                    parameters=info[0]["parameters"],
-                                                    type=info[0]["type"], data=data)
-                    elif "s" in info[0]["type"]:
-                        dim  = 2
-                        biny = binx
-                        miny = minx
-                        maxy = maxx
-                        binx = 0
-                        minx = 9e+6
-                        maxx = 0
-                        for par in info[0]["parameters"]:
-                            ipar = self._get_last_digit_param(par)
-                            if ipar is not None:
-                                if ipar < minx:
-                                    minx = ipar
-                                if ipar > maxx:
-                                    maxx = ipar
-                        nameIndex = s[1].index(name)
-                        maxx += 1
-                        binx = maxx - minx
-                        try:
-                            data = s[9][nameIndex][1:-1, 1:-1]
-                        except Exception:
-                            self.logger.debug("updateFromTraces - nameIndex not in shmem np array for: %s", name, exc_info=True)
-                        self._spectra.set(name, dim=dim, binx=binx, minx=minx, maxx=maxx,
-                                                    biny=biny, miny=miny, maxy=maxy,
-                                                    parameters=info[0]["parameters"],
-                                                    type=info[0]["type"], data=data)
-                    else:
-                        dim  = 2
-                        biny = info[0]["axes"][1]["bins"]
-                        miny = info[0]["axes"][1]["low"]
-                        maxy = info[0]["axes"][1]["high"]
-                        nameIndex = s[1].index(name)
-                        try:
-                            data = s[9][nameIndex][1:-1, 1:-1]
-                        except Exception:
-                            self.logger.debug("updateFromTraces - nameIndex not in shmem np array for: %s", name, exc_info=True)
-                        self._spectra.set(name, dim=dim, binx=binx, minx=minx, maxx=maxx,
-                                                    biny=biny, miny=miny, maxy=maxy,
-                                                    parameters=info[0]["parameters"],
-                                                    type=info[0]["type"], data=data)
-                    self.updateSpectrumList()
+    @pyqtSlot(str, dict)
+    def _on_spectrum_added(self, name, data_dict):
+        self.logger.info('_on_spectrum_added - name: %s', name)
+        if name in self._spectra.as_dict():
+            return
+        self._spectra.set(name, **data_dict)
+        self.updateSpectrumList()
 
     # ------------------------------------------------------------------
     # Spectrum list helpers
@@ -278,20 +212,6 @@ class ConnectionManager(QtCore.QObject):
             self._wConf.histo_list.setInsertPolicy(QComboBox.NoInsert)
             self._wConf.histo_list.completer().setCompletionMode(QCompleter.PopupCompletion)
             self._wConf.histo_list.completer().setFilterMode(QtCore.Qt.MatchContains)
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _get_last_digit_param(parameter_name):
-        parts = parameter_name.split(".")
-        if not any(part.isdigit() for part in parts):
-            return None
-        try:
-            return int(parts[-1])
-        except ValueError:
-            return None
 
     # ------------------------------------------------------------------
     # Thread lifecycle
