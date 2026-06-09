@@ -12,8 +12,12 @@
 # wmode: 0=unweighted, 1=Poisson(data), 2=Poisson(model, IRLS)
 # Defaults (when GUI tail omits): bw=median(dx), wmode=1
 
-import os, csv
+import os, csv, sys
 from datetime import datetime
+
+_here = os.path.dirname(os.path.abspath(__file__))
+if _here not in sys.path:
+    sys.path.insert(0, _here)
 
 import numpy as np
 from lmfit import Model, Parameters, fit_report

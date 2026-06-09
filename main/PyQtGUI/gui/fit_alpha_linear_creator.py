@@ -36,11 +36,15 @@
 #   - If SciPy is available, uses scipy.optimize.nnls; otherwise falls back to a simple
 #     projected-gradient NNLS (good enough for our sizes).
 
-import os, csv
+import os, csv, sys
 import numpy as np
 
 # Keep import so the factory can discover this module
 import fit_factory  # noqa: F401
+
+_here = os.path.dirname(os.path.abspath(__file__))
+if _here not in sys.path:
+    sys.path.insert(0, _here)
 
 from fit_alpha_base import (
     _GL7_T, _GL7_W, _GL3_T, _GL3_W, _INV_SQRT2,
