@@ -87,8 +87,7 @@ class ConnectionManager(QtCore.QObject):
                 self.logger.debug("connectShMem - could make REST request of server")
                 self._stop_rest_thread()
                 self.stopRestThread.clear()
-                self._rest_worker = RestWorker(self._rest, 6, self.stopRestThread,
-                                               hostname, port, mirror, user)
+                self._rest_worker = RestWorker(self._rest, 6, self.stopRestThread)
                 self._rest_thread = QThread(self)
                 self._rest_worker.moveToThread(self._rest_thread)
                 self._rest_thread.started.connect(self._rest_worker.run)
@@ -171,11 +170,79 @@ class ConnectionManager(QtCore.QObject):
                 self.spectrumListChanged.emit()
 
     @pyqtSlot(str, dict)
-    def _on_spectrum_added(self, name, data_dict):
+    def _on_spectrum_added(self, name, spec_info):
+        """Handle a newly bound spectrum. Runs on the GUI thread so CPyConverter is safe."""
         self.logger.info('_on_spectrum_added - name: %s', name)
         if name in self._spectra.as_dict():
             return
-        self._spectra.set(name, **data_dict)
+
+        hostname = self._connect_config.server.text()
+        port     = self._connect_config.rest.text()
+        user     = self._connect_config.user.text()
+        mirror   = self._connect_config.mirror.text()
+        try:
+            s = cpy.CPyConverter().Update(
+                bytes(hostname, encoding='utf-8'),
+                bytes(port,     encoding='utf-8'),
+                bytes(mirror,   encoding='utf-8'),
+                bytes(user,     encoding='utf-8'),
+            )
+        except Exception:
+            self.logger.debug('_on_spectrum_added - CPyConverter failed for %s', name, exc_info=True)
+            return
+
+        data      = []
+        binx      = spec_info["axes"][0]["bins"]
+        minx      = spec_info["axes"][0]["low"]
+        maxx      = spec_info["axes"][0]["high"]
+        spec_type = spec_info["type"]
+
+        if "1" in spec_type or "b" in spec_type or "g1" in spec_type:
+            dim  = 1
+            biny = miny = maxy = None
+            try:
+                nameIndex = s[1].index(name)
+                data = s[9][nameIndex][0:-1]
+                data[0] = 0
+            except Exception:
+                self.logger.debug('_on_spectrum_added - name not in shmem for %s', name, exc_info=True)
+        elif "s" in spec_type:
+            dim  = 2
+            biny = binx
+            miny = minx
+            maxy = maxx
+            binx = 0
+            minx = 9e+6
+            maxx = 0
+            for par in spec_info["parameters"]:
+                ipar = self._get_last_digit_param(par)
+                if ipar is not None:
+                    if ipar < minx:
+                        minx = ipar
+                    if ipar > maxx:
+                        maxx = ipar
+            maxx += 1
+            binx = maxx - minx
+            try:
+                nameIndex = s[1].index(name)
+                data = s[9][nameIndex][1:-1, 1:-1]
+            except Exception:
+                self.logger.debug('_on_spectrum_added - name not in shmem for %s', name, exc_info=True)
+        else:
+            dim  = 2
+            biny = spec_info["axes"][1]["bins"]
+            miny = spec_info["axes"][1]["low"]
+            maxy = spec_info["axes"][1]["high"]
+            try:
+                nameIndex = s[1].index(name)
+                data = s[9][nameIndex][1:-1, 1:-1]
+            except Exception:
+                self.logger.debug('_on_spectrum_added - name not in shmem for %s', name, exc_info=True)
+
+        self._spectra.set(name, dim=dim, binx=binx, minx=minx, maxx=maxx,
+                          biny=biny, miny=miny, maxy=maxy,
+                          parameters=spec_info["parameters"],
+                          type=spec_type, data=data)
         self.updateSpectrumList()
 
     # ------------------------------------------------------------------
@@ -212,6 +279,20 @@ class ConnectionManager(QtCore.QObject):
             self._wConf.histo_list.setInsertPolicy(QComboBox.NoInsert)
             self._wConf.histo_list.completer().setCompletionMode(QCompleter.PopupCompletion)
             self._wConf.histo_list.completer().setFilterMode(QtCore.Qt.MatchContains)
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _get_last_digit_param(parameter_name):
+        parts = parameter_name.split(".")
+        if not any(part.isdigit() for part in parts):
+            return None
+        try:
+            return int(parts[-1])
+        except ValueError:
+            return None
 
     # ------------------------------------------------------------------
     # Thread lifecycle
