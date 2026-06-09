@@ -33,25 +33,30 @@ class RestWorker(QObject):
             traces = self._rest.pollTraces(token)
             if not traces:
                 break
+
+            # Collect removes and fetch add metadata — all on the background thread.
+            # Removes MUST be emitted before adds so the GUI thread processes them in
+            # the original SpecTcl order. A remove-then-add of the same name (rebind)
+            # would otherwise leave the spectrum absent if adds were queued first.
             remove_bindings = []
+            add_infos       = []
             for entry in (traces.get("binding") or []):
                 action, name, _ = entry.split(" ")
-                if action == "add":
-                    self._process_add(name)
-                elif action == "remove":
+                if action == "remove":
                     remove_bindings.append(entry)
+                elif action == "add":
+                    info = self._rest.listSpectrum(name)
+                    if info:
+                        add_infos.append((name, info[0]))
+                    else:
+                        logger.warning('RestWorker - listSpectrum returned empty for %s', name)
+
             if remove_bindings:
                 self.tracesReady.emit({"binding": remove_bindings})
-        self.disconnected.emit()
+            for name, spec_info in add_infos:
+                self.spectrumAdded.emit(name, spec_info)
 
-    def _process_add(self, name):
-        """Fetch REST metadata for a newly bound spectrum (background thread).
-        CPyConverter is intentionally NOT called here — it must run on the GUI thread."""
-        info = self._rest.listSpectrum(name)
-        if not info:
-            logger.warning('RestWorker._process_add - listSpectrum returned empty for %s', name)
-            return
-        self.spectrumAdded.emit(name, info[0])
+        self.disconnected.emit()
 
 
 class AutoUpdateWorker(QObject):
