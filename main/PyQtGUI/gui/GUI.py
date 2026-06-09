@@ -149,9 +149,6 @@ from alpha_filter_dialog import AlphaChainIsoFilterDialog
 SETTING_BASEDIR = "workdir"
 SETTING_EXECUTABLE = "exec"
 DEBUG = False
-DEBOUNCE_DUR = 0.25
-t = None
-FIT_PREFIX = "fit-_-"  # if you keep it as class attr, reference with self.FIT_PREFIX
 
 # 0) Class definition
 class MainWindow(QMainWindow):
@@ -422,8 +419,6 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, self.okConnect)
 
         #### Bashir chenged ###################
-        menu = QMenu(self.wConf.geometryButton)     # parent the menu to the button
-
         # Geometry menu (same gold)
         menu = QMenu(self.wConf.geometryButton)
         menu.setStyleSheet("""
@@ -479,9 +474,6 @@ class MainWindow(QMainWindow):
         self.wConf.autoUpdate2.addItems(self.autoUpdateIntervalsUser)
         self.wConf.autoUpdate2.setCurrentIndex(8)
 
-        # make existing code that calls .value()/.setValue() still work
-        self.wConf.autoUpdate2.value = self.wConf.autoUpdate2.currentIndex
-        self.wConf.autoUpdate2.setValue = self.wConf.autoUpdate2.setCurrentIndex
 
         # initial label
         # i0 = self.wConf.autoUpdate2.currentIndex()
@@ -673,12 +665,12 @@ class MainWindow(QMainWindow):
             if val:
                 self.wTab.wPlot[index].logButton.disconnect()
                 self.wTab.wPlot[index].cutoffButton.disconnect()
-                self.wTab.wPlot[self.wTab.currentIndex()].histo_autoscale.disconnect()
-                self.wTab.wPlot[self.wTab.currentIndex()].customZoomButton.disconnect()
-                self.wTab.wPlot[self.wTab.currentIndex()].plusButton.disconnect()
-                self.wTab.wPlot[self.wTab.currentIndex()].minusButton.disconnect()
-                self.wTab.wPlot[self.wTab.currentIndex()].copyButton.disconnect()
-                self.wTab.wPlot[self.wTab.currentIndex()].customHomeButton.disconnect()
+                self.wTab.wPlot[index].histo_autoscale.disconnect()
+                self.wTab.wPlot[index].customZoomButton.disconnect()
+                self.wTab.wPlot[index].plusButton.disconnect()
+                self.wTab.wPlot[index].minusButton.disconnect()
+                self.wTab.wPlot[index].copyButton.disconnect()
+                self.wTab.wPlot[index].customHomeButton.disconnect()
                 self.wTab.countClickTab[index] = False
 
         self.wTab.wPlot[self.wTab.currentIndex()].zoom_action.triggered.connect(self.zoomCallback)
@@ -2011,6 +2003,8 @@ class MainWindow(QMainWindow):
                 #####################################################
                 self.setCanvasLayout()
                 for index, val_dict in infoGeo["geo"].items():
+                    if not val_dict["name"]:
+                        continue
                     if self.getSpectrumInfoREST("dim", name=val_dict["name"]) is None:
                         notFound.append(val_dict["name"])
                         continue 

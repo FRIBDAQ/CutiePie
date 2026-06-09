@@ -54,9 +54,7 @@ class PyREST:
     # units
     # To be used in Python as self.editParameter("h", bins=10, low=10, high=20)
     def editParameter(self, name, **kwargs):
-        url = self._build_url("spectcl/parameter/edit", name=str(name))
-        for key, value in kwargs.items():
-            url += "&" + key + "=" + value
+        url = self._build_url("spectcl/parameter/edit", name=str(name), **kwargs)
         self.sendRequest(url)
 
 

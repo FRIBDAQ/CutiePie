@@ -36,29 +36,19 @@
 #   - If SciPy is available, uses scipy.optimize.nnls; otherwise falls back to a simple
 #     projected-gradient NNLS (good enough for our sizes).
 
-import os, csv, re
+import os, csv
 import numpy as np
-from scipy.special import erfcx, erfc
 
 # Keep import so the factory can discover this module
 import fit_factory  # noqa: F401
 
-# ---------------- Gauss–Legendre bin integration ----------------
-_GL7_T = np.array([
-    0.0, -0.4058451513773972,  0.4058451513773972,
-         -0.7415311855993945,  0.7415311855993945,
-         -0.9491079123427585,  0.9491079123427585], dtype=float)
-_GL7_W = np.array([
-    0.4179591836734694,
-    0.3818300505051189,  0.3818300505051189,
-    0.2797053914892766,  0.2797053914892766,
-    0.1294849661688697,  0.1294849661688697], dtype=float)
+from fit_alpha_base import (
+    _GL7_T, _GL7_W, _GL3_T, _GL3_W, _INV_SQRT2,
+    _safe_name, _parse_percent,
+    _emg_one_tail_stable, _emg_two_tail_stable,
+)
 
-_GL3_T = np.array([0.0, -0.7745966692, 0.7745966692], dtype=float)
-_GL3_W = np.array([0.8888888889, 0.5555555556, 0.5555555556], dtype=float)
 USE_GL3 = False  # set True for speed
-
-_INV_SQRT2 = 1.0 / np.sqrt(2.0)
 
 IRLS_MAX_ITERS = 5
 IRLS_IMPROVE   = 1e-3  # relative chi2 improvement
@@ -76,46 +66,8 @@ def _bin_integral(fun, x, bw, *args):
         acc += wi * fun(x + half * ti, *args)
     return half * acc
 
-# ---------------- EMG (two-tail) ----------------
-def _emg_one_tail_stable(x, A, mu, sigma, tau):
-    x = np.asarray(x, dtype=float)
-    sigma = max(float(sigma), 1e-9)
-    tau   = max(float(tau),   1e-9)
-    pref = 0.5 * A / tau
-    inv_sigma = 1.0 / sigma
-    u = (_INV_SQRT2) * ((sigma / tau) - ((x - mu) * inv_sigma))
-    out = np.empty_like(x)
-    m = (u >= 0.0)
-    if np.any(m):
-        g = np.exp(-0.5 * ((x[m] - mu) * inv_sigma)**2)
-        out[m] = pref * g * erfcx(u[m])
-    if np.any(~m):
-        expfac = np.exp(0.5 * (sigma / tau)**2 - (x[~m] - mu) / tau)
-        out[~m] = pref * expfac * erfc(u[~m])
-    return np.where(np.isfinite(out), out, 0.0)
-
-def _emg_two_tail_stable(x, A, mu, sigma, tau_fast, tau_slow, eta):
-    eta = float(np.clip(eta, 0.0, 1.0))
-    return ((1.0 - eta) * _emg_one_tail_stable(x, A, mu, sigma, tau_fast)
-          + (      eta) * _emg_one_tail_stable(x, A, mu, sigma, tau_slow))
-
 def _peak_binned(x, A, mu, sigma, t1, t2, eta, bw):
     return _bin_integral(_emg_two_tail_stable, x, bw, A, mu, sigma, t1, t2, eta)
-
-# ---------------- Shapes parsing ----------------
-def _safe_name(s):
-    return re.sub(r'[^A-Za-z0-9_]+', '_', str(s).strip())
-
-def _parse_percent(p):
-    if isinstance(p, str):
-        p = p.strip()
-        if p.endswith('%'):
-            p = p[:-1]
-    try:
-        v = float(p)
-    except Exception:
-        v = 0.0
-    return max(v, 0.0) / 100.0
 
 def _load_shapes(shape_file, a, b):
     """

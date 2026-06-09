@@ -344,7 +344,7 @@ class ConnectionManager(QtCore.QObject):
 
     def autoUpdateStart(self):
         self.logger.info('autoUpdateStart')
-        val_auto = self._wConf.autoUpdate2.value()
+        val_auto = self._wConf.autoUpdate2.currentIndex()
         updateInterval     = self._update_intervals[val_auto]
         updateIntervalUser = self._update_intervals_user[val_auto]
         try:
