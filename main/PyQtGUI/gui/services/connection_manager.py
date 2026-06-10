@@ -2,13 +2,13 @@ import logging
 
 import CPyConverter as cpy
 
-from PyQt5.QtCore import QThread, QElapsedTimer, QTimer, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import QThread, QTimer, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import QComboBox, QCompleter
 from PyQt5 import QtCore
 
 from PyREST import PyREST
 from services.spectrum_store import SpectrumStore
-from services.thread_workers import RestWorker, AutoUpdateWorker
+from services.thread_workers import RestWorker, AutoUpdateWorker, ConnectWorker
 
 
 class ConnectionManager(QtCore.QObject):
@@ -32,11 +32,13 @@ class ConnectionManager(QtCore.QObject):
         self.stopAutoUpdateThread   = stop_auto
         self.skipAutoUpdateThread   = skip_auto
         self.logger = logger or logging.getLogger(__name__)
-        self._rest        = None
-        self._rest_thread = None
-        self._rest_worker = None
-        self._auto_thread = None
-        self._auto_worker = None
+        self._rest           = None
+        self._rest_thread    = None
+        self._rest_worker    = None
+        self._auto_thread    = None
+        self._auto_worker    = None
+        self._connect_thread = None
+        self._connect_worker = None
         self._pending_adds: list   = []
         self._flush_scheduled: bool = False
 
@@ -82,80 +84,88 @@ class ConnectionManager(QtCore.QObject):
             self._wConf.connectButton.setStyleSheet("background-color:rgb(252, 48, 3);")
             self._wConf.connectButton.setText("Disconnected")
 
-            if self._rest.checkSpecTclREST() == False:
+            if not self._rest.checkSpecTclREST():
                 self.logger.debug('connectShMem - invalid URL for SpecTclREST')
                 return
-            else:
-                self.logger.debug("connectShMem - could make REST request of server")
-                self._stop_rest_thread()
-                self.stopRestThread.clear()
-                self._rest_worker = RestWorker(self._rest, 6, self.stopRestThread)
-                self._rest_thread = QThread(self)
-                self._rest_worker.moveToThread(self._rest_thread)
-                self._rest_thread.started.connect(self._rest_worker.run)
-                self._rest_worker.connected.connect(self._on_rest_connected)
-                self._rest_worker.disconnected.connect(self._on_rest_disconnected)
-                self._rest_worker.tracesReady.connect(self.updateFromTraces)
-                self._rest_worker.spectrumAdded.connect(self._on_spectrum_added)
-                self._rest_thread.start()
 
-            timer1 = QElapsedTimer()
-            timer1.start()
+            self.logger.debug("connectShMem - could make REST request of server")
+            self._stop_rest_thread()
+            self.stopRestThread.clear()
+            self._rest_worker = RestWorker(self._rest, 6, self.stopRestThread)
+            self._rest_thread = QThread(self)
+            self._rest_worker.moveToThread(self._rest_thread)
+            self._rest_thread.started.connect(self._rest_worker.run)
+            self._rest_worker.connected.connect(self._on_rest_connected)
+            self._rest_worker.disconnected.connect(self._on_rest_disconnected)
+            self._rest_worker.tracesReady.connect(self.updateFromTraces)
+            self._rest_worker.spectrumAdded.connect(self._on_spectrum_added)
+            self._rest_thread.start()
 
-            self.logger.debug("connectShMem - attempting update from CPYConverter.")
-            s = cpy.CPyConverter().Update(
-                bytes(hostname, encoding='utf-8'),
-                bytes(port,     encoding='utf-8'),
-                bytes(mirror,   encoding='utf-8'),
-                bytes(user,     encoding='utf-8'),
-            )
-            self.logger.debug("connectShMem CPyConverter updated without failure")
+            # Mirror transfer is slow (full shmem copy over TCP) — run it off the GUI thread.
+            self._wConf.connectButton.setStyleSheet("background-color:rgb(255, 200, 0);")
+            self._wConf.connectButton.setText("Connecting to mirror…")
+            self._wConf.connectButton.setEnabled(False)
 
-            otherInfo = self.getSpectrumInfoFromReST()
-            self.logger.debug("connectShMem Got spectrum information from REST")
-            for i, name in enumerate(s[1]):
-                self.logger.debug("Looking at: %s", name)
-                if name in otherInfo:
-                    self.logger.debug("It's in otherinfo.")
-                    if s[2][i] == 2:
-                        self.logger.debug("s[2][i] == 2")
-                        data = s[9][i][1:-1, 1:-1]
-                        # -- begin -- for auto x-axis definition summary spec
-                        if "s" in otherInfo[name]["type"]:
-                            minx = s[4][i]
-                            maxx = s[5][i] + 1
-                        # -- end -- for auto x-axis definition summary spec
-                    else:
-                        self.logger.debug("s[2][i] != 2 ")
-                        data = s[9][i][0:-1]
-                        data[0] = 0
+            if self._connect_thread is not None:
+                self._connect_thread.quit()
+                self._connect_thread.wait()
 
-                    self.logger.debug("Setting spectrum info")
-                    # -- begin -- for auto x-axis definition summary spec
-                    if "s" in otherInfo[name]["type"]:
-                        self._spectra.set(
-                            name, dim=s[2][i], binx=s[3][i]-2, minx=minx, maxx=maxx,
-                            biny=s[6][i]-2, miny=s[7][i], maxy=s[8][i],
-                            data=data, parameters=otherInfo[name]["parameters"],
-                            type=otherInfo[name]["type"],
-                        )
-                    else:
-                        self._spectra.set(
-                            name, dim=s[2][i], binx=s[3][i]-2, minx=s[4][i], maxx=s[5][i],
-                            biny=s[6][i]-2, miny=s[7][i], maxy=s[8][i],
-                            data=data, parameters=otherInfo[name]["parameters"],
-                            type=otherInfo[name]["type"],
-                        )
-                    # -- end -- for auto x-axis definition summary spec
-                    self.logger.debug('-------------------')
+            self._connect_worker = ConnectWorker(self._rest, hostname, port, mirror, user)
+            self._connect_thread = QThread(self)
+            self._connect_worker.moveToThread(self._connect_thread)
+            self._connect_thread.started.connect(self._connect_worker.run)
+            self._connect_worker.succeeded.connect(self._on_connect_succeeded)
+            self._connect_worker.failed.connect(self._on_connect_failed)
+            self._connect_thread.start()
 
-            self.logger.debug("connectShMem Updating spectrumlist")
-            self.updateSpectrumList(True)
-
-            self.logger.debug("connectShMem existing")
         except Exception:
             self.logger.exception('connectShMem - Exception')
+            self._wConf.connectButton.setEnabled(True)
             raise
+
+    @pyqtSlot(object, object)
+    def _on_connect_succeeded(self, s, otherInfo):
+        self.logger.debug('connectShMem - mirror transfer done, populating spectra')
+        try:
+            for i, name in enumerate(s[1]):
+                if name not in otherInfo:
+                    continue
+                if s[2][i] == 2:
+                    data = s[9][i][1:-1, 1:-1]
+                    if "s" in otherInfo[name]["type"]:
+                        minx = s[4][i]
+                        maxx = s[5][i] + 1
+                else:
+                    data = s[9][i][0:-1]
+                    data[0] = 0
+
+                if "s" in otherInfo[name]["type"]:
+                    self._spectra.set(
+                        name, dim=s[2][i], binx=s[3][i]-2, minx=minx, maxx=maxx,
+                        biny=s[6][i]-2, miny=s[7][i], maxy=s[8][i],
+                        data=data, parameters=otherInfo[name]["parameters"],
+                        type=otherInfo[name]["type"],
+                    )
+                else:
+                    self._spectra.set(
+                        name, dim=s[2][i], binx=s[3][i]-2, minx=s[4][i], maxx=s[5][i],
+                        biny=s[6][i]-2, miny=s[7][i], maxy=s[8][i],
+                        data=data, parameters=otherInfo[name]["parameters"],
+                        type=otherInfo[name]["type"],
+                    )
+
+            self.updateSpectrumList(True)
+        finally:
+            self._wConf.connectButton.setEnabled(True)
+            self._connect_thread.quit()
+
+    @pyqtSlot(str)
+    def _on_connect_failed(self, msg):
+        self.logger.error('connectShMem - mirror transfer failed: %s', msg)
+        self._wConf.connectButton.setStyleSheet("background-color:rgb(252, 48, 3);")
+        self._wConf.connectButton.setText("Disconnected")
+        self._wConf.connectButton.setEnabled(True)
+        self._connect_thread.quit()
 
     # ------------------------------------------------------------------
     # Trace updates from REST worker

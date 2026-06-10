@@ -1,5 +1,7 @@
 import logging
 
+import CPyConverter as cpy
+
 from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
 
 logger = logging.getLogger(__name__)
@@ -57,6 +59,47 @@ class RestWorker(QObject):
                 self.spectrumAdded.emit(name, spec_info)
 
         self.disconnected.emit()
+
+
+class ConnectWorker(QObject):
+    """Runs CPyConverter mirror transfer and REST metadata fetch off the GUI thread."""
+
+    succeeded = pyqtSignal(object, object)  # (shmem_tuple, otherInfo dict)
+    failed    = pyqtSignal(str)
+
+    def __init__(self, rest, hostname, port, mirror, user):
+        super().__init__()
+        self._rest     = rest
+        self._hostname = hostname
+        self._port     = port
+        self._mirror   = mirror
+        self._user     = user
+
+    @pyqtSlot()
+    def run(self):
+        try:
+            s = cpy.CPyConverter().Update(
+                bytes(self._hostname, encoding='utf-8'),
+                bytes(self._port,     encoding='utf-8'),
+                bytes(self._mirror,   encoding='utf-8'),
+                bytes(self._user,     encoding='utf-8'),
+            )
+            inpDict  = self._rest.listSpectrum()
+            bindList = self._rest.listsbind("*")
+            bindings = {d["name"]: d["binding"] for d in bindList} if isinstance(bindList, list) else {}
+            otherInfo = {}
+            if isinstance(inpDict, list):
+                for el in inpDict:
+                    name = el.get("name")
+                    if name and name in bindings:
+                        otherInfo[name] = {
+                            "parameters": el["parameters"],
+                            "type":       el["type"],
+                            "binding":    bindings[name],
+                        }
+            self.succeeded.emit(s, otherInfo)
+        except Exception as exc:
+            self.failed.emit(str(exc))
 
 
 class AutoUpdateWorker(QObject):
