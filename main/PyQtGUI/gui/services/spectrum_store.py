@@ -17,8 +17,9 @@ class SpectrumStore:
         if not valid:
             return
         if name not in self._store:
-            self._store[name] = {k: [] for k in _VALID_KEYS}
-        self._store[name].update(valid)
+            self._store[name] = dict(valid)
+        else:
+            self._store[name].update(valid)
 
     def get(self, name: str, key: str):
         """Return store[name][key], or None if name or key is absent."""

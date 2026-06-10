@@ -67,7 +67,7 @@ class GateManager(QObject):
     # ------------------------------------------------------------------
 
     def drawGate(self, index):
-        self.logger.info('drawGate - index: %s', index)
+        self.logger.debug('drawGate - index: %s', index)
         spectrumName = self._name_from_index(index)
         if not spectrumName:
             self.logger.debug("drawGate: no name for index %s; skipping", index)
@@ -121,9 +121,7 @@ class GateManager(QObject):
                 ylim = ax.get_ybound()
                 for iLine in range(2):
                     lineLabel = "gate_-_" + gate["name"] + "_-_" + str(iLine)
-                    toRemove = [gl for gl in ax.get_children()
-                                if type(gl) == matplotlib.lines.Line2D
-                                and gl.get_label() == lineLabel]
+                    toRemove = [gl for gl in ax.lines if gl.get_label() == lineLabel]
                     for lr in toRemove:
                         lr.remove()
                     if self._gate_hide_cb.isChecked():
@@ -135,9 +133,7 @@ class GateManager(QObject):
 
             elif dim == 2:
                 lineLabel = "gate_-_" + gate["name"] + "_-_"
-                toRemove = [gl for gl in ax.get_children()
-                            if type(gl) == matplotlib.lines.Line2D
-                            and lineLabel in gl.get_label()]
+                toRemove = [gl for gl in ax.lines if lineLabel in gl.get_label()]
                 for lr in toRemove:
                     lr.remove()
                 if self._gate_hide_cb.isChecked():
@@ -164,9 +160,7 @@ class GateManager(QObject):
         for sumRegionLine in lineListSumReg:
             if dim == 1 or dim == 2:
                 lineLabel = sumRegionLine.get_label()
-                toRemove = [ln for ln in ax.get_children()
-                            if type(ln) == matplotlib.lines.Line2D
-                            and ln.get_label() == lineLabel]
+                toRemove = [ln for ln in ax.lines if ln.get_label() == lineLabel]
                 for lr in toRemove:
                     lr.remove()
                 xlim = sumRegionLine.get_xdata()
@@ -193,15 +187,15 @@ class GateManager(QObject):
         self.canvasDrawRequested.emit()
 
     def setGateAnnotation(self, index, doAnnotate):
-        self.logger.info('setGateAnnotation - index, doAnnotate: %s, %s', index, doAnnotate)
+        self.logger.debug('setGateAnnotation - index, doAnnotate: %s, %s', index, doAnnotate)
         ax = self._get_spectrum_info("axis", index=index)
         if ax is None:
             self.logger.debug('setGateAnnotation - ax is None')
             return
         dim = self._spectra.get(self._name_from_index(index), "dim")
 
-        for child in ax.get_children():
-            if type(child) == matplotlib.lines.Line2D:
+        for child in ax.lines:
+            if isinstance(child, matplotlib.lines.Line2D):
                 label     = child.get_label()
                 labelSplit = label.split("_-_")
                 if len(labelSplit) == 3 and labelSplit[0] == "gate":
@@ -605,8 +599,7 @@ class GateManager(QObject):
         if ax is None or dim is None:
             return
         seen = set()
-        for child in ax.get_children():
-            if isinstance(child, matplotlib.lines.Line2D):
+        for child in ax.lines:
                 label = child.get_label()
                 if "_-_" not in label:
                     continue
@@ -644,9 +637,8 @@ class GateManager(QObject):
             try:
                 gateIdentifier    = "gate_-_" + self._popup.gateNameList.currentText() + "_-_"
                 self.editThisGateLine = [
-                    child for child in ax.get_children()
-                    if type(child) == matplotlib.lines.Line2D
-                    and gateIdentifier in child.get_label()
+                    child for child in ax.lines
+                    if gateIdentifier in child.get_label()
                 ][0]
             except Exception:
                 self.logger.debug('onGatePopupPreview - exception ', exc_info=True)
@@ -655,9 +647,7 @@ class GateManager(QObject):
             label         = self.editThisGateLine.get_label()
             labelSplit    = label.split("_-_")
             gateIdentifier = "gate_-_" + labelSplit[1] + "_-_"
-            lines = [child for child in ax.get_children()
-                     if type(child) == matplotlib.lines.Line2D
-                     and gateIdentifier in child.get_label()]
+            lines = [child for child in ax.lines if gateIdentifier in child.get_label()]
             if len(lines) == len(points):
                 for iline, line in enumerate(lines):
                     line.set_xdata([points[iline], points[iline]])
@@ -723,8 +713,7 @@ class GateManager(QObject):
 
         self._popup.clearInfo()
 
-        gateLabels = [child.get_label() for child in ax.get_children()
-                      if isinstance(child, matplotlib.lines.Line2D) and "_-_" in child.get_label()]
+        gateLabels = [child.get_label() for child in ax.lines if "_-_" in child.get_label()]
         for label in gateLabels:
             if dim == 1:
                 label = label.split("_-_")
@@ -772,9 +761,7 @@ class GateManager(QObject):
             self.logger.debug('gateNameListChanged - gateFoundAtIdx == -1')
             return
         gateIdentifier = "gate_-_" + gateName + "_-_"
-        lines = [child for child in ax.get_children()
-                 if type(child) == matplotlib.lines.Line2D
-                 and gateIdentifier in child.get_label()]
+        lines = [child for child in ax.lines if gateIdentifier in child.get_label()]
         rest = self._get_rest()
         if rest is None:
             return
@@ -1145,9 +1132,7 @@ class GateManager(QObject):
             self.logger.debug('clickOnGateLine - ax is None')
             return
 
-        lineCandidate = [child for child in ax.get_children()
-                         if type(child) == matplotlib.lines.Line2D
-                         and child == event.artist]
+        lineCandidate = [child for child in ax.lines if child == event.artist]
         if len(lineCandidate) > 0:
             self.editThisGateLine = lineCandidate[0]
         else:
@@ -1169,9 +1154,7 @@ class GateManager(QObject):
         self._popup.listGateType.addItem(gate[0]["type"])
 
         gateIdentifier = "gate_-_" + gateName + "_-_"
-        gateLines = [child for child in ax.get_children()
-                     if type(child) == matplotlib.lines.Line2D
-                     and gateIdentifier in child.get_label()]
+        gateLines = [child for child in ax.lines if gateIdentifier in child.get_label()]
         self.updateTextGatePopup(gateLines)
 
         canvas = self._get_current_canvas()

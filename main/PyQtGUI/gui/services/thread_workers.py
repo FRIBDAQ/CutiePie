@@ -74,7 +74,7 @@ class AutoUpdateWorker(QObject):
     def run(self):
         while not self._stop.is_set():
             if self._skip.is_set():
-                self._stop.wait(0.05)
+                self._stop.wait(self._interval)
                 continue
             if self._stop.wait(self._interval):
                 break

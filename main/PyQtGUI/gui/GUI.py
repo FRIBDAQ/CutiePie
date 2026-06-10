@@ -1581,7 +1581,7 @@ class MainWindow(QMainWindow):
     #Important that only self.wTab.spectrum_dict is changed here
     #work in normal and enlarged mode
     def setSpectrumInfo(self, **info):
-        self.logger.info('setSpectrumInfo - info: %s',info)
+        self.logger.debug('setSpectrumInfo - info: %s',info)
         name = None
         index = None
         if self.getEnlargedSpectrum():
@@ -1617,7 +1617,7 @@ class MainWindow(QMainWindow):
     #Important that it gets only the info from self.wTab.spectrum_dict[self.wTab.currentIndex()] here.
     #work in normal and enlarged mode
     def getSpectrumInfo(self, *info, **identifier):
-        self.logger.info('getSpectrumInfo - info, identifier: %s, %s', info, identifier)
+        self.logger.debug('getSpectrumInfo - info, identifier: %s, %s', info, identifier)
         name = None
         index = None
         if self.getEnlargedSpectrum():

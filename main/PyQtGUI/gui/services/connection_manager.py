@@ -2,7 +2,7 @@ import logging
 
 import CPyConverter as cpy
 
-from PyQt5.QtCore import QThread, QElapsedTimer, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import QThread, QElapsedTimer, QTimer, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import QComboBox, QCompleter
 from PyQt5 import QtCore
 
@@ -37,6 +37,8 @@ class ConnectionManager(QtCore.QObject):
         self._rest_worker = None
         self._auto_thread = None
         self._auto_worker = None
+        self._pending_adds: list   = []
+        self._flush_scheduled: bool = False
 
     # ------------------------------------------------------------------
     # Connection popup callbacks
@@ -171,9 +173,20 @@ class ConnectionManager(QtCore.QObject):
 
     @pyqtSlot(str, dict)
     def _on_spectrum_added(self, name, spec_info):
-        """Handle a newly bound spectrum. Runs on the GUI thread so CPyConverter is safe."""
-        self.logger.info('_on_spectrum_added - name: %s', name)
+        """Queue a newly bound spectrum; flush all pending adds in one CPyConverter call."""
         if name in self._spectra.as_dict():
+            return
+        self._pending_adds.append((name, spec_info))
+        if not self._flush_scheduled:
+            self._flush_scheduled = True
+            QTimer.singleShot(0, self._flush_spectrum_adds)
+
+    def _flush_spectrum_adds(self):
+        """Process all queued adds with a single CPyConverter.Update() call."""
+        self._flush_scheduled = False
+        pending = self._pending_adds[:]
+        self._pending_adds.clear()
+        if not pending:
             return
 
         hostname = self._connect_config.server.text()
@@ -188,9 +201,18 @@ class ConnectionManager(QtCore.QObject):
                 bytes(user,     encoding='utf-8'),
             )
         except Exception:
-            self.logger.debug('_on_spectrum_added - CPyConverter failed for %s', name, exc_info=True)
+            self.logger.debug('_flush_spectrum_adds - CPyConverter failed', exc_info=True)
             return
 
+        for name, spec_info in pending:
+            if name in self._spectra.as_dict():
+                continue
+            self._process_spectrum_add(name, spec_info, s)
+        self.updateSpectrumList()
+
+    def _process_spectrum_add(self, name, spec_info, s):
+        """Extract and store one spectrum from an already-fetched CPyConverter result."""
+        self.logger.debug('_process_spectrum_add - name: %s', name)
         data      = []
         binx      = spec_info["axes"][0]["bins"]
         minx      = spec_info["axes"][0]["low"]
@@ -205,7 +227,7 @@ class ConnectionManager(QtCore.QObject):
                 data = s[9][nameIndex][0:-1]
                 data[0] = 0
             except Exception:
-                self.logger.debug('_on_spectrum_added - name not in shmem for %s', name, exc_info=True)
+                self.logger.debug('_process_spectrum_add - name not in shmem for %s', name, exc_info=True)
         elif "s" in spec_type:
             dim  = 2
             biny = binx
@@ -227,7 +249,7 @@ class ConnectionManager(QtCore.QObject):
                 nameIndex = s[1].index(name)
                 data = s[9][nameIndex][1:-1, 1:-1]
             except Exception:
-                self.logger.debug('_on_spectrum_added - name not in shmem for %s', name, exc_info=True)
+                self.logger.debug('_process_spectrum_add - name not in shmem for %s', name, exc_info=True)
         else:
             dim  = 2
             biny = spec_info["axes"][1]["bins"]
@@ -237,13 +259,12 @@ class ConnectionManager(QtCore.QObject):
                 nameIndex = s[1].index(name)
                 data = s[9][nameIndex][1:-1, 1:-1]
             except Exception:
-                self.logger.debug('_on_spectrum_added - name not in shmem for %s', name, exc_info=True)
+                self.logger.debug('_process_spectrum_add - name not in shmem for %s', name, exc_info=True)
 
         self._spectra.set(name, dim=dim, binx=binx, minx=minx, maxx=maxx,
                           biny=biny, miny=miny, maxy=maxy,
                           parameters=spec_info["parameters"],
                           type=spec_type, data=data)
-        self.updateSpectrumList()
 
     # ------------------------------------------------------------------
     # Spectrum list helpers
@@ -268,12 +289,11 @@ class ConnectionManager(QtCore.QObject):
         return outDict
 
     def updateSpectrumList(self, init=False):
-        self.logger.info('updateSpectrumList')
+        self.logger.debug('updateSpectrumList')
+        self._wConf.histo_list.blockSignals(True)
         self._wConf.histo_list.clear()
-        self._wConf.histo_list.setEditText("")
-        for name in sorted(self._spectra.as_dict()):
-            if self._wConf.histo_list.findText(name) == -1:
-                self._wConf.histo_list.addItem(name)
+        self._wConf.histo_list.addItems(sorted(self._spectra.as_dict()))
+        self._wConf.histo_list.blockSignals(False)
         if init:
             self._wConf.histo_list.setEditable(True)
             self._wConf.histo_list.setInsertPolicy(QComboBox.NoInsert)

@@ -60,6 +60,7 @@ class PlotController:
         self.palette          = None
         self.old_cmap         = None
         self.geometry_applied = False
+        self._layout_dirty    = False
 
     # ------------------------------------------------------------------
     # Canvas / layout
@@ -83,7 +84,7 @@ class PlotController:
     # ------------------------------------------------------------------
 
     def setAxisScale(self, ax, index, *scale):
-        self.logger.info('setAxisScale - index: %s', index)
+        self.logger.debug('setAxisScale - index: %s', index)
 
         cp            = self._get_current_plot()
         axisIsLog     = self._get_spectrum_info("log", index=index)
@@ -236,7 +237,7 @@ class PlotController:
     # ------------------------------------------------------------------
 
     def getMinMaxInRange(self, index, **limits):
-        self.logger.info('getMinMaxInRange - limits: %s', limits)
+        self.logger.debug('getMinMaxInRange - limits: %s', limits)
         result = None
         if not limits:
             self.logger.warning('getMinMaxInRange - limits identifier not valid - expect xmin=val, xmax=val etc. for y with 2D')
@@ -279,7 +280,7 @@ class PlotController:
         return result
 
     def customMinMax(self, data):
-        self.logger.info('customMinMax')
+        self.logger.debug('customMinMax')
         minimum = None
         maximum = None
         nbCol = data.shape[1]
@@ -632,7 +633,7 @@ class PlotController:
                                 self._get_spectrum_info("cutoff", index=index))
 
     def updatePlotLimits(self):
-        self.logger.info('updatePlotLimits')
+        self.logger.debug('updatePlotLimits')
         cp    = self._get_current_plot()
         index = cp.selected_plot_index
         ax    = self._get_spectrum_info("axis", index=index)
@@ -693,7 +694,8 @@ class PlotController:
     # ------------------------------------------------------------------
 
     def setupPlot(self, axis, index):
-        self.logger.info('setupPlot - index: %s', index)
+        self.logger.debug('setupPlot - index: %s', index)
+        self._layout_dirty = True
         if self._name_from_index(index):
             name = self._name_from_index(index)
             dim  = self._spectra.get(name, "dim")
@@ -843,6 +845,7 @@ class PlotController:
 
                 try:
                     cp.figure.tight_layout()
+                    self._layout_dirty = False
                 except ValueError:
                     self.logger.debug('addPlot - ValueError exception', exc_info=True)
                     pass
@@ -858,17 +861,12 @@ class PlotController:
         if not self._wTab.countClickTab[self._wTab.currentIndex()]:
             self._bind_dynamic_signal()
 
-    def createRange(self, bins, vmin, vmax):
-        self.logger.info('createRange')
-        x    = []
-        step = (float(vmax) - float(vmin)) / float(bins)
-        for i in np.arange(float(vmin), float(vmax), step):
-            x.append(i + step)
-        x.insert(0, float(vmin))
-        return x
+    @staticmethod
+    def createRange(bins, vmin, vmax):
+        return np.linspace(float(vmin), float(vmax), int(bins) + 1)
 
     def plotPlot(self, index, cmap=None):
-        self.logger.info('plotPlot - index: %s', index)
+        self.logger.debug('plotPlot - index: %s', index)
         name     = self._name_from_index(index)
         dim      = self._spectra.get(name, "dim")
         minx     = self._spectra.get(name, "minx")
@@ -921,7 +919,7 @@ class PlotController:
         cp = self._get_current_plot()
         auto_scale_status = cp.histo_autoscale.isChecked()
         cp.histo_autoscale.setChecked(auto_scale_status)
-        self.logger.info('updatePlot')
+        self.logger.debug('updatePlot')
 
         self._clean_popup_exit(False)
 
@@ -946,20 +944,6 @@ class PlotController:
                         self.setAxisScale(ax, 0, "x", "y")
                 if dim == 2:
                     self.setAxisScale(ax, 0, "x", "y", "z")
-
-                    spectrum = self._get_spectrum_info("spectrum", index=index)
-                    if spectrum is not None and dim == 2:
-                        if ax:
-                            divider = make_axes_locatable(ax)
-                            cax = divider.append_axes("right", size="5%", pad=0.05)
-                            cp.figure.colorbar(spectrum, cax=cax, orientation="vertical")
-                            cp.figure.tight_layout(rect=[0, 0, 0.95, 1])
-                            cp.canvas.draw_idle()
-
-                try:
-                    self.removeCb(ax)
-                except Exception:
-                    pass
                 self._draw_gate(0)
             else:
                 self.logger.debug('updatePlot - self.currentPlot.isEnlarged FALSE')
@@ -979,8 +963,10 @@ class PlotController:
                             self.setAxisScale(ax, index, "x", "y", "z")
                     self._draw_gate(index)
 
-            cp.figure.tight_layout()
-            cp.canvas.draw()
+            if self._layout_dirty:
+                cp.figure.tight_layout()
+                self._layout_dirty = False
+            cp.canvas.draw_idle()
         except Exception:
             self.logger.debug('updatePlot - exception', exc_info=True)
 

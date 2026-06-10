@@ -5,6 +5,9 @@ import urllib.parse
 
 # Python class to interface SpecTcl REST plugin
 
+_BAD_REST_KEYWORDS = ("bad parameter", "Invalid gate")
+
+
 class PyREST:
     _HTTP_TIMEOUT = 5  # seconds; prevents GUI/worker thread hang on dead SpecTcl
 
@@ -1026,19 +1029,14 @@ class PyREST:
 
     def sendRequest(self, url):
         try:
-            ### Bashur added #################
             self.logger.debug("REST GET %s", url)
-            ##################################
-            status, content = self._http.request(url, method="GET") # SpecTclREST only takes GET methods.
-            #May have other bad keywords
-            badKeyWords = ["bad parameter", "Invalid gate"]
-            for kw in badKeyWords :
-                if kw in str(content) :
-                    self.logger.warning('sendRequest -- suspicious REST request status: %s', content)
-                    return None
+            status, content = self._http.request(url, method="GET")
+            decoded = content.decode()
+            if any(kw in decoded for kw in _BAD_REST_KEYWORDS):
+                self.logger.warning('sendRequest -- suspicious REST request status: %s', content)
+                return None
             return content
-        except Exception :
-            #Cannot pass the exception, full text dont convert to str so log custom error
+        except Exception:
             self.logger.error('sendRequest -- check Server/User/REST Port/Mirror Port')
             return None
 
