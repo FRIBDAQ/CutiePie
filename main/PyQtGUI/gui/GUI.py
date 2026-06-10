@@ -1807,7 +1807,11 @@ class MainWindow(QMainWindow):
         #SpectrumStore and is derived (with cutoff) on demand by the plot controller,
         #so it is never duplicated into the per-tab display tier. The empty "data"
         #placeholder from the template above is kept for dict-shape consistency.
-        for key, value in self.spectra.get_record(name).items():
+        record = self.spectra.get_record(name)
+        if record is None:
+            self.logger.warning('setGeo - %s not in SpectrumStore; slot left with name only', name)
+            return
+        for key, value in record.items():
             if key == "data":
                 continue
             self.wTab.spectrum_dict[self.wTab.currentIndex()][index][key] = value

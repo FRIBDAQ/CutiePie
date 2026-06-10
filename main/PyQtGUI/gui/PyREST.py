@@ -48,8 +48,8 @@ class PyREST:
         response = self.sendRequest(url)
         if response is None :
             return []
-        param_dict = json.loads(response.decode())
-        return param_dict["detail"]
+        detail = json.loads(response.decode()).get("detail", [])
+        return detail if isinstance(detail, list) else []
 
 
     # edit parameter. Modifies the properties of a parameter. It takes as arguments:
@@ -96,8 +96,8 @@ class PyREST:
         response = self.sendRequest(url)
         if response is None :
             return []
-        param_dict = json.loads(response.decode())
-        return param_dict["detail"]
+        detail = json.loads(response.decode()).get("detail", [])
+        return detail if isinstance(detail, list) else []
 
 
     # returns the state of a tree parameter check flag. The required query parameter name is the name of the tree
@@ -229,8 +229,8 @@ class PyREST:
         response = self.sendRequest(url)
         if response is None :
             return []
-        gate_dict = json.loads(response.decode())
-        return gate_dict["detail"]
+        detail = json.loads(response.decode()).get("detail", [])
+        return detail if isinstance(detail, list) else []
 
 
     # delete gate. the name parameter provides the name of the gate to delete
@@ -366,8 +366,8 @@ class PyREST:
         response = self.sendRequest(url)
         if response is None :
             return []
-        gate_dict = json.loads(response.decode())
-        return gate_dict["detail"]
+        detail = json.loads(response.decode()).get("detail", [])
+        return detail if isinstance(detail, list) else []
 
 
     # gate application. Applies the gate to a spectrum. It takes as argument the gate name and the spectrum name
@@ -484,8 +484,8 @@ class PyREST:
         response = self.sendRequest(url)
         if response is None :
             return []
-        fit_dict = json.loads(response.decode())
-        return fit_dict["detail"]
+        detail = json.loads(response.decode()).get("detail", [])
+        return detail if isinstance(detail, list) else []
 
 
     ############################################################
@@ -504,8 +504,8 @@ class PyREST:
         response = self.sendRequest(url)
         if response is None :
             return []
-        fold_dict = json.loads(response.decode())
-        return fold_dict["detail"]
+        detail = json.loads(response.decode()).get("detail", [])
+        return detail if isinstance(detail, list) else []
 
 
     # apply gamma gate to a list of spectra
@@ -620,8 +620,8 @@ class PyREST:
         response = self.sendRequest(url)
         if response is None :
             return []
-        var_dict = json.loads(response.decode())
-        return var_dict["detail"]
+        detail = json.loads(response.decode()).get("detail", [])
+        return detail if isinstance(detail, list) else []
 
 
     # Tree variable values can be changed. Note that the units are NOT optional
@@ -700,8 +700,8 @@ class PyREST:
         response = self.sendRequest(url)
         if response is None :
             return []
-        filt_dict = json.loads(response.decode())
-        return filt_dict["detail"]
+        detail = json.loads(response.decode()).get("detail", [])
+        return detail if isinstance(detail, list) else []
 
 
     ############################################################
@@ -798,8 +798,8 @@ class PyREST:
         response = self.sendRequest(url)
         if response is None :
             return []
-        int_dict = json.loads(response.decode())
-        return int_dict["detail"]
+        detail = json.loads(response.decode()).get("detail", [])
+        return detail if isinstance(detail, list) else []
 
 
     ############################################################
@@ -828,8 +828,8 @@ class PyREST:
         response = self.sendRequest(url)
         if response is None :
             return []
-        ps_dict = json.loads(response.decode())
-        return ps_dict["detail"]
+        detail = json.loads(response.decode()).get("detail", [])
+        return detail if isinstance(detail, list) else []
 
 
     ############################################################
@@ -965,8 +965,8 @@ class PyREST:
         response = self.sendRequest(url)
         if response is None :
             return []
-        root_dict = json.loads(response.decode())
-        return root_dict["detail"]
+        detail = json.loads(response.decode()).get("detail", [])
+        return detail if isinstance(detail, list) else []
 
 
     ############################################################

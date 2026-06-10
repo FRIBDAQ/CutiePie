@@ -864,7 +864,7 @@ class PlotController:
         if w is None:
             return w
         cutoff = self._get_spectrum_info("cutoff", index=index)
-        if cutoff and len(cutoff) > 0:
+        if cutoff and len(cutoff) >= 2:
             minCutoff, maxCutoff = cutoff[0], cutoff[1]
             if minCutoff is not None:
                 w = np.ma.masked_where(w < minCutoff, w)
