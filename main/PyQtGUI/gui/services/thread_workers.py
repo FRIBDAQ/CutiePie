@@ -62,14 +62,13 @@ class RestWorker(QObject):
 
 
 class ConnectWorker(QObject):
-    """Runs CPyConverter mirror transfer and REST metadata fetch off the GUI thread."""
+    """Runs only the blocking CPyConverter mirror transfer off the GUI thread."""
 
-    succeeded = pyqtSignal(object, object)  # (shmem_tuple, otherInfo dict)
+    succeeded = pyqtSignal(object)  # shmem tuple
     failed    = pyqtSignal(str)
 
-    def __init__(self, rest, hostname, port, mirror, user):
+    def __init__(self, hostname, port, mirror, user):
         super().__init__()
-        self._rest     = rest
         self._hostname = hostname
         self._port     = port
         self._mirror   = mirror
@@ -84,20 +83,7 @@ class ConnectWorker(QObject):
                 bytes(self._mirror,   encoding='utf-8'),
                 bytes(self._user,     encoding='utf-8'),
             )
-            inpDict  = self._rest.listSpectrum()
-            bindList = self._rest.listsbind("*")
-            bindings = {d["name"]: d["binding"] for d in bindList} if isinstance(bindList, list) else {}
-            otherInfo = {}
-            if isinstance(inpDict, list):
-                for el in inpDict:
-                    name = el.get("name")
-                    if name and name in bindings:
-                        otherInfo[name] = {
-                            "parameters": el["parameters"],
-                            "type":       el["type"],
-                            "binding":    bindings[name],
-                        }
-            self.succeeded.emit(s, otherInfo)
+            self.succeeded.emit(s)
         except Exception as exc:
             self.failed.emit(str(exc))
 

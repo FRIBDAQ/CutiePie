@@ -110,7 +110,7 @@ class ConnectionManager(QtCore.QObject):
                 self._connect_thread.quit()
                 self._connect_thread.wait()
 
-            self._connect_worker = ConnectWorker(self._rest, hostname, port, mirror, user)
+            self._connect_worker = ConnectWorker(hostname, port, mirror, user)
             self._connect_thread = QThread(self)
             self._connect_worker.moveToThread(self._connect_thread)
             self._connect_thread.started.connect(self._connect_worker.run)
@@ -123,10 +123,12 @@ class ConnectionManager(QtCore.QObject):
             self._wConf.connectButton.setEnabled(True)
             raise
 
-    @pyqtSlot(object, object)
-    def _on_connect_succeeded(self, s, otherInfo):
-        self.logger.debug('connectShMem - mirror transfer done, populating spectra')
+    @pyqtSlot(object)
+    def _on_connect_succeeded(self, s):
+        self.logger.debug('connectShMem - mirror transfer done, fetching spectrum list from REST')
         try:
+            otherInfo = self.getSpectrumInfoFromReST()
+            self.logger.debug('connectShMem - populating spectra from shmem + REST')
             for i, name in enumerate(s[1]):
                 if name not in otherInfo:
                     continue
