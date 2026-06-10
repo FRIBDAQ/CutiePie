@@ -32,6 +32,13 @@ class SpectrumStore:
         """Delete entry. No-op if absent — callers always guard with `in` first."""
         self._store.pop(name, None)
 
+    def get_record(self, name: str):
+        """Return the live record dict for `name`, or None if absent.
+
+        Field values are shared by reference and meant to be read; use set() to
+        change them. Prefer this over as_dict() when you only need one spectrum."""
+        return self._store.get(name)
+
     def contains(self, name: str) -> bool:
         return name in self._store
 
@@ -39,5 +46,9 @@ class SpectrumStore:
         return sorted(self._store)
 
     def as_dict(self) -> dict:
-        """Return the live internal dict. Callers that iterate it see mutations immediately."""
-        return self._store
+        """Return a shallow snapshot copy of the registry: {name: record}.
+
+        The top-level mapping is copied so callers cannot add or remove spectra by
+        mutating the result. Per-spectrum record objects are shared by reference and
+        must not be mutated in place — use set()/remove() to change the store."""
+        return dict(self._store)

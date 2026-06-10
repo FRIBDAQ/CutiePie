@@ -740,7 +740,7 @@ class MainWindow(QMainWindow):
 
             index = list(self.currentPlot.figure.axes).index(event.inaxes)
             name  = self.nameFromIndex(index)
-            si    = self.spectra.as_dict().get(name) or {}
+            si    = self.spectra.get_record(name) or {}
             dim   = si.get("dim")
             params    = si.get("parameters") or []
             sp_type   = si.get("type", "")
@@ -1803,7 +1803,13 @@ class MainWindow(QMainWindow):
             self.wTab.spectrum_dict[self.wTab.currentIndex()][index] = {"name":[], "dim":[],"binx":[],"minx":[],"maxx":[],"biny":[],"miny":[],"maxy":[],"data":[],"parameters":[],"type":[],"log":[],"minz":[],"maxz":[], "spectrum":[], "axis":[], "cutoff":[]}
         self.wTab.spectrum_dict[self.wTab.currentIndex()][index]["name"] = name
         #Initialize with the same info as in self.spectra.
-        for key, value in self.spectra.as_dict()[name].items():
+        #"data" is intentionally NOT copied: the canonical array lives solely in the
+        #SpectrumStore and is derived (with cutoff) on demand by the plot controller,
+        #so it is never duplicated into the per-tab display tier. The empty "data"
+        #placeholder from the template above is kept for dict-shape consistency.
+        for key, value in self.spectra.get_record(name).items():
+            if key == "data":
+                continue
             self.wTab.spectrum_dict[self.wTab.currentIndex()][index][key] = value
 
 

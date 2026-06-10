@@ -177,7 +177,7 @@ class PlotController:
         elif scale == validScales[2]:
             palette = copy(plt.cm.jet)
             palette.set_bad(color='white')
-            data = self._get_spectrum_info("data", index=index)
+            data = self._cutoff_masked_data(index)
             spectrum.set_cmap(palette)
             spectrum.set_norm(centeredNorm(data, 50000))
         if self._get_enlarged_spectrum() is None:
@@ -257,7 +257,7 @@ class PlotController:
         minx  = self._spectra.get(name, "minx")
         maxx  = self._spectra.get(name, "maxx")
         binx  = self._spectra.get(name, "binx")
-        data  = self._get_spectrum_info("data", index=index)
+        data  = self._cutoff_masked_data(index)
         stepx = (float(maxx) - float(minx)) / float(binx)
         binminx = int((xmin - minx) / stepx)
         binmaxx = int((xmax - minx) / stepx)
@@ -706,23 +706,7 @@ class PlotController:
             maxx = self._get_spectrum_info("maxx", index=index)
             binx = self._get_spectrum_info("binx", index=index)
             biny = self._get_spectrum_info("biny", index=index)
-            w    = self._spectra.get(name, "data")
-
-            if self._get_spectrum_info("cutoff", index=index) is not None:
-                if len(self._get_spectrum_info("cutoff", index=index)) > 0:
-                    minCutoff = self._get_spectrum_info("cutoff", index=index)[0]
-                    maxCutoff = self._get_spectrum_info("cutoff", index=index)[1]
-                    if minCutoff is not None:
-                        if dim == 1:
-                            w = np.ma.masked_where(w < minCutoff, w)
-                        if dim == 2:
-                            w = np.ma.masked_where(w < minCutoff, w)
-                    if maxCutoff is not None:
-                        if dim == 1:
-                            w = np.ma.masked_where(w < maxCutoff, w)
-                        if dim == 2:
-                            w = np.ma.masked_where(w < maxCutoff, w)
-            self._set_spectrum_info(data=w, index=index)
+            w    = self._cutoff_masked_data(index)
 
             if dim == 1:
                 axis.set_xlim(minx, maxx)
@@ -868,6 +852,26 @@ class PlotController:
     def createRange(bins, vmin, vmax):
         return np.linspace(float(vmin), float(vmax), int(bins) + 1)
 
+    def _cutoff_masked_data(self, index, raw=None):
+        """Return the spectrum's data with its per-slot cutoff applied (a masked array).
+
+        The canonical array lives in the SpectrumStore; the cutoff is a per-tab /
+        per-slot display setting. The masked result is derived on demand and is never
+        written back to the store, so the canonical data never drifts from what REST
+        delivered. `masked_where` is element-wise, so the same logic covers 1D and 2D."""
+        name = self._name_from_index(index)
+        w = raw if raw is not None else self._spectra.get(name, "data")
+        if w is None:
+            return w
+        cutoff = self._get_spectrum_info("cutoff", index=index)
+        if cutoff and len(cutoff) > 0:
+            minCutoff, maxCutoff = cutoff[0], cutoff[1]
+            if minCutoff is not None:
+                w = np.ma.masked_where(w < minCutoff, w)
+            if maxCutoff is not None:
+                w = np.ma.masked_where(w > maxCutoff, w)
+        return w
+
     def plotPlot(self, index, cmap=None):
         self.logger.debug('plotPlot - index: %s', index)
         name     = self._name_from_index(index)
@@ -876,26 +880,11 @@ class PlotController:
         maxx     = self._spectra.get(name, "maxx")
         binx     = self._spectra.get(name, "binx")
         spectrum = self._get_spectrum_info("spectrum", index=index)
-        w        = self._spectra.get(name, "data")
+        w        = self._cutoff_masked_data(index)
 
-        if self._get_spectrum_info("cutoff", index=index) is not None:
-            if len(self._get_spectrum_info("cutoff", index=index)) > 0:
-                minCutoff = self._get_spectrum_info("cutoff", index=index)[0]
-                maxCutoff = self._get_spectrum_info("cutoff", index=index)[1]
-                if minCutoff is not None:
-                    if dim == 1:
-                        w = np.ma.masked_where(w < minCutoff, w)
-                    if dim == 2:
-                        w = np.ma.masked_where(w < minCutoff, w)
-                if maxCutoff is not None:
-                    if dim == 1:
-                        w = np.ma.masked_where(w > maxCutoff, w)
-                    if dim == 2:
-                        w = np.ma.masked_where(w > maxCutoff, w)
         if w is None or len(w) <= 0:
             self.logger.debug('plotPlot - w is None or len(w) <= 0')
             return
-        self._set_spectrum_info(data=w, index=index)
 
         if dim == 1:
             X = np.array(self.createRange(binx, minx, maxx))

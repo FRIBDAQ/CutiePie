@@ -38,10 +38,10 @@ def test_remove():
     assert not store.contains("h1")
 
 
-def test_remove_missing_raises():
+def test_remove_missing_is_noop():
     store = SpectrumStore()
-    with pytest.raises(KeyError):
-        store.remove("ghost")
+    store.remove("ghost")  # documented no-op; must not raise
+    assert not store.contains("ghost")
 
 
 def test_contains():
@@ -58,13 +58,25 @@ def test_all_names_sorted():
     assert store.all_names() == ["alpha", "beta"]
 
 
-def test_as_dict_is_live():
+def test_as_dict_is_snapshot():
     store = SpectrumStore()
     store.set("h1", dim=1)
     d = store.as_dict()
     assert "h1" in d
+    # Snapshot copy: later store changes must NOT appear in the returned dict,
+    # and structural edits to the returned dict must NOT reach the store.
     store.set("h2", dim=2)
-    assert "h2" in d
+    assert "h2" not in d
+    del d["h1"]
+    assert store.contains("h1")
+
+
+def test_get_record_returns_fields():
+    store = SpectrumStore()
+    store.set("h1", dim=1, binx=512)
+    rec = store.get_record("h1")
+    assert rec["dim"] == 1 and rec["binx"] == 512
+    assert store.get_record("missing") is None
 
 
 def test_upsert_merges_fields():

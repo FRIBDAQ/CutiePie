@@ -177,7 +177,7 @@ class ConnectionManager(QtCore.QObject):
         self.logger.info('updateFromTraces - tracesDetails: %s', tracesDetails)
         for entry in (tracesDetails.get("binding") or []):
             action, name, _ = entry.split(" ")
-            if action == "remove" and name in self._spectra.as_dict():
+            if action == "remove" and self._spectra.contains(name):
                 self._spectra.remove(name)
                 self.spectrumRemoved.emit(name)
                 self.updateSpectrumList()
@@ -186,7 +186,7 @@ class ConnectionManager(QtCore.QObject):
     @pyqtSlot(str, dict)
     def _on_spectrum_added(self, name, spec_info):
         """Queue a newly bound spectrum; flush all pending adds in one CPyConverter call."""
-        if name in self._spectra.as_dict():
+        if self._spectra.contains(name):
             return
         self._pending_adds.append((name, spec_info))
         if not self._flush_scheduled:
@@ -217,7 +217,7 @@ class ConnectionManager(QtCore.QObject):
             return
 
         for name, spec_info in pending:
-            if name in self._spectra.as_dict():
+            if self._spectra.contains(name):
                 continue
             self._process_spectrum_add(name, spec_info, s)
         self.updateSpectrumList()
@@ -310,7 +310,7 @@ class ConnectionManager(QtCore.QObject):
         self.logger.debug('updateSpectrumList')
         self._wConf.histo_list.blockSignals(True)
         self._wConf.histo_list.clear()
-        self._wConf.histo_list.addItems(sorted(self._spectra.as_dict()))
+        self._wConf.histo_list.addItems(self._spectra.all_names())
         self._wConf.histo_list.blockSignals(False)
         if init:
             self._wConf.histo_list.setEditable(True)
