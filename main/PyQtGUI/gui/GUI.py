@@ -1725,66 +1725,93 @@ class MainWindow(QMainWindow):
     # definition for both legacy and not window defs
     def openGeo(self, filename):
         self.logger.info('openGeo')
-        cntr = 0
-        coords = []
-        spec_dict = {}
-        info_scale = {}
-        info_range = {}
-        x_range = {}
-        y_range = {}
-        properties = {}
-
-
-        if (os.stat(filename).st_size == 0):
+        if os.stat(filename).st_size == 0:
             self.logger.warning('openGeo - empty geometry file: %s', filename)
             return None
-        #new (qtpy) geometry file format
-        elif (len(open(filename).readlines()) == 1):
-            return eval(open(filename,"r").read())
-        #old format
-        else:
-            # not supported, see comment below about spectrum name 
+
+        # Sniff the format from the first meaningful (non-blank, non-comment) line:
+        # legacy Xamine/dispwind ".win" files begin with a "Geometry R,C" line, while
+        # native (qtpy) files are a single-line Python dict literal beginning with "{".
+        firstMeaningful = ""
+        with open(filename) as f:
+            for line in f:
+                stripped = line.strip()
+                if stripped and not stripped.startswith('#'):
+                    firstMeaningful = stripped
+                    break
+
+        if firstMeaningful.lower().startswith("geometry"):
+            return self.parseOldGeo(filename)
+        if firstMeaningful.startswith("{"):
+            return eval(open(filename, "r").read())
+        self.logger.warning('openGeo - unrecognized geometry file format: %s', filename)
+        return None
+
+    def parseOldGeo(self, filename):
+        """Parse a legacy Xamine/dispwind ``.win`` geometry file into the same
+        structure :meth:`openGeo` returns for the native format::
+
+            {"row": <nrows>, "col": <ncols>,
+             "geo": {flatIndex: {"name": str,
+                                 "x": [min, max] | None,
+                                 "y": [min, max] | None,
+                                 "scale": bool}}}
+
+        Windows get sequential flat indices in file order (matching the original
+        loader). ``COUNTSAXIS`` maps to log scale; ``Expanded`` supplies the x/y view
+        range when present, otherwise the spectrum keeps its natural range. ``SCALE``,
+        ``Refresh``, ``MAPPED`` and other per-window settings are ignored.
+        """
+        self.logger.info('parseOldGeo - filename: %s', filename)
+        nrow = ncol = None
+        properties = {}
+        index  = 0
+        name   = None
+        scale  = False
+        xRange = None
+        yRange = None
+
+        def _numbers(text):
+            return [float(n) for n in re.findall(r'-?\d+(?:\.\d+)?', text)]
+
+        try:
+            with open(filename) as f:
+                for raw in f:
+                    line = raw.strip()
+                    if not line or line.startswith('#'):
+                        continue
+                    keyword = line.split()[0].lower()
+                    if keyword == 'geometry':
+                        nums = _numbers(line)
+                        if len(nums) >= 2:
+                            nrow, ncol = int(nums[0]), int(nums[1])
+                    elif keyword == 'window':
+                        name, scale, xRange, yRange = None, False, None, None
+                        match = re.search(r'"([^"]*)"', line)
+                        if match:
+                            name = match.group(1)
+                    elif keyword == 'countsaxis':
+                        scale = True
+                    elif keyword == 'expanded':
+                        nums = _numbers(line)
+                        if len(nums) >= 2:
+                            xRange = [nums[0], nums[1]]
+                        if len(nums) >= 4:
+                            yRange = [nums[2], nums[3]]
+                    elif keyword == 'endwindow':
+                        if name:
+                            properties[index] = {"name": name, "x": xRange,
+                                                 "y": yRange, "scale": scale}
+                        index += 1
+                        name, scale, xRange, yRange = None, False, None, None
+        except OSError:
+            self.logger.warning('parseOldGeo - could not read %s', filename, exc_info=True)
             return None
-            # with open(filename) as f:
-            #     for line in f:
-            #         if (self.findWholeWord("Geometry")(line)):
-            #             # find geo x,y in line
-            #             coords = self.findNumbers(line)
-            #         elif (self.findWholeWord("Window")(line)):
-            #             spectrum = self.findHistoName(line)
-            #             spec_dict[cntr] = spectrum[0]
-            #             cntr+=1
-            #         elif (self.findWholeWord("COUNTSAXIS")(line)):
-            #             info_scale[cntr-1] = True
-            #         elif (self.findWholeWord("Expanded")(line)):
-            #             tmp = self.findNumbers(line)
-            #             info_range[cntr-1] = tmp
 
-            # for index, name in spec_dict.items():
-            #     scale = False
-            #     #pb here because with the old format the spectrum name is in capital letters
-            #     #while the REST info are case sensitive.
-            #     dim = self.getSpectrumInfoREST("dim", name=name)
-            #     x_range = [self.minX, self.maxX]
-            #     if dim == 2:
-            #         y_range = [self.minY, self.maxY]
-
-            #     print("Simon - openGeo - index, name, dim: ",index, name, dim)
-
-            #     if index in info_scale:
-            #         scale = info_scale[index]
-            #         if y_range[0] == 0:
-            #             y_range[0] = 0.001
-            #     if index in info_range:
-            #         x_range = info_range[index][0:2]
-            #         y_range = info_range[index][2:4]
-
-            #     print("Simon - openGeo - x_range, y_range: ",x_range, y_range)
-
-            #     properties[index] = {"name": name, "x": x_range, "y": y_range, "scale": scale}
-            #     self.logger.debug('openGeo - index, properties: %s, %s', index, properties[index])
-
-            # return {'row': coords[0], 'col': coords[1], 'geo': properties}
+        if nrow is None or ncol is None:
+            self.logger.warning('parseOldGeo - no "Geometry" line found in %s', filename)
+            return None
+        return {"row": nrow, "col": ncol, "geo": properties}
 
 
     def saveGeo(self):
@@ -1819,6 +1846,16 @@ class MainWindow(QMainWindow):
             self.logger.debug('saveGeo - exception', exc_info=True)
             pass
 
+
+    def _resolveSpectrumName(self, name):
+        """Return a spectrum name present in the store that matches `name`, tolerating
+        case differences (legacy .win files often store names upper-cased). Returns the
+        exact name if it exists, a unique case-insensitive match otherwise, or None."""
+        if self.getSpectrumInfoREST("dim", name=name) is not None:
+            return name
+        lowered = name.lower()
+        matches = [n for n in self.spectra.all_names() if n.lower() == lowered]
+        return matches[0] if len(matches) == 1 else None
 
     def loadGeo(self):
         fileName = self.openFileNameDialog()
@@ -1855,16 +1892,21 @@ class MainWindow(QMainWindow):
                 for index, val_dict in infoGeo["geo"].items():
                     if not val_dict["name"]:
                         continue
-                    if self.getSpectrumInfoREST("dim", name=val_dict["name"]) is None:
+                    resolved = self._resolveSpectrumName(val_dict["name"])
+                    if resolved is None:
                         notFound.append(val_dict["name"])
-                        continue 
+                        continue
 
-                    self.setGeo(index, val_dict["name"])
+                    self.setGeo(index, resolved)
                     self.setSpectrumInfo(log=val_dict["scale"], index=index)
-                    self.setSpectrumInfo(minx=val_dict["x"][0], index=index)
-                    self.setSpectrumInfo(maxx=val_dict["x"][1], index=index)
-                    self.setSpectrumInfo(miny=val_dict["y"][0], index=index)
-                    self.setSpectrumInfo(maxy=val_dict["y"][1], index=index)
+                    # Old .win files may omit the view range (no "Expanded"); when it
+                    # is absent the spectrum keeps its natural full range from the store.
+                    if val_dict.get("x") is not None:
+                        self.setSpectrumInfo(minx=val_dict["x"][0], index=index)
+                        self.setSpectrumInfo(maxx=val_dict["x"][1], index=index)
+                    if val_dict.get("y") is not None:
+                        self.setSpectrumInfo(miny=val_dict["y"][0], index=index)
+                        self.setSpectrumInfo(maxy=val_dict["y"][1], index=index)
 
                 if len(notFound) > 0:
                     self.logger.warning('loadGeo - definition not found for: %s', notFound)
