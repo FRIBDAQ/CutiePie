@@ -159,13 +159,13 @@ class PlotController:
         spectrum = self._get_spectrum_info("spectrum", index=index)
         zmin, zmax = spectrum.get_clim()
 
-        if scale is validScales[0]:
+        if scale == validScales[0]:
             if zmin > zmax:
                 self.logger.warning('setCmapNorm - zmin > zmax')
                 spectrum.set_norm(colors.Normalize(vmin=self.minZ, vmax=self.maxZ))
             else:
                 spectrum.set_norm(colors.Normalize(vmin=zmin, vmax=zmax))
-        elif scale is validScales[1]:
+        elif scale == validScales[1]:
             if zmin and zmin <= 0:
                 zmin = 0.001
                 self.logger.warning('setCmapNorm - LogNorm with zmin<=0, may want to use CenteredNorm')
@@ -173,7 +173,7 @@ class PlotController:
             if zmin > zmax:
                 self.logger.warning('setCmapNorm - zmin > zmax')
                 spectrum.set_norm(colors.LogNorm(vmin=self.minZ, vmax=self.maxZ))
-        elif scale is validScales[2]:
+        elif scale == validScales[2]:
             palette = copy(plt.cm.jet)
             palette.set_bad(color='white')
             data = self._get_spectrum_info("data", index=index)
@@ -241,10 +241,10 @@ class PlotController:
         if not limits:
             self.logger.warning('getMinMaxInRange - limits identifier not valid - expect xmin=val, xmax=val etc. for y with 2D')
             return
-        if "xmin" and "xmax" in limits:
+        if "xmin" in limits and "xmax" in limits:
             xmin = limits["xmin"]
             xmax = limits["xmax"]
-        if "ymin" and "ymax" in limits:
+        if "ymin" in limits and "ymax" in limits:
             ymin = limits["ymin"]
             ymax = limits["ymax"]
 
@@ -313,7 +313,7 @@ class PlotController:
             if len(subMin) == 0:
                 minimum = self.minZ
             if len(subMax) == 0:
-                minimum = self.maxZ
+                maximum = self.maxZ
             elif len(subMin) > 0 and len(subMax) > 0:
                 minimum = min(subMin)
                 maximum = max(subMax)
