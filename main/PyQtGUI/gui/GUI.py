@@ -460,20 +460,6 @@ class MainWindow(QMainWindow):
         self.autoUpdateIntervalsUser = ["1 sec", "5 secs", "10 secs", "30 secs", "1 min", "3 mins", "5 mins", "10 mins", "Inf."]
         self.autoUpdateIntervals = [1, 5, 10, 30, 60, 180, 300, 600, 9e9]
 
-        """
-        val_auto = self.wConf.autoUpdate2.value()
-        self.autoUpdateInterval = self.autoUpdateIntervals[val_auto]
-        self.autoUpdateIntervalUser = self.autoUpdateIntervalsUser[val_auto]
-        self.wConf.autoUpdateLabel2.setText(f"Update every: {self.autoUpdateIntervalsUser[val_auto]}")
-
-        # update label as slider moves
-        self.wConf.autoUpdate2.valueChanged.connect(
-            lambda i: self.wConf.autoUpdateLabel2.setText(f"Update every: {self.autoUpdateIntervalsUser[i]}")
-        )
-
-        # (only if you want to start/restart the auto-update thread on change)
-        self.wConf.autoUpdate2.valueChanged.connect(lambda _: self.autoUpdateStart())
-        """
         # populate combo and set default (index 0 → 1 sec)
         self.wConf.autoUpdate2.clear()
         self.wConf.autoUpdate2.addItems(self.autoUpdateIntervalsUser)
@@ -969,7 +955,7 @@ class MainWindow(QMainWindow):
             self.currentPlot.next_plot_index = self.currentPlot.selected_plot_index
             self.currentPlot.rec = self.createRectangle(self.currentPlot.figure.axes[index])
             #tried to blit here but not successful (?) important delay for canvas with many plots
-            self.currentPlot.canvas.draw()
+            self.currentPlot.canvas.draw_idle()
 
 
     # find the closest bin edge position to the input position
@@ -1008,93 +994,6 @@ class MainWindow(QMainWindow):
         return result 
 
 
-    """
-    #called by on_press when not in ceate/edit gate mode
-    def on_dblclick(self, idx):
-        self.logger.info('on_dblclick - idx, self.wTab.currentIndex(): %s, %s' ,idx, self.wTab.currentIndex())
-        name = self.nameFromIndex(idx)
-        index = self.wConf.histo_list.findText(name)
-        self.wConf.histo_list.setCurrentIndex(index)
-
-        if self.currentPlot.isEnlarged == False: # entering enlarged mode
-            self.logger.debug('on_dblclick - isEnlarged TRUE')
-            if name == "empty" or index == -1:
-                self.logger.warning('on_dblclick - empty axes cannot enlarge')
-                return
-            self.removeRectangle()
-
-            print("Entering expanded spectrum view...")
-            
-            #important that zoomPlotInfo is set only while in zoom mode (not None only here)
-            self.setEnlargedSpectrum(idx, name)
-            self.currentPlot.next_plot_index = self.currentPlot.selected_plot_index
-            print("self.currentPlot.next_plot_index",self.currentPlot.next_plot_index)
-            self.currentPlot.isEnlarged = True
-            # disabling adding histograms
-            self.wConf.histo_geo_add.setEnabled(False)
-            # disabling changing canvas layout
-            self.wConf.histo_geo_row.setEnabled(False)
-            self.wConf.histo_geo_col.setEnabled(False)
-            # enabling gate creation
-            self.wConf.createGate.setEnabled(True)
-            # plot corresponding histogram
-            self.wTab.selected_plot_index_bak[self.wTab.currentIndex()]= deepcopy(idx)
-            print("self.wTab.selected_plot_index_bak[self.wTab.currentIndex()]", self.wTab.selected_plot_index_bak[self.wTab.currentIndex()])
-            
-            #setup single pad canvas
-            self.currentPlot.InitializeCanvas(1,1,False)
-
-            self.add(idx)
-            autosclae_status = self.currentPlot.histo_autoscale.isChecked()
-            self.updatePlot(autosclae_status)
-            # self.updatePlot()
-        else:
-            self.logger.debug('on_dblclick - isEnlarged FALSE')
-            # enabling adding histograms
-            self.wConf.histo_geo_add.setEnabled(True)
-            # enabling changing canvas layout
-            self.wConf.histo_geo_row.setEnabled(True)
-            self.wConf.histo_geo_col.setEnabled(True)
-
-            # disabling gate creation
-            self.wConf.createGate.setEnabled(False)
-
-            #important that zoomPlotInfo is set only while in zoom mode (None only here)
-            #tempIdxEnlargedSpectrum is used to draw back the dashed red rectangle, which pad was enlarged
-            tempIdxEnlargedSpectrum = self.getEnlargedSpectrum()[0]
-            self.setEnlargedSpectrum(None, None)
-            self.currentPlot.isEnlarged = False
-
-            canvasLayout = self.wTab.layout[self.wTab.currentIndex()]
-            self.logger.debug('on_dblclick - canvasLayout: %s',canvasLayout)
-
-            t1 = time.time()
-            #draw back the original canvas
-            self.currentPlot.InitializeCanvas(canvasLayout[0], canvasLayout[1], False)
-            # self.currentPlot.selected_plot_index = None # this will allow to call drawGate and loop over all the gates
-            for index, name in self.getGeo().items():
-                if name is not None and name != "" and name != "empty":
-                    self.add(index)
-                    ax = self.getSpectrumInfo("axis", index=index)
-                    self.plotPlot(index)
-                    #reset the axis limits as it was before enlarge
-                    #dont need to specify if log scale, it is checked inside setAxisScale, if 2D histo in log its z axis is set too.
-                    dim = self.getSpectrumInfoREST("dim", index=index)
-                    if dim == 1:
-                        self.setAxisScale(ax, index, "x", "y")
-                    elif dim == 2:
-                        self.setAxisScale(ax, index, "x", "y", "z")
-                    self.drawGate(index)
-            #drawing back the dashed red rectangle on the unenlarged spectrum
-            self.removeRectangle()
-            self.currentPlot.recDashed = self.createDashedRectangle(self.currentPlot.figure.axes[tempIdxEnlargedSpectrum])
-            #self.updatePlot() #replaced by the content of updatePlot in the above for loop (avoid looping twice)
-            self.currentPlot.figure.tight_layout()
-            # self.drawAllGates()
-            self.currentPlot.canvas.draw()
-            t2 = time.time()
-            print("on_dblclick: time={:.2f}".format(t2-t1))
-    """
     
             
     #### Bashir's changes to avoid re-initialization of Canvas
@@ -1290,28 +1189,6 @@ class MainWindow(QMainWindow):
         self.close()
 
 
-     #callback when right click on tab
-    """
-    def tab_handle_right_click(self):
-        self.logger.info('tab_handle_right_click')
-        if self.currentPlot.zoomPress: return
-        menu = QMenu()
-        item1 = menu.addAction("Rename")
-        item2 = menu.addAction("Delete")
-        item1.triggered.connect(lambda: self.renameTab(self.wTab.currentIndex()))
-        item2.triggered.connect(lambda: self.closeTab(self.wTab.currentIndex()))
-
-        tab = self.wTab.tabBar()
-        tabRect = tab.rect()
-
-        sizeSubTab = QtCore.QPoint(tabRect.width()/self.wTab.count(), tabRect.height()/2)
-        pos = QtCore.QPoint(sizeSubTab.x()*self.wTab.currentIndex(), sizeSubTab.y())
-
-        menuPos = tab.mapToGlobal(pos)
-        menuPos = QtCore.QPoint(menuPos.x(), menuPos.y())
-        # Shows menu at button position, need to calibrate with 0,0 position
-        menu.exec_(menuPos)
-    """
 
     #### Bashir added to delate/rename when clicking on the tab not the entire window
     def tab_handle_right_click(self):
@@ -1444,54 +1321,6 @@ class MainWindow(QMainWindow):
                 self.logger.debug('clickedTab - exception occured', exc_info=True)
                 pass
         
-    """
-    ##### Old click Tab ######
-    def clickedTab(self, index):
-        self.logger.info('clickedTab - index: %s',index)
-        # End current auto update thread, to avoid thread issu, will start a new thread if/when tab is not empty 
-        self.stopAutoUpdateThread.set()
-        self.endThread(self.threadAutoUpdate)
-
-        # For now, if change tab while working on gate, close any ongoing gate action
-        if self.currentPlot.toCreateGate or self.currentPlot.toEditGate or self.gatePopup.isVisible():
-            self.cancelGate()
-            return
-        if self.currentPlot.toCreateSumRegion or self.sumRegionPopup.isVisible():
-            self.cancelSumRegion()
-            return
-
-        # Abord zoom action if click a tab
-        if self.currentPlot.zoomPress:
-            self.currentPlot.zoom_action.triggered.emit()
-            self.currentPlot.zoom_action.setChecked(False)
-            self.currentPlot.customZoomButton.setDown(False)
-            self.currentPlot.zoomPress = False
-
-        self.wTab.setCurrentIndex(index)
-
-        # Check if create or switch/move existing tabs
-        # First if when new tab
-        if index == self.wTab.count()-1:
-            self.wTab.addTab(index)
-            self.currentPlot = self.wTab.wPlot[index]
-            self.tabGeoWidgetAndFlags(index)            
-        else:
-            try:
-                self.tabGeoWidgetAndFlags(index)
-                self.removeRectangle()
-                self.bindDynamicSignal()
-
-                # If tab not empty, (re)start auto update
-                for indexPlot, name in self.getGeo().items():
-                    if name:
-                        ax = self.getSpectrumInfo("axis", index=indexPlot)
-                        if ax is not None :
-                            self.autoUpdateStart()
-                            break
-            except Exception:
-                self.logger.debug('clickedTab - exception occured', exc_info=True)
-                pass
-    """
 
 
     # Helper to set histo_geo widget and enable/disable buttons, when interact with tabs
@@ -1867,7 +1696,7 @@ class MainWindow(QMainWindow):
         cached = self._gate_name_cache.get(spectrumName)
         if cached is not None and (now - cached[1]) < self._GATE_NAME_TTL:
             return cached[0]
-        gate = self.rest.applylistgate(spectrumName)
+        gate = self.connection_manager.applylistgate(spectrumName)
         if gate is None or len(gate) == 0:
             result = None
         else:
@@ -2202,40 +2031,6 @@ class MainWindow(QMainWindow):
     def onColormapChange(self, cmap_name: str):  return self.plot_controller.onColormapChange(cmap_name)
 
 
-    ####### Bashir added for dark mode ##########################
-
-    """
-    def toggleDarkMode(self):
-        if self.wConf.darkModeButton.isChecked():
-            # Dark mode
-            self.wConf.darkModeButton.setText("Light Mode")
-            dark_bg = "#1e1e1e"    # pleasant dark, not pure black like VS Code
-
-            for plot in self.wTab.wPlot.values():
-                plot.figure.set_facecolor(dark_bg)
-                for ax in plot.figure.axes:
-                    ax.set_facecolor(dark_bg)
-                    ax.tick_params(colors="white")
-                    ax.xaxis.label.set_color("white")
-                    ax.yaxis.label.set_color("white")
-                    ax.title.set_color("white")
-                plot.canvas.draw_idle()
-
-        else:
-            # Light mode
-            self.wConf.darkModeButton.setText("Dark Mode")
-            light_bg = "white"
-
-            for plot in self.wTab.wPlot.values():
-                plot.figure.set_facecolor(light_bg)
-                for ax in plot.figure.axes:
-                    ax.set_facecolor(light_bg)
-                    ax.tick_params(colors="black")
-                    ax.xaxis.label.set_color("black")
-                    ax.yaxis.label.set_color("black")
-                    ax.title.set_color("black")
-                plot.canvas.draw_idle()
-    """
     ############################################################################
     # looking for first available index to add an histogram
     def check_index(self):
@@ -2568,7 +2363,6 @@ class MainWindow(QMainWindow):
     def removePrevLine(self):                    return self.gate_manager.removePrevLine()
     def clickOnGateLine(self, event):            return self.gate_manager.clickOnGateLine(event)
     def dist(self, x, y):                        return self.gate_manager.dist(x, y)
-    def find_callbacks(self, *a):                return self.gate_manager.find_callbacks(*a)
 
     # ------------------------------------------------------------------
     # SumRegion methods — delegated to SumRegionManager (see gui/services/sum_region_manager.py)

@@ -306,6 +306,21 @@ class ConnectionManager(QtCore.QObject):
         self.logger.info('getSpectrumInfoFromReST - return: %s', outDict)
         return outDict
 
+    def applylistgate(self, spectrum_name):
+        """Return the gate-application list for a spectrum via the owned REST client.
+
+        Routes through ConnectionManager so callers don't touch the REST client
+        directly: returns [] when REST is unavailable or the call fails, instead of
+        raising or exposing a half-open connection."""
+        if self._rest is None:
+            self.logger.debug('applylistgate - no REST client')
+            return []
+        try:
+            return self._rest.applylistgate(spectrum_name)
+        except Exception:
+            self.logger.debug('applylistgate - REST call failed', exc_info=True)
+            return []
+
     def updateSpectrumList(self, init=False):
         self.logger.debug('updateSpectrumList')
         self._wConf.histo_list.blockSignals(True)

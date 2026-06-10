@@ -78,9 +78,9 @@ class FitManager:
     def on_abort_clicked(self):
         self._abort_fit = True
         try: self._popup.abort_button.setEnabled(False)
-        except Exception: pass
+        except Exception: self.logger.debug('on_abort_clicked - could not disable abort button', exc_info=True)
         try: self._popup.fit_results.append("[abort] Requested…")
-        except Exception: pass
+        except Exception: self.logger.debug('on_abort_clicked - could not append abort message', exc_info=True)
 
     # ------------------------------------------------------------------
     # CSV helpers
@@ -128,7 +128,7 @@ class FitManager:
         if not hasattr(self, "_csv_ax") or self._csv_ax is None:
             fig, ax = plt.subplots()
             try: fig.canvas.manager.set_window_title("CSV")
-            except Exception: pass
+            except Exception: self.logger.debug('could not set CSV window title', exc_info=True)
             self._csv_ax = ax
 
         ax = self._csv_ax
@@ -518,7 +518,7 @@ class FitManager:
             self._cal.MU.pop(); self._cal.E.pop()
             for a in self._cal.artists.pop():
                 try: a.remove()
-                except Exception: pass
+                except Exception: self.logger.debug('could not remove calibration artist', exc_info=True)
             ax.figure.canvas.draw_idle()
             _update_status()
 
@@ -561,7 +561,7 @@ class FitManager:
             for arts in list(self._cal.artists):
                 for a in arts:
                     try: a.remove()
-                    except Exception: pass
+                    except Exception: self.logger.debug('could not remove fit artist', exc_info=True)
             ax.figure.canvas.draw_idle()
             self._cal = None
 
@@ -827,7 +827,7 @@ class FitManager:
             leg = ax.get_legend()
             if leg:
                 try: leg.remove()
-                except Exception: pass
+                except Exception: self.logger.debug('could not remove legend', exc_info=True)
 
             total_removed += removed
 

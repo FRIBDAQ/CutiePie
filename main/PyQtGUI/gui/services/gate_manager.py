@@ -72,9 +72,10 @@ class GateManager(QObject):
         if not spectrumName:
             self.logger.debug("drawGate: no name for index %s; skipping", index)
             return
-        spectrumType = self._spectra.get(spectrumName, "type")
-        dim          = self._spectra.get(spectrumName, "dim")
-        parameters   = self._spectra.get(spectrumName, "parameters")
+        record       = self._spectra.get_record(spectrumName) or {}
+        spectrumType = record.get("type")
+        dim          = record.get("dim")
+        parameters   = record.get("parameters")
         if not spectrumType or parameters is None:
             self.logger.debug("drawGate: blank canvas/missing metadata for '%s'; skipping", spectrumName)
             return
@@ -664,21 +665,6 @@ class GateManager(QObject):
                 lineY.append(points[0][1])
             self.editThisGateLine.set_data(lineX, lineY)
         self.canvasDrawRequested.emit()
-
-    def checkConnections(self):
-        canvas = self._get_current_canvas()
-        if canvas.callbacks.callbacks:
-            for event_name, callbacks_dict in canvas.callbacks.callbacks.items():
-                print(f"Event: {event_name}, Callbacks: {callbacks_dict}")
-
-    def find_callbacks(self):
-        canvas = self._get_current_canvas()
-        callbacks_for_gate_manager = []
-        for event_name, callbacks_dict in canvas.callbacks.callbacks.items():
-            for callback_id, callback_func in callbacks_dict.items():
-                if hasattr(callback_func, '__self__') and callback_func.__self__ is self:
-                    callbacks_for_gate_manager.append((event_name, callback_func))
-        return callbacks_for_gate_manager
 
     # ------------------------------------------------------------------
     # Gate editing
