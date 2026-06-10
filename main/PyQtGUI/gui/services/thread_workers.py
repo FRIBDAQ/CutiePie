@@ -35,6 +35,9 @@ class RestWorker(QObject):
             traces = self._rest.pollTraces(token)
             if not traces:
                 break
+            if not isinstance(traces, dict):
+                logger.warning('RestWorker - pollTraces returned non-dict: %s', type(traces).__name__)
+                continue
 
             # Collect removes and fetch add metadata — all on the background thread.
             # Removes MUST be emitted before adds so the GUI thread processes them in

@@ -128,7 +128,8 @@ class GateManager(QObject):
                         continue
                     line = mlines.Line2D([xlim[iLine], xlim[iLine]],
                                         [ylim[0], ylim[1]],
-                                        picker=5, color='red', label=lineLabel)
+                                        picker=True, color='red', label=lineLabel)
+                    line.set_pickradius(5)
                     ax.add_line(line)
 
             elif dim == 2:
@@ -145,7 +146,8 @@ class GateManager(QObject):
                         xPoints.append(gate["points"][0]["x"])
                         yPoints.append(gate["points"][0]["y"])
                     line = mlines.Line2D(xPoints, yPoints,
-                                        picker=5, color='red', label=lineLabel)
+                                        picker=True, color='red', label=lineLabel)
+                    line.set_pickradius(5)
                     ax.add_line(line)
 
             if (self._gate_annotation_cb.isChecked()
@@ -167,7 +169,8 @@ class GateManager(QObject):
                 ylim = sumRegionLine.get_ydata()
                 if dim == 1:
                     ylim = ax.get_ylim()
-                line = mlines.Line2D(xlim, ylim, picker=5, color='blue', label=lineLabel)
+                line = mlines.Line2D(xlim, ylim, picker=True, color='blue', label=lineLabel)
+                line.set_pickradius(5)
                 ax.add_artist(line)
 
     # ------------------------------------------------------------------
@@ -930,7 +933,8 @@ class GateManager(QObject):
 
         if dim == 1:
             ymin, ymax = ax.get_ybound()
-            l = mlines.Line2D([posx, posx], [ymin, ymax], picker=5, label=label)
+            l = mlines.Line2D([posx, posx], [ymin, ymax], picker=True, label=label)
+            l.set_pickradius(5)
             ax.add_line(l)
         elif dim == 2:
             if mode == "gate":
@@ -947,7 +951,8 @@ class GateManager(QObject):
                 return
             if xyPrev is None or len(xyPrev) == 0:
                 return
-            l = mlines.Line2D([xyPrev[0], posx], [xyPrev[1], posy], picker=5, label=label)
+            l = mlines.Line2D([xyPrev[0], posx], [xyPrev[1], posy], picker=True, label=label)
+            l.set_pickradius(5)
             ax.add_line(l)
 
         if l is None:
