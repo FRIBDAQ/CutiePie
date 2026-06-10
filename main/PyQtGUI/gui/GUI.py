@@ -394,6 +394,11 @@ class MainWindow(QMainWindow):
         self._enlargeBusy = False
         self._enlarged_cax = None   # (optional) track colorbar made in enlarged view
 
+        self._gate_name_cache: dict = {}  # spectrum_name → (gate_or_None, monotonic_ts)
+        self._resize_timer = QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.timeout.connect(self._do_resize)
+
 
         #################
         # 2) Signals
@@ -734,25 +739,29 @@ class MainWindow(QMainWindow):
             if not event.inaxes: return
 
             index = list(self.currentPlot.figure.axes).index(event.inaxes)
-            xTitle = self.getSpectrumInfoREST("parameters", index=index)[0]
+            name  = self.nameFromIndex(index)
+            si    = self.spectra.as_dict().get(name) or {}
+            dim   = si.get("dim")
+            params    = si.get("parameters") or []
+            sp_type   = si.get("type", "")
+            xTitle    = params[0] if params else ""
             coordinates = self.getPointerInfo(event, "coordinates", index)
-            type = self.getSpectrumInfoREST("type", index=index)
-            if self.getSpectrumInfoREST("dim", index=index) == 1:
-                if type == "g1" :
-                    xTitle = self.getSpectrumInfoREST("parameters", index=index)[0] + ", ..."
-                self.currentPlot.histoLabel.setText("Spectrum: "+self.nameFromIndex(index)+"\nX: "+xTitle)
+            if dim == 1:
+                if sp_type == "g1":
+                    xTitle = xTitle + ", ..."
+                self.currentPlot.histoLabel.setText("Spectrum: " + name + "\nX: " + xTitle)
                 self.currentPlot.pointerLabel.setText(f"Pointer:\nX: {coordinates[0]:.2f} Y: {coordinates[1]:.0f} Count: {coordinates[2]:.0f}")
-            elif self.getSpectrumInfoREST("dim", index=index) == 2:
-                yTitle = self.getSpectrumInfoREST("parameters", index=index)[1]
-                if type == "g2" or type == "m2" or type == "gd":
-                    xTitle = self.getSpectrumInfoREST("parameters", index=index)[0] + ", ..."
-                    yTitle = self.getSpectrumInfoREST("parameters", index=index)[1] + ", ..."
-                self.currentPlot.histoLabel.setText("Spectrum: "+self.nameFromIndex(index)+"\nX: "+xTitle+" Y: "+yTitle) 
-                self.currentPlot.pointerLabel.setText(f"Pointer:\nX: {coordinates[0]:.2f} Y: {coordinates[1]:.2f}  Count: {coordinates[2]:.0f}")        
-                if type == "s" :
-                    xTitle = self.getSpectrumInfoREST("parameters", index=index)[0] + ", ..."
-                    self.currentPlot.histoLabel.setText("Spectrum: "+self.nameFromIndex(index)+"\nX: "+xTitle) 
-                    self.currentPlot.pointerLabel.setText(f"Pointer:\nX: {coordinates[0]:.2f} Y: {coordinates[1]:.2f}  Count: {coordinates[2]:.0f}") 
+            elif dim == 2:
+                yTitle = params[1] if len(params) > 1 else ""
+                if sp_type in ("g2", "m2", "gd"):
+                    xTitle = xTitle + ", ..."
+                    yTitle = yTitle + ", ..."
+                self.currentPlot.histoLabel.setText("Spectrum: " + name + "\nX: " + xTitle + " Y: " + yTitle)
+                self.currentPlot.pointerLabel.setText(f"Pointer:\nX: {coordinates[0]:.2f} Y: {coordinates[1]:.2f}  Count: {coordinates[2]:.0f}")
+                if sp_type == "s":
+                    xTitle = xTitle + ", ..."
+                    self.currentPlot.histoLabel.setText("Spectrum: " + name + "\nX: " + xTitle)
+                    self.currentPlot.pointerLabel.setText(f"Pointer:\nX: {coordinates[0]:.2f} Y: {coordinates[1]:.2f}  Count: {coordinates[2]:.0f}")
             gateName = self.getAppliedGateName(index=index)
             if gateName is not None:
                 self.currentPlot.gateLabel.setText("Gate applied: "+gateName+"\n") 
@@ -808,9 +817,12 @@ class MainWindow(QMainWindow):
      
 
     def on_resize(self, event):
-        self.logger.info('on_resize')
+        self._resize_timer.start(150)
+
+    def _do_resize(self):
+        self.logger.debug('_do_resize')
         self.currentPlot.figure.tight_layout()
-        self.currentPlot.canvas.draw()
+        self.currentPlot.canvas.draw_idle()
 
 
     # Introduced for endding zoom action (toolbar) on release
@@ -1108,12 +1120,12 @@ class MainWindow(QMainWindow):
                     return
                 self.removeRectangle()
 
-                print("Entering expanded spectrum view...")
-                
+                self.logger.debug('on_dblclick - entering expanded spectrum view')
+
                 #important that zoomPlotInfo is set only while in zoom mode (not None only here)
                 self.setEnlargedSpectrum(idx, name)
                 self.currentPlot.next_plot_index = self.currentPlot.selected_plot_index
-                print("self.currentPlot.next_plot_index",self.currentPlot.next_plot_index)
+                self.logger.debug('on_dblclick - next_plot_index: %s', self.currentPlot.next_plot_index)
                 self.currentPlot.isEnlarged = True
                 # disabling adding histograms
                 self.wConf.histo_geo_add.setEnabled(False)
@@ -1127,7 +1139,7 @@ class MainWindow(QMainWindow):
                 self.wConf.createGate.setEnabled(True)
                 # plot corresponding histogram
                 self.wTab.selected_plot_index_bak[self.wTab.currentIndex()]= deepcopy(idx)
-                print("self.wTab.selected_plot_index_bak[self.wTab.currentIndex()]", self.wTab.selected_plot_index_bak[self.wTab.currentIndex()])
+                self.logger.debug('on_dblclick - selected_plot_index_bak: %s', self.wTab.selected_plot_index_bak[self.wTab.currentIndex()])
                 
                 # t1 = time.time()
                 ############### Bashir ##################################################
@@ -1830,30 +1842,29 @@ class MainWindow(QMainWindow):
         return result
 
 
-    #get histo name, type and parameters from REST
-    #About the gates: unlike spectrum, there is no internal gate dictionnary
-    #which means everytime one gets/sets gate info, one uses the ReST interface, like for the name here:
-    #return the gate name applied to a spectrum (identified by index or name)
+    _GATE_NAME_TTL = 2.0  # seconds — max staleness of gate-name label during mouse hover
+
     def getAppliedGateName(self, **identifier):
-        # self.logger.info('getAppliedGateName')
         spectrumName = None
         if "index" in identifier:
             spectrumName = self.nameFromIndex(identifier["index"])
         elif "name" in identifier:
             spectrumName = identifier["name"]
         else:
-            self.logger.debug('getAppliedGateName - wrong identifier - expects name=histo_name or index=histo_index')
-            return
+            self.logger.debug('getAppliedGateName - wrong identifier')
+            return None
+        now = time.monotonic()
+        cached = self._gate_name_cache.get(spectrumName)
+        if cached is not None and (now - cached[1]) < self._GATE_NAME_TTL:
+            return cached[0]
         gate = self.rest.applylistgate(spectrumName)
         if gate is None or len(gate) == 0:
-            self.logger.debug('getAppliedGateName - gate is None')
-            return 
-        #gate is a list with one dictionary [{'spectrum': 'spectrumName', 'gate': 'gateName'}]
-        gateName = gate[0]["gate"]
-        if gateName == "-TRUE-" or gateName == "-Ungated-":
-            return None 
-        else :
-            return gateName
+            result = None
+        else:
+            gn = gate[0]["gate"]
+            result = None if gn in ("-TRUE-", "-Ungated-") else gn
+        self._gate_name_cache[spectrumName] = (result, now)
+        return result
 
 
 

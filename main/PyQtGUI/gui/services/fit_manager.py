@@ -43,8 +43,7 @@ class FitManager:
 
     @staticmethod
     def _create_range(bins, vmin, vmax):
-        step = (float(vmax) - float(vmin)) / float(bins)
-        return [float(vmin)] + list(np.arange(float(vmin), float(vmax), step) + step)
+        return np.linspace(float(vmin), float(vmax), int(bins) + 1)
 
     # ------------------------------------------------------------------
     # Axis limits helper

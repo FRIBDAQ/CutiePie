@@ -171,7 +171,7 @@ class GateManager(QObject):
                     ylim = ax.get_ylim()
                 line = mlines.Line2D(xlim, ylim, picker=True, color='blue', label=lineLabel)
                 line.set_pickradius(5)
-                ax.add_artist(line)
+                ax.add_line(line)
 
     # ------------------------------------------------------------------
     # Gate annotation
@@ -198,60 +198,59 @@ class GateManager(QObject):
         dim = self._spectra.get(self._name_from_index(index), "dim")
 
         for child in ax.lines:
-            if isinstance(child, matplotlib.lines.Line2D):
-                label     = child.get_label()
-                labelSplit = label.split("_-_")
-                if len(labelSplit) == 3 and labelSplit[0] == "gate":
-                    gateName      = labelSplit[1]
-                    gateSegmentNum = labelSplit[2]
-                    labelBuff     = None
+            label      = child.get_label()
+            labelSplit = label.split("_-_")
+            if len(labelSplit) == 3 and labelSplit[0] == "gate":
+                gateName       = labelSplit[1]
+                gateSegmentNum = labelSplit[2]
+                labelBuff      = None
 
-                    if dim == 1:
-                        if gateSegmentNum == "0":
-                            color     = self.getGateColor(gateName)
-                            labelBuff = gateName + "_low"
-                        elif gateSegmentNum == "1":
-                            labelBuff = gateName + "_high"
+                if dim == 1:
+                    if gateSegmentNum == "0":
+                        color     = self.getGateColor(gateName)
+                        labelBuff = gateName + "_low"
+                    elif gateSegmentNum == "1":
+                        labelBuff = gateName + "_high"
 
-                        toRemove = [an for an in ax.get_children()
-                                    if type(an) == matplotlib.text.Annotation
-                                    and an.get_text() == labelBuff]
-                        if len(toRemove) == 1:
-                            toRemove[0].remove()
+                    toRemove = [an for an in ax.get_children()
+                                if type(an) == matplotlib.text.Annotation
+                                and an.get_text() == labelBuff]
+                    if len(toRemove) == 1:
+                        toRemove[0].remove()
 
+                    positionX = child.get_xdata()[0]
+                    positionY = 0.95
+                    offsetX   = (ax.get_xlim()[1] - ax.get_xlim()[0]) * 0.002
+
+                    if doAnnotate:
+                        xy = self.getXYAnnotation(
+                            self._name_from_index(index),
+                            gateName,
+                            (positionX + offsetX, positionY),
+                        )
+                        ax.annotate(int(positionX), xy=xy,
+                                    xycoords=("data", "axes fraction"),
+                                    color=color, fontsize=8, clip_on=True)
+                        child.set_color(color)
+                    else:
+                        child.set_color('red')
+
+                elif dim == 2:
+                    toRemove = [an for an in ax.get_children()
+                                if type(an) == matplotlib.text.Annotation
+                                and an.get_text() == gateName]
+                    if len(toRemove) == 1:
+                        toRemove[0].remove()
+
+                    if doAnnotate:
+                        color     = self.getGateColor(gateName)
                         positionX = child.get_xdata()[0]
-                        positionY = 0.95
-                        offsetX   = (ax.get_xlim()[1] - ax.get_xlim()[0]) * 0.002
-
-                        if doAnnotate:
-                            xy = self.getXYAnnotation(
-                                self._name_from_index(index),
-                                gateName,
-                                (positionX + offsetX, positionY),
-                            )
-                            ax.annotate(int(positionX), xy=xy,
-                                        xycoords=("data", "axes fraction"),
-                                        color=color, fontsize=8, clip_on=True)
-                            child.set_color(color)
-                        else:
-                            child.set_color('red')
-
-                    elif dim == 2:
-                        toRemove = [an for an in ax.get_children()
-                                    if type(an) == matplotlib.text.Annotation
-                                    and an.get_text() == gateName]
-                        if len(toRemove) == 1:
-                            toRemove[0].remove()
-
-                        if doAnnotate:
-                            color     = self.getGateColor(gateName)
-                            positionX = child.get_xdata()[0]
-                            positionY = child.get_ydata()[0]
-                            child.set_color(color)
-                            child.set_gid(gateName)
-                        else:
-                            child.set_color('red')
-                            child.set_gid(gateName)
+                        positionY = child.get_ydata()[0]
+                        child.set_color(color)
+                        child.set_gid(gateName)
+                    else:
+                        child.set_color('red')
+                        child.set_gid(gateName)
 
         if doAnnotate:
             handles, labels = [], []

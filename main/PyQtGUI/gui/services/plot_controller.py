@@ -181,13 +181,16 @@ class PlotController:
             spectrum.set_cmap(palette)
             spectrum.set_norm(centeredNorm(data, 50000))
         if self._get_enlarged_spectrum() is None:
-            ax = spectrum.axes
-            self.removeCb(ax)
-            divider = make_axes_locatable(ax)
-            cax = divider.append_axes('right', size='5%', pad=0.05)
+            ax    = spectrum.axes
             label = "colorbar_" + str(index)
-            cax.set_label(label)
-            self._get_current_plot().figure.colorbar(spectrum, cax=cax, orientation='vertical')
+            cp    = self._get_current_plot()
+            cax   = next((a for a in cp.figure.axes if a.get_label() == label), None)
+            if cax is None:
+                divider = make_axes_locatable(ax)
+                cax = divider.append_axes('right', size='5%', pad=0.05)
+                cax.set_label(label)
+                cp.figure.colorbar(spectrum, cax=cax, orientation='vertical')
+            # else: norm already updated on spectrum; the linked colorbar redraws automatically
 
     def autoScaleAxisBox(self, forIndex):
         self.logger.info('autoScaleAxisBox - forIndex: %s', forIndex)
@@ -295,18 +298,18 @@ class PlotController:
         else:
             stepX = nbCol if nbCol < 200 else 200
             stepY = nbRow if nbRow < 200 else 200
-            rangeX = list(range(0, data.shape[1], stepX))
-            rangeY = list(range(0, data.shape[0], stepY))
+            rangeX = range(0, data.shape[1], stepX)
+            rangeY = range(0, data.shape[0], stepY)
             subMax = []
             subMin = []
-            yprev = data.shape[0] + 1
             xprev = data.shape[1] + 1
-            for x in rangeX[::-1]:
-                for y in rangeY[::-1]:
+            for x in reversed(rangeX):
+                yprev = data.shape[0] + 1  # reset row sentinel for each column tile
+                for y in reversed(rangeY):
                     subData = data[y:yprev, x:xprev]
                     nonZeroIndices = np.where(subData > 0)
                     filteredSubData = subData[nonZeroIndices]
-                    if filteredSubData is not None and filteredSubData.size > 0:
+                    if filteredSubData.size > 0:
                         subMax.append(filteredSubData.max())
                         subMin.append(filteredSubData.min())
                     yprev = y
@@ -1030,12 +1033,13 @@ class PlotController:
                     self.old_cmap = spectrum.get_cmap()
                 ax = self._get_spectrum_info("axis", index=index)
                 if ax is not None:
-                    try:
-                        self.removeCb(ax)
-                    except Exception:
-                        pass
-                    divider = make_axes_locatable(ax)
-                    cax = divider.append_axes("right", size="5%", pad=0.05)
+                    cb_label = "colorbar_" + str(index)
+                    cax = next((a for a in cp.figure.axes if a.get_label() == cb_label), None)
+                    if cax is None:
+                        divider = make_axes_locatable(ax)
+                        cax = divider.append_axes("right", size="5%", pad=0.05)
+                        cax.set_label(cb_label)
+                    cax.cla()
                     cp.figure.colorbar(spectrum, cax=cax, orientation="vertical")
 
             cp.canvas.draw_idle()

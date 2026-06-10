@@ -213,9 +213,10 @@ class SumRegionManager(QObject):
                 xlim = self._popup.listRegionLine[iLine].get_xdata()
                 lineLabel = "sumReg_-_" + regionName + "_-_" + str(iLine)
                 line = mlines.Line2D([xlim[0], xlim[0]], [ylim[0], ylim[1]],
-                                     picker=5, color='blue', label=lineLabel)
+                                     picker=True, color='blue', label=lineLabel)
+                line.set_pickradius(5)
                 self.setSumRegion(index, line, name)
-                ax.add_artist(line)
+                ax.add_line(line)
 
         elif dim == 2:
             xPoints = []
@@ -229,9 +230,10 @@ class SumRegionManager(QObject):
                     xPoints.append(self._popup.listRegionLine[iLine].get_xdata()[1])
                     yPoints.append(self._popup.listRegionLine[iLine].get_ydata()[1])
             lineLabel = "sumReg_-_" + regionName + "_-_"
-            line = mlines.Line2D(xPoints, yPoints, picker=5, color='blue', label=lineLabel)
+            line = mlines.Line2D(xPoints, yPoints, picker=True, color='blue', label=lineLabel)
+            line.set_pickradius(5)
             self.setSumRegion(index, line, name)
-            ax.add_artist(line)
+            ax.add_line(line)
 
 
     def createSumRegion(self, index, name, ax):
