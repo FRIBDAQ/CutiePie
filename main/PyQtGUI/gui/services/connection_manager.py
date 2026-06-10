@@ -275,6 +275,12 @@ class ConnectionManager(QtCore.QObject):
         outDict  = {}
         inpDict  = self._rest.listSpectrum()
         bindList = self._rest.listsbind("*")
+        if not isinstance(inpDict, list):
+            self.logger.warning('getSpectrumInfoFromReST - listSpectrum returned non-list: %s', inpDict)
+            return outDict
+        if not isinstance(bindList, list):
+            self.logger.warning('getSpectrumInfoFromReST - listsbind returned non-list: %s', bindList)
+            return outDict
         bindings = {}
         for d in bindList:
             bindings[d["name"]] = d["binding"]

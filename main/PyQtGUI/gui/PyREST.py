@@ -147,10 +147,10 @@ class PyREST:
     def listSpectrum(self, pattern="*"):
         url = self._build_url("spectcl/spectrum/list", filter=str(pattern))
         response = self.sendRequest(url)
-        if response is None :
+        if response is None:
             return []
-        spectrum_dict = json.loads(response.decode())
-        return spectrum_dict["detail"]
+        detail = json.loads(response.decode()).get("detail", [])
+        return detail if isinstance(detail, list) else []
 
 
     # delete spectrum. the name parameter provides the name of the spectrum to delete
@@ -431,10 +431,10 @@ class PyREST:
     def listsbind(self, pattern=""):
         url = self._build_url("spectcl/sbind/list", filter=str(pattern))
         response = self.sendRequest(url)
-        if response is None :
+        if response is None:
             return []
-        sbind_dict = json.loads(response.decode())
-        return sbind_dict["detail"]
+        detail = json.loads(response.decode()).get("detail", [])
+        return detail if isinstance(detail, list) else []
 
 
     ############################################################
