@@ -692,7 +692,17 @@ class PlotController:
                 axis.set_title("{}".format(spec_name))
                 self._set_spectrum_info(spectrum=line, index=index)
                 if len(w) > 0:
-                    X = np.array(self.createRange(binx, minx, maxx))
+                    # Bin edges must span the spectrum's true axis range (REST
+                    # store), like plotPlot and the 2D imshow extent below.
+                    # The per-tab minx/maxx used for set_xlim above hold the
+                    # current VIEW range (updatePlotLimits/loadGeo write zoom
+                    # limits there), so building edges from them compresses the
+                    # whole spectrum into the zoomed window and fit overlays
+                    # (drawn in true coordinates) no longer sit on the data.
+                    minxREST = self._spectra.get(name, "minx")
+                    maxxREST = self._spectra.get(name, "maxx")
+                    binxREST = self._spectra.get(name, "binx")
+                    X = np.array(self.createRange(binxREST, minxREST, maxxREST))
                     line.set_data(X, w)
                     self._set_spectrum_info(spectrum=line, index=index)
             else:
