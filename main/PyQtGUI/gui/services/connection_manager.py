@@ -8,7 +8,7 @@ from PyQt5 import QtCore
 
 from PyREST import PyREST
 from services.spectrum_store import SpectrumStore
-from services.thread_workers import RestWorker, AutoUpdateWorker, ConnectWorker
+from services.thread_workers import RestWorker, AutoUpdateWorker, ConnectWorker, parse_binding_entry
 
 
 class ConnectionManager(QtCore.QObject):
@@ -134,16 +134,16 @@ class ConnectionManager(QtCore.QObject):
                     continue
                 if s[2][i] == 2:
                     data = s[9][i][1:-1, 1:-1]
-                    if "s" in otherInfo[name]["type"]:
-                        minx = s[4][i]
-                        maxx = s[5][i] + 1
                 else:
                     data = s[9][i][0:-1]
                     data[0] = 0
 
                 if "s" in otherInfo[name]["type"]:
+                    # summary bounds computed per spectrum — previously assigned only
+                    # under dim==2, so a dim-1 "s"-type would reuse a stale value from
+                    # an earlier iteration (or hit UnboundLocalError on the first)
                     self._spectra.set(
-                        name, dim=s[2][i], binx=s[3][i]-2, minx=minx, maxx=maxx,
+                        name, dim=s[2][i], binx=s[3][i]-2, minx=s[4][i], maxx=s[5][i] + 1,
                         biny=s[6][i]-2, miny=s[7][i], maxy=s[8][i],
                         data=data, parameters=otherInfo[name]["parameters"],
                         type=otherInfo[name]["type"],
@@ -176,7 +176,11 @@ class ConnectionManager(QtCore.QObject):
     def updateFromTraces(self, tracesDetails):
         self.logger.info('updateFromTraces - tracesDetails: %s', tracesDetails)
         for entry in (tracesDetails.get("binding") or []):
-            action, name, _ = entry.split(" ")
+            try:
+                action, name, _ = parse_binding_entry(entry)
+            except ValueError:
+                self.logger.warning('updateFromTraces - skipping malformed binding entry: %r', entry)
+                continue
             if action == "remove" and self._spectra.contains(name):
                 self._spectra.remove(name)
                 self.spectrumRemoved.emit(name)
