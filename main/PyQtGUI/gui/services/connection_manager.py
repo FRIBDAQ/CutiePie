@@ -307,7 +307,8 @@ class ConnectionManager(QtCore.QObject):
                     "type":       el["type"],
                     "binding":    bindings[el["name"]],
                 }
-        self.logger.info('getSpectrumInfoFromReST - return: %s', outDict)
+        # log the count only — the full registry dict is large (P5)
+        self.logger.info('getSpectrumInfoFromReST - %d bound spectra', len(outDict))
         return outDict
 
     def applylistgate(self, spectrum_name):

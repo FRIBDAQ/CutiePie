@@ -182,7 +182,10 @@ class MainWindow(QMainWindow):
         logging.basicConfig(datefmt='%d-%b-%y %H:%M:%S')        
         
         self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(logging.DEBUG)
+        # WARNING in normal operation so per-tick debug/info calls in the render
+        # and hover hot paths don't build LogRecords nobody consumes; flipped to
+        # DEBUG by debugModeCallBack while debug mode is on (PERFORMANCE.md P5).
+        self.logger.setLevel(logging.WARNING)
 
         # define streamHandler for logging
         formatterStreamHandler = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -1395,7 +1398,8 @@ class MainWindow(QMainWindow):
     #Set spectrum info from ReST in self.spectra (identified by histo name and can update multiple info at once)
     #self.spectra is used to keep track of the treegui definition (fixed)
     def setSpectrumInfoREST(self, name, **info):
-        self.logger.info('setSpectrumInfoREST - name, info: %s, %s',info, name)
+        # log keys only — info can carry the full counts array (P5)
+        self.logger.info('setSpectrumInfoREST - name: %s, keys: %s', name, list(info))
         self.spectra.set(name, **info)
 
 
@@ -2856,6 +2860,8 @@ class MainWindow(QMainWindow):
 
     def debugModeCallBack(self):
         if self.extraPopup.options.debugMode.isChecked():
+            # record creation only while the file handler can consume it (P5)
+            self.logger.setLevel(logging.DEBUG)
             # allows to add only one instance of file handler
             if len(self.logger.handlers) > 0:
                 for handler in self.logger.handlers:
@@ -2874,6 +2880,7 @@ class MainWindow(QMainWindow):
                     # makes sure fileHandler exists
                     if isinstance(handler, logging.handlers.TimedRotatingFileHandler):
                         self.logger.removeHandler(self.fileHandler)
+            self.logger.setLevel(logging.WARNING)
 
 
     def rgbString(self, r, g, b):

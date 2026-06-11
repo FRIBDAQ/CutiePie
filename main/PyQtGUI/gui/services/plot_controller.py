@@ -283,45 +283,22 @@ class PlotController:
         return result
 
     def customMinMax(self, data):
-        self.logger.debug('customMinMax')
-        minimum = None
-        maximum = None
-        nbCol = data.shape[1]
-        nbRow = data.shape[0]
+        """Return (min, max) of the positive counts in `data`, one vectorized pass.
 
+        Replaces a tiled Python-loop scan that visited every element anyway
+        (PERFORMANCE.md P1). Semantics match the old large-array path: min/max
+        over strictly positive values, cutoff-masked bins excluded, fall back to
+        (minZ, maxZ) when nothing is positive. The old small-array path differed
+        only for negative values, which count data cannot contain.
+        Returns (None, None) for an all-zero array (old behavior, both paths)."""
+        self.logger.debug('customMinMax')
         if not data.any():
-            return minimum, maximum
-        if nbCol < 200 and nbRow < 200:
-            maximum = data.max()
-            minimum = np.min(data[np.nonzero(data)])
-            return minimum, maximum
-        else:
-            stepX = nbCol if nbCol < 200 else 200
-            stepY = nbRow if nbRow < 200 else 200
-            rangeX = range(0, data.shape[1], stepX)
-            rangeY = range(0, data.shape[0], stepY)
-            subMax = []
-            subMin = []
-            xprev = data.shape[1] + 1
-            for x in reversed(rangeX):
-                yprev = data.shape[0] + 1  # reset row sentinel for each column tile
-                for y in reversed(rangeY):
-                    subData = data[y:yprev, x:xprev]
-                    nonZeroIndices = np.where(subData > 0)
-                    filteredSubData = subData[nonZeroIndices]
-                    if filteredSubData.size > 0:
-                        subMax.append(filteredSubData.max())
-                        subMin.append(filteredSubData.min())
-                    yprev = y
-                xprev = x
-            if len(subMin) == 0:
-                minimum = self.minZ
-            if len(subMax) == 0:
-                maximum = self.maxZ
-            elif len(subMin) > 0 and len(subMax) > 0:
-                minimum = min(subMin)
-                maximum = max(subMax)
-            return minimum, maximum
+            return None, None
+        values = data.compressed() if isinstance(data, np.ma.MaskedArray) else data
+        positive = values[values > 0]
+        if positive.size == 0:
+            return self.minZ, self.maxZ
+        return positive.min(), positive.max()
 
     def getAxisProperties(self, index):
         self.logger.info('getAxisProperties')
