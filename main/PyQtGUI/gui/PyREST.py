@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import io
 import json, httplib2
+import threading
 import urllib.parse
 
 # Python class to interface SpecTcl REST plugin
@@ -15,7 +16,20 @@ class PyREST:
         self.server = server
         self.rest = rest
         self.logger = loggerMain
-        self._http = httplib2.Http(timeout=self._HTTP_TIMEOUT)
+        self._tls = threading.local()
+
+    @property
+    def _http(self):
+        """One httplib2.Http per thread.
+
+        httplib2.Http is not thread-safe; this client is used concurrently from
+        the GUI thread and RestWorker's polling thread, which could interleave
+        requests on a shared socket and corrupt responses."""
+        http = getattr(self._tls, 'http', None)
+        if http is None:
+            http = httplib2.Http(timeout=self._HTTP_TIMEOUT)
+            self._tls.http = http
+        return http
 
 
     #### Bashir added so the REST client can switch to whatever they type in the Connect window #################

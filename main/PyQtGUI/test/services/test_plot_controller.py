@@ -35,7 +35,7 @@ def test_centred_norm_importable():
     assert centeredNorm is not None
 
 
-# ---- customMinMax (vectorized, PERFORMANCE.md P1) -------------------------
+# ---- customMinMax (vectorized) ---------------------------------------------
 # Called unbound with a mock self so no PlotController construction is needed.
 
 def _custom_min_max(data):

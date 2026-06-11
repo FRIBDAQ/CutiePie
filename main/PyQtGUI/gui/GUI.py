@@ -172,6 +172,10 @@ def tie_lifetime_to_parent():
 # 0) Class definition
 class MainWindow(QMainWindow):
 
+    # result of a background applylistgate fetch;
+    # emitted from a worker thread, delivered on the GUI thread
+    _gateNameFetched = pyqtSignal(str, object)
+
     def __init__(self, factory, fit_factory, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
 
@@ -184,7 +188,7 @@ class MainWindow(QMainWindow):
         self.logger = logging.getLogger(__name__)
         # WARNING in normal operation so per-tick debug/info calls in the render
         # and hover hot paths don't build LogRecords nobody consumes; flipped to
-        # DEBUG by debugModeCallBack while debug mode is on (PERFORMANCE.md P5).
+        # DEBUG by debugModeCallBack while debug mode is on.
         self.logger.setLevel(logging.WARNING)
 
         # define streamHandler for logging
@@ -418,6 +422,9 @@ class MainWindow(QMainWindow):
         self._enlarged_cax = None   # (optional) track colorbar made in enlarged view
 
         self._gate_name_cache: dict = {}  # spectrum_name → (gate_or_None, monotonic_ts)
+        self._gate_name_inflight: set = set()  # names with a background fetch running
+        self._hoveredSpectrumName = None       # spectrum currently under the pointer
+        self._gateNameFetched.connect(self._on_gate_name_fetched)
         self._resize_timer = QTimer(self)
         self._resize_timer.setSingleShot(True)
         self._resize_timer.timeout.connect(self._do_resize)
@@ -733,6 +740,13 @@ class MainWindow(QMainWindow):
 
 
     #Display information when hover spectrum
+    @staticmethod
+    def _setLabelText(label, text):
+        """setText only when the text changed — every set triggers a Qt relayout,
+        and histoHover runs on every mouse-motion event."""
+        if label.text() != text:
+            label.setText(text)
+
     def histoHover(self, event):
         try:
             #### Bashir added for mouse hovering ####
@@ -746,6 +760,7 @@ class MainWindow(QMainWindow):
 
             index = list(self.currentPlot.figure.axes).index(event.inaxes)
             name  = self.nameFromIndex(index)
+            self._hoveredSpectrumName = name  # read by _on_gate_name_fetched
             si    = self.spectra.get_record(name) or {}
             dim   = si.get("dim")
             params    = si.get("parameters") or []
@@ -755,29 +770,29 @@ class MainWindow(QMainWindow):
             if dim == 1:
                 if sp_type == "g1":
                     xTitle = xTitle + ", ..."
-                self.currentPlot.histoLabel.setText("Spectrum: " + name + "\nX: " + xTitle)
-                self.currentPlot.pointerLabel.setText(f"Pointer:\nX: {coordinates[0]:.2f} Y: {coordinates[1]:.0f} Count: {coordinates[2]:.0f}")
+                self._setLabelText(self.currentPlot.histoLabel, "Spectrum: " + name + "\nX: " + xTitle)
+                self._setLabelText(self.currentPlot.pointerLabel, f"Pointer:\nX: {coordinates[0]:.2f} Y: {coordinates[1]:.0f} Count: {coordinates[2]:.0f}")
             elif dim == 2:
                 yTitle = params[1] if len(params) > 1 else ""
                 if sp_type in ("g2", "m2", "gd"):
                     xTitle = xTitle + ", ..."
                     yTitle = yTitle + ", ..."
-                self.currentPlot.histoLabel.setText("Spectrum: " + name + "\nX: " + xTitle + " Y: " + yTitle)
-                self.currentPlot.pointerLabel.setText(f"Pointer:\nX: {coordinates[0]:.2f} Y: {coordinates[1]:.2f}  Count: {coordinates[2]:.0f}")
+                self._setLabelText(self.currentPlot.histoLabel, "Spectrum: " + name + "\nX: " + xTitle + " Y: " + yTitle)
+                self._setLabelText(self.currentPlot.pointerLabel, f"Pointer:\nX: {coordinates[0]:.2f} Y: {coordinates[1]:.2f}  Count: {coordinates[2]:.0f}")
                 if sp_type == "s":
                     xTitle = xTitle + ", ..."
-                    self.currentPlot.histoLabel.setText("Spectrum: " + name + "\nX: " + xTitle)
-                    self.currentPlot.pointerLabel.setText(f"Pointer:\nX: {coordinates[0]:.2f} Y: {coordinates[1]:.2f}  Count: {coordinates[2]:.0f}")
+                    self._setLabelText(self.currentPlot.histoLabel, "Spectrum: " + name + "\nX: " + xTitle)
             gateName = self.getAppliedGateName(index=index)
             if gateName is not None:
-                self.currentPlot.gateLabel.setText("Gate applied: "+gateName+"\n") 
+                self._setLabelText(self.currentPlot.gateLabel, "Gate applied: "+gateName+"\n")
             else :
-                self.currentPlot.gateLabel.setText("Gate applied: \n") 
+                self._setLabelText(self.currentPlot.gateLabel, "Gate applied: \n")
         except Exception:
             # self.logger.debug('histoHover - exception', exc_info=True)
-            self.currentPlot.histoLabel.setText("Spectrum: \nX: Y:")
-            self.currentPlot.pointerLabel.setText(f"Pointer:\nX: Y: Count: ")
-            self.currentPlot.gateLabel.setText("Gate applied: \n")
+            self._hoveredSpectrumName = None
+            self._setLabelText(self.currentPlot.histoLabel, "Spectrum: \nX: Y:")
+            self._setLabelText(self.currentPlot.pointerLabel, "Pointer:\nX: Y: Count: ")
+            self._setLabelText(self.currentPlot.gateLabel, "Gate applied: \n")
 
 
     #called in histoHover, return the bin position under mouse pointer
@@ -1689,6 +1704,13 @@ class MainWindow(QMainWindow):
     _GATE_NAME_TTL = 2.0  # seconds — max staleness of gate-name label during mouse hover
 
     def getAppliedGateName(self, **identifier):
+        """Return the gate name applied to a spectrum — cache only, never blocking.
+
+        Stale-while-revalidate: a fresh cache entry is
+        returned as-is; a cold/expired one returns the stale value (or None)
+        immediately and triggers a background REST fetch. The hover label
+        corrects itself when the result lands (_on_gate_name_fetched), so the
+        GUI thread never waits on HTTP mid-hover."""
         spectrumName = None
         if "index" in identifier:
             spectrumName = self.nameFromIndex(identifier["index"])
@@ -1701,14 +1723,43 @@ class MainWindow(QMainWindow):
         cached = self._gate_name_cache.get(spectrumName)
         if cached is not None and (now - cached[1]) < self._GATE_NAME_TTL:
             return cached[0]
-        gate = self.connection_manager.applylistgate(spectrumName)
-        if gate is None or len(gate) == 0:
+        self._refreshGateNameAsync(spectrumName)
+        return cached[0] if cached is not None else None
+
+    def _refreshGateNameAsync(self, spectrumName):
+        """Fetch applylistgate on a worker thread; result lands via _gateNameFetched."""
+        if spectrumName in self._gate_name_inflight:
+            return
+        self._gate_name_inflight.add(spectrumName)
+
+        def fetch():
+            gate = self.connection_manager.applylistgate(spectrumName)
+            try:
+                self._gateNameFetched.emit(spectrumName, gate)
+            except RuntimeError:
+                pass  # window destroyed during shutdown
+
+        threading.Thread(target=fetch, daemon=True,
+                         name=f"gate-name-fetch-{spectrumName}").start()
+
+    @pyqtSlot(str, object)
+    def _on_gate_name_fetched(self, spectrumName, gate):
+        self._gate_name_inflight.discard(spectrumName)
+        try:
+            if gate is None or len(gate) == 0:
+                result = None
+            else:
+                gn = gate[0]["gate"]
+                result = None if gn in ("-TRUE-", "-Ungated-") else gn
+        except Exception:
+            self.logger.debug('_on_gate_name_fetched - malformed reply for %s',
+                              spectrumName, exc_info=True)
             result = None
-        else:
-            gn = gate[0]["gate"]
-            result = None if gn in ("-TRUE-", "-Ungated-") else gn
-        self._gate_name_cache[spectrumName] = (result, now)
-        return result
+        self._gate_name_cache[spectrumName] = (result, time.monotonic())
+        # correct the hover label if the pointer is still on this spectrum
+        if self._hoveredSpectrumName == spectrumName and self.currentPlot is not None:
+            text = "Gate applied: " + result + "\n" if result is not None else "Gate applied: \n"
+            self._setLabelText(self.currentPlot.gateLabel, text)
 
 
 

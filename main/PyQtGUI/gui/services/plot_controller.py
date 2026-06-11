@@ -285,8 +285,8 @@ class PlotController:
     def customMinMax(self, data):
         """Return (min, max) of the positive counts in `data`, one vectorized pass.
 
-        Replaces a tiled Python-loop scan that visited every element anyway
-        (PERFORMANCE.md P1). Semantics match the old large-array path: min/max
+        Replaces a tiled Python-loop scan that visited every element anyway.
+        Semantics match the old large-array path: min/max
         over strictly positive values, cutoff-masked bins excluded, fall back to
         (minZ, maxZ) when nothing is positive. The old small-array path differed
         only for negative values, which count data cannot contain.
