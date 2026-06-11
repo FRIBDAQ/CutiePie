@@ -150,14 +150,35 @@ SETTING_BASEDIR = "workdir"
 SETTING_EXECUTABLE = "exec"
 DEBUG = False
 
+# Single source of truth for the auto-update combo: index i of the names maps
+# to seconds at the same index (ConnectionManager.autoUpdateStart relies on it).
+AUTO_UPDATE_INTERVALS      = [1, 5, 10, 30, 60, 180, 300, 600, 9e9]
+AUTO_UPDATE_INTERVAL_NAMES = ["1 sec", "5 secs", "10 secs", "30 secs",
+                              "1 min", "3 mins", "5 mins", "10 mins", "Inf."]
+
+
+def tie_lifetime_to_parent():
+    """Exit the GUI when the parent (SpecTcl) dies. Linux-only; no-op elsewhere."""
+    try:
+        libc = ctypes.CDLL("libc.so.6")
+        PR_SET_PDEATHSIG = 1
+        libc.prctl(PR_SET_PDEATHSIG, signal.SIGHUP, 0, 0, 0)
+        signal.signal(signal.SIGHUP, lambda *_: os._exit(0))
+        if os.getppid() == 1:
+            sys.exit(0)
+    except Exception:
+        pass
+
 # 0) Class definition
 class MainWindow(QMainWindow):
 
     def __init__(self, factory, fit_factory, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
 
+        # ensure GUI dies when SpecTcl dies (was an import-time call in the class body)
+        tie_lifetime_to_parent()
 
-        # initialize debug logging 
+        # initialize debug logging
         logging.basicConfig(datefmt='%d-%b-%y %H:%M:%S')        
         
         self.logger = logging.getLogger(__name__)
@@ -327,9 +348,8 @@ class MainWindow(QMainWindow):
             wConf=self.wConf,
             connect_config=self.connectConfig,
             spectra=self.spectra,
-            update_intervals=[1, 5, 10, 30, 60, 180, 300, 600, 9e9],
-            update_intervals_user=["1 sec", "5 secs", "10 secs", "30 secs",
-                                   "1 min", "3 mins", "5 mins", "10 mins", "Inf."],
+            update_intervals=AUTO_UPDATE_INTERVALS,
+            update_intervals_user=AUTO_UPDATE_INTERVAL_NAMES,
             stop_rest=self.stopRestThread,
             stop_auto=self.stopAutoUpdateThread,
             skip_auto=self.skipAutoUpdateThread,
@@ -457,12 +477,9 @@ class MainWindow(QMainWindow):
 
         ### Bashir added for auto update #########################
         
-        self.autoUpdateIntervalsUser = ["1 sec", "5 secs", "10 secs", "30 secs", "1 min", "3 mins", "5 mins", "10 mins", "Inf."]
-        self.autoUpdateIntervals = [1, 5, 10, 30, 60, 180, 300, 600, 9e9]
-
-        # populate combo and set default (index 0 → 1 sec)
+        # populate combo from the shared constant; default index 8 → "Inf."
         self.wConf.autoUpdate2.clear()
-        self.wConf.autoUpdate2.addItems(self.autoUpdateIntervalsUser)
+        self.wConf.autoUpdate2.addItems(AUTO_UPDATE_INTERVAL_NAMES)
         self.wConf.autoUpdate2.setCurrentIndex(8)
 
 
@@ -1363,22 +1380,6 @@ class MainWindow(QMainWindow):
     #set geometry of the canvas
     def setCanvasLayout(self):                   return self.plot_controller.setCanvasLayout()
 
-    
-    ####### Bashir added to exit gui once exited from SpecTcl
-    def tie_lifetime_to_parent():
-        try:
-            libc = ctypes.CDLL("libc.so.6")
-            PR_SET_PDEATHSIG = 1
-            libc.prctl(PR_SET_PDEATHSIG, signal.SIGHUP, 0, 0, 0)
-            signal.signal(signal.SIGHUP, lambda *_: os._exit(0))
-            if os.getppid() == 1:
-                sys.exit(0)
-        except Exception:
-            pass
-
-    # ---- ensure GUI dies when SpecTcl dies ----
-    tie_lifetime_to_parent()
-    ########################################################################
     
 ###############################################
 # 5) Connection to REST for gates

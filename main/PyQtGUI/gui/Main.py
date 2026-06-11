@@ -67,8 +67,6 @@ elif os.path.exists(os.path.join(cwd, "fit_skel_creator.py")) and os.path.exists
 
 from PyQt5.QtWidgets import QApplication
 
-import cv2
-
 # GUI graphical skeleton
 from GUI import MainWindow
 
@@ -78,9 +76,9 @@ import fit_skel_creator
 import fit_alpha12_creator
 import fit_alpha22_creator
 import fit_alpha32_creator
-import fit_alpha_multi_creator
+# import fit_alpha_multi_creator   # re-enable with its register_builder call below
 import fit_alpha_multi_sigma_creator
-import fit_alpha_linear_creator  # for linear version
+# import fit_alpha_linear_creator  # re-enable with its register_builder call below
 # already implemented examples
 import fit_gaus_creator
 import fit_exp_creator
@@ -96,8 +94,9 @@ import algo_skel_creator
 # already implemented examples
 import kmean_creator
 import gmm_creator
-import imgseg_creator
-import cannye_creator
+# imgseg/cannye pull in OpenCV (cv2); re-enable with their register_builder calls below
+# import imgseg_creator
+# import cannye_creator
 
 # print("Check import : ",fit_skel_creator.__file__)
 
