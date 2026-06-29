@@ -107,6 +107,28 @@ class SpecialFunctions(QWidget):
         self.n_gauss_spin.setVisible(False)
         self.n_gauss_spin.valueChanged.connect(self._on_n_gauss_changed)
 
+        # --- Dedicated seed grid for the Gauss model (up to 10 Gaussians) ---
+        # One row per Gaussian: A | <edit> | mu | <edit> | sigma | <edit>
+        self.gauss_seed_edits = []   # flat list, ordered A0, mu0, sigma0, A1, ...
+        self.gauss_seed_rows = []    # per-row widgets for show/hide
+        gauss_grid = QGridLayout()
+        greek = ["A", "μ", "σ"]  # A, mu, sigma
+        seed_tip = "Leave blank to auto-detect from the spectrum peaks."
+        for r in range(10):
+            row_widgets = []
+            for c in range(3):
+                lab = QLabel(greek[c] + str(r))
+                edit = QLineEdit(self)
+                edit.setToolTip(seed_tip)
+                gauss_grid.addWidget(lab, r, c * 2)
+                gauss_grid.addWidget(edit, r, c * 2 + 1)
+                self.gauss_seed_edits.append(edit)
+                row_widgets += [lab, edit]
+            self.gauss_seed_rows.append(row_widgets)
+        self.gauss_seed_widget = QWidget()
+        self.gauss_seed_widget.setLayout(gauss_grid)
+        self.gauss_seed_widget.setVisible(False)
+
         ############################################################
         self.fit_button = QPushButton("Fit", self)
         self.fit_button.setStyleSheet("background-color:#bcee68;")
@@ -269,6 +291,7 @@ class SpecialFunctions(QWidget):
         v2.addLayout(v1a)
         v2.addLayout(v1b)
         v2.addLayout(deflayout)
+        v2.addWidget(self.gauss_seed_widget)
         v2.addWidget(self.fit_button)
         v2.addWidget(self.plot_csv_button)
         v2.addWidget(self.fit_csv_button)
@@ -313,39 +336,33 @@ class SpecialFunctions(QWidget):
             self._on_model_changed("Gauss")
 
     def _on_model_changed(self, name: str):
-        # The Gaussian count selector is only relevant for the Gauss model.
+        # The Gaussian count selector / seed grid are only for the Gauss model.
         is_gauss = (name == "Gauss")
         self.n_gauss_label.setVisible(is_gauss)
         self.n_gauss_spin.setVisible(is_gauss)
+        self.gauss_seed_widget.setVisible(is_gauss)
 
         if is_gauss:
             n = self.n_gauss_spin.value()
-            labels = [
-                self.fit_p0_label, self.fit_p1_label, self.fit_p2_label, self.fit_p3_label, self.fit_p4_label,
-                self.fit_p5_label, self.fit_p6_label, self.fit_p7_label, self.fit_p8_label, self.fit_p9_label,
-                self.fit_p10_label, self.fit_p11_label, self.fit_p12_label, self.fit_p13_label, self.fit_p14_label,
-                self.fit_p15_label, self.fit_p16_label, self.fit_p17_label, self.fit_p18_label, self.fit_p19_label,
-            ]
-            edits = [
-                self.fit_p0, self.fit_p1, self.fit_p2, self.fit_p3, self.fit_p4,
-                self.fit_p5, self.fit_p6, self.fit_p7, self.fit_p8, self.fit_p9,
-                self.fit_p10, self.fit_p11, self.fit_p12, self.fit_p13, self.fit_p14,
-                self.fit_p15, self.fit_p16, self.fit_p17, self.fit_p18, self.fit_p19,
-            ]
-            # 3 seeds per Gaussian, capped at the 20 available fields (-> 6 Gaussians).
-            names = []
-            for i in range(n):
-                names += [f"A{i}", f"mu{i}", f"sigma{i}"]
-            names = names[:len(edits)]
+            # Hide the generic p0..p19 grid; the Gauss model uses its own grid.
+            for lab, edit in zip(
+                (self.fit_p0_label, self.fit_p1_label, self.fit_p2_label, self.fit_p3_label, self.fit_p4_label,
+                 self.fit_p5_label, self.fit_p6_label, self.fit_p7_label, self.fit_p8_label, self.fit_p9_label,
+                 self.fit_p10_label, self.fit_p11_label, self.fit_p12_label, self.fit_p13_label, self.fit_p14_label,
+                 self.fit_p15_label, self.fit_p16_label, self.fit_p17_label, self.fit_p18_label, self.fit_p19_label),
+                (self.fit_p0, self.fit_p1, self.fit_p2, self.fit_p3, self.fit_p4,
+                 self.fit_p5, self.fit_p6, self.fit_p7, self.fit_p8, self.fit_p9,
+                 self.fit_p10, self.fit_p11, self.fit_p12, self.fit_p13, self.fit_p14,
+                 self.fit_p15, self.fit_p16, self.fit_p17, self.fit_p18, self.fit_p19),
+            ):
+                lab.setVisible(False)
+                edit.setVisible(False)
 
-            tip = "Leave blank to auto-detect from the spectrum peaks."
-            for i, (lab, edit) in enumerate(zip(labels, edits)):
-                show = i < len(names)
-                lab.setVisible(show)
-                edit.setVisible(show)
-                if show:
-                    lab.setText(names[i])
-                    edit.setToolTip(tip)
+            # Show one row per Gaussian (each row: A | μ | σ with text fields).
+            for i, row_widgets in enumerate(self.gauss_seed_rows):
+                show = i < n
+                for w in row_widgets:
+                    w.setVisible(show)
             self.wmode_combo.setVisible(False)
             return
 

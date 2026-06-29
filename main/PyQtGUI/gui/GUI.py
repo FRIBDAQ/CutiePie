@@ -6065,15 +6065,19 @@ class MainWindow(QMainWindow):
                 if dim == 1:
             
                     # -------------------------------------------------------------------------------
-                    widgets = (
-                        self.extraPopup.fit_p0, self.extraPopup.fit_p1, self.extraPopup.fit_p2,
-                        self.extraPopup.fit_p3, self.extraPopup.fit_p4, self.extraPopup.fit_p5,
-                        self.extraPopup.fit_p6, self.extraPopup.fit_p7, self.extraPopup.fit_p8,
-                        self.extraPopup.fit_p9, self.extraPopup.fit_p10, self.extraPopup.fit_p11,
-                        self.extraPopup.fit_p12, self.extraPopup.fit_p13, self.extraPopup.fit_p14,
-                        self.extraPopup.fit_p15, self.extraPopup.fit_p16, self.extraPopup.fit_p17,
-                        self.extraPopup.fit_p18, self.extraPopup.fit_p19
-                    )
+                    if fit_funct == "Gauss":
+                        # Gauss uses its own seed grid (A, μ, σ per Gaussian, up to 10).
+                        widgets = tuple(self.extraPopup.gauss_seed_edits)
+                    else:
+                        widgets = (
+                            self.extraPopup.fit_p0, self.extraPopup.fit_p1, self.extraPopup.fit_p2,
+                            self.extraPopup.fit_p3, self.extraPopup.fit_p4, self.extraPopup.fit_p5,
+                            self.extraPopup.fit_p6, self.extraPopup.fit_p7, self.extraPopup.fit_p8,
+                            self.extraPopup.fit_p9, self.extraPopup.fit_p10, self.extraPopup.fit_p11,
+                            self.extraPopup.fit_p12, self.extraPopup.fit_p13, self.extraPopup.fit_p14,
+                            self.extraPopup.fit_p15, self.extraPopup.fit_p16, self.extraPopup.fit_p17,
+                            self.extraPopup.fit_p18, self.extraPopup.fit_p19
+                        )
 
                     fitpar = []
                     for w in widgets:
