@@ -46,7 +46,9 @@ class SpecialFunctions(QWidget):
         self.fit_label = QLabel("Fitting Functions 1D")
         self.fit_label.setToolTip(
             """Gauss
-            p0*exp(-(x-p1)^2/(2*p2^2))
+            Sum of N Gaussians (N=1..10, set by "# Gaussians").
+            Each: A*exp(-(x-mu)^2/(2*sigma^2)).
+            Seeds A_i/mu_i/sigma_i are optional; blanks are auto-detected.
 
             Expo
             p0+p1*exp(x*p2)
@@ -92,6 +94,18 @@ class SpecialFunctions(QWidget):
         )
 
         self.fit_list = QComboBox()
+
+        # --- Number-of-Gaussians selector (only shown for the Gauss model) ---
+        self.n_gauss_label = QLabel("# Gaussians")
+        self.n_gauss_spin = QSpinBox(self)
+        self.n_gauss_spin.setRange(1, 10)
+        self.n_gauss_spin.setValue(1)
+        self.n_gauss_spin.setToolTip(
+            "Number of Gaussians to fit (1-10). Seeds left blank are auto-detected."
+        )
+        self.n_gauss_label.setVisible(False)
+        self.n_gauss_spin.setVisible(False)
+        self.n_gauss_spin.valueChanged.connect(self._on_n_gauss_changed)
 
         ############################################################
         self.fit_button = QPushButton("Fit", self)
@@ -247,6 +261,10 @@ class SpecialFunctions(QWidget):
         v2 = QVBoxLayout()
         v2.addWidget(self.fit_label)
         v2.addWidget(self.fit_list)
+        ngauss_row = QHBoxLayout()
+        ngauss_row.addWidget(self.n_gauss_label)
+        ngauss_row.addWidget(self.n_gauss_spin)
+        v2.addLayout(ngauss_row)
         v2.addWidget(self.fit_range_label)
         v2.addLayout(v1a)
         v2.addLayout(v1b)
@@ -289,7 +307,48 @@ class SpecialFunctions(QWidget):
             if 0 <= i < len(edits) and edits[i] is not None:
                 edits[i].clear()
 
+    def _on_n_gauss_changed(self, _value=None):
+        # Refresh the visible seed fields when the Gaussian count changes.
+        if self.fit_list.currentText().strip() == "Gauss":
+            self._on_model_changed("Gauss")
+
     def _on_model_changed(self, name: str):
+        # The Gaussian count selector is only relevant for the Gauss model.
+        is_gauss = (name == "Gauss")
+        self.n_gauss_label.setVisible(is_gauss)
+        self.n_gauss_spin.setVisible(is_gauss)
+
+        if is_gauss:
+            n = self.n_gauss_spin.value()
+            labels = [
+                self.fit_p0_label, self.fit_p1_label, self.fit_p2_label, self.fit_p3_label, self.fit_p4_label,
+                self.fit_p5_label, self.fit_p6_label, self.fit_p7_label, self.fit_p8_label, self.fit_p9_label,
+                self.fit_p10_label, self.fit_p11_label, self.fit_p12_label, self.fit_p13_label, self.fit_p14_label,
+                self.fit_p15_label, self.fit_p16_label, self.fit_p17_label, self.fit_p18_label, self.fit_p19_label,
+            ]
+            edits = [
+                self.fit_p0, self.fit_p1, self.fit_p2, self.fit_p3, self.fit_p4,
+                self.fit_p5, self.fit_p6, self.fit_p7, self.fit_p8, self.fit_p9,
+                self.fit_p10, self.fit_p11, self.fit_p12, self.fit_p13, self.fit_p14,
+                self.fit_p15, self.fit_p16, self.fit_p17, self.fit_p18, self.fit_p19,
+            ]
+            # 3 seeds per Gaussian, capped at the 20 available fields (-> 6 Gaussians).
+            names = []
+            for i in range(n):
+                names += [f"A{i}", f"mu{i}", f"sigma{i}"]
+            names = names[:len(edits)]
+
+            tip = "Leave blank to auto-detect from the spectrum peaks."
+            for i, (lab, edit) in enumerate(zip(labels, edits)):
+                show = i < len(names)
+                lab.setVisible(show)
+                edit.setVisible(show)
+                if show:
+                    lab.setText(names[i])
+                    edit.setToolTip(tip)
+            self.wmode_combo.setVisible(False)
+            return
+
         # Map model → nice parameter names (left-to-right: p0..p19)
         maps = {
             "AlphaEMG12": ["A", "mu", "sigma", "tau1", "tau2", "eta"],

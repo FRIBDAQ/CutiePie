@@ -6600,6 +6600,13 @@ class MainWindow(QMainWindow):
     def prepare_fit_config(self, fit_funct: str, force_prompt: bool = False) -> dict:
         config = dict(self.fit_factory._configs.get(fit_funct) or {})
 
+        if fit_funct == "Gauss":
+            # Number of Gaussians chosen in the fit panel spinbox.
+            try:
+                config["n_gauss"] = int(self.extraPopup.n_gauss_spin.value())
+            except Exception:
+                config["n_gauss"] = 1
+
         if fit_funct in {"AlphaEMGMulti", "AlphaEMGMultiSigma"}:
             # ---------- SHAPE FILE (unchanged) ----------
             key_shape = f"{fit_funct}/shape_file"
