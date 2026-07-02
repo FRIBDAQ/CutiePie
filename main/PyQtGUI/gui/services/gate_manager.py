@@ -116,46 +116,62 @@ class GateManager(QObject):
                     and d["type"] in drawableTypes[spectrumType]
                     and d["parameters"] == parameters]
 
+        # Persistent gate artists: reuse the existing Line2D via set_data
+        # instead of remove+recreate on every render tick. The map also
+        # replaces the per-gate O(ax.lines) label scans.
+        linesByLabel = {}
+        for gl in ax.lines:
+            linesByLabel.setdefault(gl.get_label(), []).append(gl)
+        hideGates = self._gate_hide_cb.isChecked()
+
+        def _updateGateLine(lineLabel, xData, yData):
+            existing = linesByLabel.get(lineLabel, [])
+            if len(existing) == 1 and not hideGates:
+                # reset what recreation used to reset (edit mode recolors
+                # and adds markers)
+                line = existing[0]
+                line.set_data(xData, yData)
+                line.set_color('red')
+                line.set_marker('None')
+                return
+            for lr in existing:
+                lr.remove()
+            if hideGates:
+                return
+            line = mlines.Line2D(xData, yData,
+                                 picker=True, color='red', label=lineLabel)
+            line.set_pickradius(5)
+            ax.add_line(line)
+
         for gate in gateList:
             if dim == 1:
                 xlim = [gate["low"], gate["high"]]
                 ylim = ax.get_ybound()
                 for iLine in range(2):
                     lineLabel = "gate_-_" + gate["name"] + "_-_" + str(iLine)
-                    toRemove = [gl for gl in ax.lines if gl.get_label() == lineLabel]
-                    for lr in toRemove:
-                        lr.remove()
-                    if self._gate_hide_cb.isChecked():
-                        continue
-                    line = mlines.Line2D([xlim[iLine], xlim[iLine]],
-                                        [ylim[0], ylim[1]],
-                                        picker=True, color='red', label=lineLabel)
-                    line.set_pickradius(5)
-                    ax.add_line(line)
+                    _updateGateLine(lineLabel,
+                                    [xlim[iLine], xlim[iLine]],
+                                    [ylim[0], ylim[1]])
 
             elif dim == 2:
                 lineLabel = "gate_-_" + gate["name"] + "_-_"
-                toRemove = [gl for gl in ax.lines if lineLabel in gl.get_label()]
-                for lr in toRemove:
-                    lr.remove()
-                if self._gate_hide_cb.isChecked():
+                if spectrumType in ["s"]:
+                    for lr in linesByLabel.get(lineLabel, []):
+                        lr.remove()
                     continue
-                if spectrumType not in ["s"]:
-                    xPoints = [pd["x"] for pd in gate["points"]]
-                    yPoints = [pd["y"] for pd in gate["points"]]
-                    if gate["type"] not in ["b", "gb"]:
-                        xPoints.append(gate["points"][0]["x"])
-                        yPoints.append(gate["points"][0]["y"])
-                    line = mlines.Line2D(xPoints, yPoints,
-                                        picker=True, color='red', label=lineLabel)
-                    line.set_pickradius(5)
-                    ax.add_line(line)
+                xPoints = [pd["x"] for pd in gate["points"]]
+                yPoints = [pd["y"] for pd in gate["points"]]
+                if gate["type"] not in ["b", "gb"]:
+                    xPoints.append(gate["points"][0]["x"])
+                    yPoints.append(gate["points"][0]["y"])
+                _updateGateLine(lineLabel, xPoints, yPoints)
 
-            if (self._gate_annotation_cb.isChecked()
-                    and not self._gate_hide_cb.isChecked()):
-                self.setGateAnnotation(index, True)
-            else:
-                self.setGateAnnotation(index, False)
+        if gateList:
+            # index-wide (scans every line on the axis), so once after the
+            # loop — inside it the cost is O(gates^2 x lines)
+            doAnnotate = (self._gate_annotation_cb.isChecked()
+                          and not self._gate_hide_cb.isChecked())
+            self.setGateAnnotation(index, doAnnotate)
 
         lineListSumReg = self._get_sum_region(index, spectrumName)
         if lineListSumReg is None:
@@ -213,25 +229,27 @@ class GateManager(QObject):
                     elif gateSegmentNum == "1":
                         labelBuff = gateName + "_high"
 
+                    # match on gid, not text: the annotation's text is the
+                    # position string (e.g. "10"), never labelBuff (B5)
                     toRemove = [an for an in ax.get_children()
                                 if type(an) == matplotlib.text.Annotation
-                                and an.get_text() == labelBuff]
-                    if len(toRemove) == 1:
-                        toRemove[0].remove()
-
-                    positionX = child.get_xdata()[0]
-                    positionY = 0.95
-                    offsetX   = (ax.get_xlim()[1] - ax.get_xlim()[0]) * 0.002
+                                and an.get_gid() == labelBuff]
+                    for an in toRemove:
+                        an.remove()
 
                     if doAnnotate:
+                        positionX = child.get_xdata()[0]
+                        positionY = 0.95
+                        offsetX   = (ax.get_xlim()[1] - ax.get_xlim()[0]) * 0.002
                         xy = self.getXYAnnotation(
                             self._name_from_index(index),
                             gateName,
                             (positionX + offsetX, positionY),
                         )
-                        ax.annotate(int(positionX), xy=xy,
-                                    xycoords=("data", "axes fraction"),
-                                    color=color, fontsize=8, clip_on=True)
+                        ann = ax.annotate(int(positionX), xy=xy,
+                                          xycoords=("data", "axes fraction"),
+                                          color=color, fontsize=8, clip_on=True)
+                        ann.set_gid(labelBuff)
                         child.set_color(color)
                     else:
                         child.set_color('red')

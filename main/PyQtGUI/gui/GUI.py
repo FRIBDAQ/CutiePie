@@ -2815,6 +2815,9 @@ class MainWindow(QMainWindow):
         self.extraPopup.peak.jup_stop.setEnabled(False)
         self.extraPopup.peak.jup_start.setStyleSheet("background-color:#3CB371;")
         self.extraPopup.peak.jup_stop.setStyleSheet("")
+        if getattr(self, "jupyterView", None) is not None:
+            self.jupyterView.close()
+            self.jupyterView = None
         stopnotebook()
 
     def jupyterStart(self):
@@ -2860,8 +2863,11 @@ class MainWindow(QMainWindow):
         # workdir
         directory = s.value(SETTING_BASEDIR, QDir.currentPath())
 
-        # setting window
-        view = WebWindow(None, None)
+        # setting window — anchored on self: a parentless local QMainWindow
+        # is finalized by the cyclic GC after this method returns (the
+        # WebWindow<->CustomWebView reference cycle is its only holder) and
+        # the window silently disappears mid-session
+        self.jupyterView = view = WebWindow(None, None)
         view.setWindowTitle("Jupyter CutiePie: %s" % directory)
         # logging on docked console
         qtlogger = QtLogger(view)
@@ -2871,7 +2877,16 @@ class MainWindow(QMainWindow):
         log("Setting home directory --> "+str(directory))
 
         # start the notebook process
-        webaddr = startnotebook(execname, directory=directory)
+        try:
+            webaddr = startnotebook(execname, directory=directory)
+        except (RuntimeError, ValueError) as e:
+            self.logger.error('jupyterStart - notebook failed to start: %s', e)
+            view.close()
+            self.jupyterView = None
+            setup_logging(logfile)
+            QMessageBox.warning(self, "Jupyter",
+                                "The Jupyter notebook server failed to start:\n%s" % e)
+            return
         view.loadmain(webaddr)
 
         # resume regular logging
@@ -2891,6 +2906,7 @@ class MainWindow(QMainWindow):
         self.logger.info('closeEvent - MainWindow')
         self.connection_manager._stop_auto_thread()
         self.connection_manager._stop_rest_thread()
+        stopnotebook()   # no-op when not running; otherwise avoid an orphan server
         event.accept()
 
     def createRectangle(self, plot):             return self.plot_controller.createRectangle(plot)

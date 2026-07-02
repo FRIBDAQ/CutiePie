@@ -22,16 +22,28 @@ def startnotebook(notebook_executable="jupyter-notebook", port=8888, directory='
         raise ValueError("Cannot start notebook: one is already running in this module")
     log("Starting Jupyter notebook process")
     # it is necessary to redirect all 3 outputs or .app does not open
+    # (no bufsize: line buffering is unsupported on binary pipes)
     notebookp = subprocess.Popen([notebook_executable,
                             "--port=%s" % port,
                             "--config=\"%s\"" % configfile,
-                            "--notebook-dir=%s" % directory], bufsize=1,
+                            "--notebook-dir=%s" % directory],
                             stderr=subprocess.PIPE)
 
     log("Waiting for server to start...")
     webaddr = None
     while webaddr is None:
-        line = notebookp.stderr.readline().decode('utf-8').strip()
+        raw = notebookp.stderr.readline()
+        if not raw:
+            # EOF on stderr: server died (or closed stderr) before
+            # publishing its address — without this check the loop
+            # spins forever and the GUI thread never comes back
+            if notebookp.poll() is not None:
+                raise RuntimeError(
+                    "jupyter-notebook exited with code %s before "
+                    "publishing a server address" % notebookp.returncode)
+            time.sleep(0.1)
+            continue
+        line = raw.decode('utf-8').strip()
         log(line)
         if "http://" in line:
             start = line.find("http://")
@@ -72,6 +84,7 @@ def stopnotebook():
     except subprocess.TimeoutExpired:
         log("control c timed out, killing")
         _process.kill()
+        _process.wait()   # reap it, or the killed child lingers as a zombie
 
     _process = None
     _monitor = None
