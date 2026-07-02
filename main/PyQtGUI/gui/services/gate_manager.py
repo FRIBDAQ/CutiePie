@@ -1056,6 +1056,11 @@ class GateManager(QObject):
             self.canvasDrawIdleRequested.emit()
 
     def followmouse(self, event):
+        # motion events fire canvas-wide: outside the axes xdata/ydata are
+        # None — using them crashes 2d_move_all and poisons the line data
+        # in the other drag modes
+        if event.xdata is None or event.ydata is None:
+            return
         if self._popup.gateEditOption == "1d_move_line":
             self.editThisGateLine.set_color("green")
             self.editThisGateLine.set_xdata([event.xdata, event.xdata])
