@@ -65,10 +65,10 @@ elif os.path.exists(os.path.join(cwd, "fit_skel_creator.py")) and os.path.exists
 #Script is append after USERDIR or cwd so if those are defined the priority is to them not to Script
 #sys.path.append(instPath + "/Script")
 
-from PyQt5.QtWidgets import QApplication
-
 # GUI graphical skeleton
 from GUI import MainWindow
+
+from PyQt5.QtWidgets import QApplication
 
 import fit_factory
 # skeleton for user-based FIT implementation
