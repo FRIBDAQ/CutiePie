@@ -147,6 +147,7 @@ class ConnectionManager(QtCore.QObject):
                         biny=s[6][i]-2, miny=s[7][i], maxy=s[8][i],
                         data=data, parameters=otherInfo[name]["parameters"],
                         type=otherInfo[name]["type"],
+                        allow_data_replacement=True,   # fresh views from a new mirror
                     )
                 else:
                     self._spectra.set(
@@ -154,6 +155,7 @@ class ConnectionManager(QtCore.QObject):
                         biny=s[6][i]-2, miny=s[7][i], maxy=s[8][i],
                         data=data, parameters=otherInfo[name]["parameters"],
                         type=otherInfo[name]["type"],
+                        allow_data_replacement=True,   # fresh views from a new mirror
                     )
 
             self.updateSpectrumList(True)
@@ -280,7 +282,8 @@ class ConnectionManager(QtCore.QObject):
         self._spectra.set(name, dim=dim, binx=binx, minx=minx, maxx=maxx,
                           biny=biny, miny=miny, maxy=maxy,
                           parameters=spec_info["parameters"],
-                          type=spec_type, data=data)
+                          type=spec_type, data=data,
+                          allow_data_replacement=True)   # rebind: view from post-Update mirror
 
     # ------------------------------------------------------------------
     # Spectrum list helpers

@@ -27,6 +27,30 @@ def parse_binding_entry(entry):
     return parts[0], name, parts[-1]
 
 
+_GLOB_METACHARACTERS = "*?[]\\"
+
+
+def lookup_spectrum_info(rest, name):
+    """Return the REST info dict for exactly `name`, or None.
+
+    ``listSpectrum(name)`` sends the name as the REST ``filter`` field, which
+    SpecTcl matches as a Tcl glob pattern — a name containing ``*``/``?``/``[``
+    can match a *different* spectrum, and blindly taking ``info[0]`` would
+    record the wrong axes/type under this name (BUGS.md B1). Never trust the
+    pattern match: select by exact name, and when the pattern lookup yields no
+    exact hit for a metacharacter-bearing name, fall back to listing all
+    spectra and matching literally. Plain names keep today's single-request
+    behavior exactly.
+    """
+    candidates = rest.listSpectrum(name)
+    exact = [d for d in candidates
+             if isinstance(d, dict) and d.get("name") == name]
+    if not exact and any(c in name for c in _GLOB_METACHARACTERS):
+        exact = [d for d in rest.listSpectrum()
+                 if isinstance(d, dict) and d.get("name") == name]
+    return exact[0] if exact else None
+
+
 class RestWorker(QObject):
     """Polls SpecTcl REST traces on a QThread. Emits signals; never touches GUI directly."""
 
@@ -81,11 +105,11 @@ class RestWorker(QObject):
                     if action == "remove":
                         remove_bindings.append(entry)
                     elif action == "add":
-                        info = self._rest.listSpectrum(name)
-                        if info:
-                            add_infos.append((name, info[0]))
+                        spec_info = lookup_spectrum_info(self._rest, name)
+                        if spec_info is not None:
+                            add_infos.append((name, spec_info))
                         else:
-                            logger.warning('RestWorker - listSpectrum returned empty for %s', name)
+                            logger.warning('RestWorker - no REST spectrum info for %r', name)
 
                 if remove_bindings:
                     self.tracesReady.emit({"binding": remove_bindings})

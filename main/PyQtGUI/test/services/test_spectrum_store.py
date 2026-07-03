@@ -85,3 +85,65 @@ def test_upsert_merges_fields():
     store.set("h1", binx=512)
     assert store.get("h1", "dim") == 1
     assert store.get("h1", "binx") == 512
+
+
+# ---------------------------------------------------------------------------
+# B4 guard: `data` arrays are live shm views — replacing one with a
+# non-aliasing array silently freezes the spectrum (C1 regression class).
+# ---------------------------------------------------------------------------
+
+import numpy as np
+
+
+def test_b4_replacing_live_view_with_copy_is_refused():
+    store = SpectrumStore()
+    mirror = np.arange(12)
+    store.set("h1", dim=1, data=mirror[0:-1])
+    derived = (mirror[0:-1] * 2).copy()          # the C1 mistake
+    store.set("h1", data=derived)
+    kept = store.get("h1", "data")
+    assert kept is not derived
+    assert np.shares_memory(kept, mirror)        # live view survived
+
+
+def test_b4_refused_data_write_still_updates_other_fields():
+    store = SpectrumStore()
+    mirror = np.arange(12)
+    store.set("h1", dim=1, binx=10, data=mirror[0:-1])
+    store.set("h1", binx=99, data=np.zeros(11))
+    assert store.get("h1", "binx") == 99         # merge still happened
+    assert np.shares_memory(store.get("h1", "data"), mirror)
+
+
+def test_b4_new_mirror_view_allowed_with_flag():
+    store = SpectrumStore()
+    old_mirror, new_mirror = np.arange(12), np.arange(24)
+    store.set("h1", dim=1, data=old_mirror[0:-1])
+    store.set("h1", data=new_mirror[0:-1], allow_data_replacement=True)
+    assert np.shares_memory(store.get("h1", "data"), new_mirror)
+
+
+def test_b4_reslice_of_same_buffer_allowed_without_flag():
+    store = SpectrumStore()
+    mirror = np.arange(12)
+    store.set("h1", dim=1, data=mirror[0:-1])
+    store.set("h1", data=mirror[1:-1])           # still aliases the mirror
+    assert np.shares_memory(store.get("h1", "data"), mirror)
+    assert len(store.get("h1", "data")) == 10
+
+
+def test_b4_first_data_set_never_guarded():
+    store = SpectrumStore()
+    store.set("h1", dim=1)                       # record exists, no data yet
+    view = np.arange(5)
+    store.set("h1", data=view)
+    assert store.get("h1", "data") is view
+
+
+def test_b4_non_ndarray_data_not_guarded():
+    store = SpectrumStore()
+    store.set("h1", dim=1, data=[])              # legacy list payloads
+    store.set("h1", data=[1, 2, 3])
+    assert store.get("h1", "data") == [1, 2, 3]
+    store.set("h1", data=np.arange(3))           # list -> ndarray is fine too
+    assert isinstance(store.get("h1", "data"), np.ndarray)

@@ -57,3 +57,52 @@ def test_parse_binding_entry_malformed_raises():
         parse_binding_entry("add")
     with pytest.raises(ValueError):
         parse_binding_entry("add raw00")
+
+
+# ---------------------------------------------------------------------------
+# B1: listSpectrum's filter is a glob pattern — lookup must be exact-name.
+# ---------------------------------------------------------------------------
+
+def test_lookup_spectrum_info_plain_name_single_request():
+    from services.thread_workers import lookup_spectrum_info
+    rest = MagicMock()
+    rest.listSpectrum.return_value = [{"name": "raw00", "type": "1"}]
+    assert lookup_spectrum_info(rest, "raw00") == {"name": "raw00", "type": "1"}
+    rest.listSpectrum.assert_called_once_with("raw00")
+
+
+def test_lookup_spectrum_info_glob_name_never_returns_wrong_spectrum():
+    from services.thread_workers import lookup_spectrum_info
+    rest = MagicMock()
+    def fake_list(pattern="*"):
+        if pattern == "run[12]":
+            # SpecTcl expands the glob: matches run1/run2, NOT the literal name
+            return [{"name": "run1"}, {"name": "run2"}]
+        return [{"name": "run1"}, {"name": "run2"}, {"name": "run[12]"}]
+    rest.listSpectrum.side_effect = fake_list
+    assert lookup_spectrum_info(rest, "run[12]") == {"name": "run[12]"}
+
+
+def test_lookup_spectrum_info_glob_name_exact_hit_in_expansion_no_fallback():
+    from services.thread_workers import lookup_spectrum_info
+    rest = MagicMock()
+    # pattern "a*" matches both "abc" and the literal "a*" — exact filter wins
+    rest.listSpectrum.return_value = [{"name": "abc"}, {"name": "a*"}]
+    assert lookup_spectrum_info(rest, "a*") == {"name": "a*"}
+    rest.listSpectrum.assert_called_once()
+
+
+def test_lookup_spectrum_info_missing_plain_name_no_fallback():
+    from services.thread_workers import lookup_spectrum_info
+    rest = MagicMock()
+    rest.listSpectrum.return_value = []
+    assert lookup_spectrum_info(rest, "gone") is None
+    rest.listSpectrum.assert_called_once()   # plain names: no second request
+
+
+def test_lookup_spectrum_info_missing_glob_name_after_fallback():
+    from services.thread_workers import lookup_spectrum_info
+    rest = MagicMock()
+    rest.listSpectrum.return_value = []
+    assert lookup_spectrum_info(rest, "gone[1]") is None
+    assert rest.listSpectrum.call_count == 2   # pattern, then full list
