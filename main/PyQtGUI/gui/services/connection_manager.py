@@ -18,6 +18,13 @@ class ConnectionManager(QtCore.QObject):
     spectrumRemoved       = pyqtSignal(str)
     spectrumListChanged   = pyqtSignal()
     updatePlotRequested   = pyqtSignal()
+    # P7: a re-connect finished a fresh mirror transfer — the GUI must drop every
+    # matplotlib artist / cached axis still bound to arrays from the previous
+    # transfer before the store is repopulated with new views.
+    shmViewsInvalidated   = pyqtSignal()
+    # P7: connect attempt refused (shm mapping cannot change within a process);
+    # payload is the user-facing message.
+    connectionRefused     = pyqtSignal(str)
 
     def __init__(self, wConf, connect_config, spectra,
                  update_intervals, update_intervals_user,
@@ -41,6 +48,14 @@ class ConnectionManager(QtCore.QObject):
         self._connect_worker = None
         self._pending_adds: list   = []
         self._flush_scheduled: bool = False
+        # P7 guard state: CPyConverter attaches the shm mirror once per process and
+        # can never remap it, so the endpoint and segment size are fixed at the
+        # first successful mirror transfer. _pending_* hold the values of the
+        # in-flight connect attempt; they are committed on success.
+        self._mapped_endpoint    = None   # (hostname, mirror, user)
+        self._mapped_shmem_size  = None   # bytes, REST-reported at mapping time
+        self._pending_endpoint   = None
+        self._pending_shmem_size = None
 
     # ------------------------------------------------------------------
     # Connection popup callbacks
@@ -73,6 +88,23 @@ class ConnectionManager(QtCore.QObject):
             self.logger.debug('connectShMem - host: %s -- user: %s -- RESTPort: %s -- MirrorPort: %s',
                                hostname, user, port, mirror)
 
+            # P7: the C++ layer maps the mirror only when no mapping exists, so a
+            # connect to a different host/mirror/user would silently keep serving
+            # views of the OLD SpecTcl's mirror. Refuse it and leave the current
+            # session untouched (note: self._rest is not reconfigured either).
+            endpoint = (hostname, mirror, user)
+            if self._mapped_endpoint is not None and endpoint != self._mapped_endpoint:
+                self.logger.error(
+                    'connectShMem - refused: shm mirror already mapped for %s, requested %s',
+                    self._mapped_endpoint, endpoint)
+                self.connectionRefused.emit(
+                    "The shared-memory mirror is already mapped for\n"
+                    f"host: {self._mapped_endpoint[0]}  mirror: {self._mapped_endpoint[1]}  "
+                    f"user: {self._mapped_endpoint[2]}\n\n"
+                    "It cannot be redirected to a different SpecTcl in a running session.\n"
+                    "Please restart CutiePie to switch servers.")
+                return
+
             if self._rest is not None:
                 try:
                     self._rest.reconfigure(hostname, port)
@@ -87,6 +119,27 @@ class ConnectionManager(QtCore.QObject):
             if not self._rest.checkSpecTclREST():
                 self.logger.debug('connectShMem - invalid URL for SpecTclREST')
                 return
+
+            # P7: same endpoint, but SpecTcl may have restarted with a resized
+            # display memory — the process-lifetime mapping would then be the
+            # wrong size and stale views could read past the recreated segment.
+            # Deterministic mismatch -> refuse; size unavailable -> fail open.
+            shmem_size = self._rest.shmemSize()
+            if (self._mapped_shmem_size is not None and shmem_size is not None
+                    and shmem_size != self._mapped_shmem_size):
+                self.logger.error(
+                    'connectShMem - refused: shmem size changed %s -> %s (SpecTcl restarted with a resized display memory?)',
+                    self._mapped_shmem_size, shmem_size)
+                self.connectionRefused.emit(
+                    "SpecTcl's display shared memory changed size since this session "
+                    f"first connected ({self._mapped_shmem_size} -> {shmem_size} bytes).\n\n"
+                    "The mirror mapping cannot be resized in a running session.\n"
+                    "Please restart CutiePie to reconnect.")
+                return
+            if shmem_size is None:
+                self.logger.warning('connectShMem - shmem size unavailable from REST; size-change guard inactive for this connect')
+            self._pending_endpoint   = endpoint
+            self._pending_shmem_size = shmem_size
 
             self.logger.debug("connectShMem - could make REST request of server")
             self._stop_rest_thread()
@@ -126,6 +179,16 @@ class ConnectionManager(QtCore.QObject):
     @pyqtSlot(object)
     def _on_connect_succeeded(self, s):
         self.logger.debug('connectShMem - mirror transfer done, fetching spectrum list from REST')
+        if self._mapped_endpoint is None:
+            # first successful mirror transfer: the mapping identity is now fixed
+            # for the lifetime of the process (P7 guards compare against these)
+            self._mapped_endpoint   = self._pending_endpoint
+            self._mapped_shmem_size = self._pending_shmem_size
+        else:
+            # re-connect over the existing mapping: artists still hold views from
+            # the previous transfer — have the GUI drop them before the store is
+            # repointed below (P7). Synchronous: handler runs before we continue.
+            self.shmViewsInvalidated.emit()
         try:
             otherInfo = self.getSpectrumInfoFromReST()
             self.logger.debug('connectShMem - populating spectra from shmem + REST')

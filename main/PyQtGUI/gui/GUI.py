@@ -442,6 +442,8 @@ class MainWindow(QMainWindow):
         self.connection_manager.spectrumRemoved.connect(self._on_spectrum_removed_rest)
         self.connection_manager.spectrumListChanged.connect(self.refreshSpectrumSumRegionDict)
         self.connection_manager.updatePlotRequested.connect(self._updatePlotOnGui)
+        self.connection_manager.shmViewsInvalidated.connect(self._on_shm_views_invalidated)
+        self.connection_manager.connectionRefused.connect(self._on_connection_refused)
 
         ### Bashir added to auto select connect button if ports are default
         rest_text   = self.connectConfig.rest.text().strip()
@@ -1558,6 +1560,39 @@ class MainWindow(QMainWindow):
     def _on_gate_ended(self):
         self.currentPlot.toCreateGate = False
         self.currentPlot.toEditGate   = False
+
+    @pyqtSlot()
+    def _on_shm_views_invalidated(self):
+        """A re-connect completed a fresh mirror transfer (PERFORMANCE.md P7).
+
+        Every matplotlib artist and cached per-tab "spectrum"/"axis" entry still
+        references arrays from the previous transfer; drop them all before the
+        SpectrumStore is repopulated, then leave each tab as an empty grid in its
+        recorded geometry (same end state the current tab already gets today via
+        connectionEstablished -> setCanvasLayout). References captured outside the
+        GUI (e.g. in the embedded Jupyter console) cannot be reclaimed here."""
+        for tabIdx, plotVal in self.wTab.wPlot.items():
+            try:
+                nRow, nCol = self.wTab.layout[tabIdx] if tabIdx < len(self.wTab.layout) else (1, 1)
+                plotVal.InitializeCanvas(nRow, nCol)
+                plotVal.isEnlarged = False
+                plotVal.selected_plot_index = None
+                plotVal.next_plot_index     = -1
+                if tabIdx < len(self.wTab.selected_plot_index_bak):
+                    self.wTab.selected_plot_index_bak[tabIdx] = None
+                self.wTab.zoomPlotInfo[tabIdx] = None
+            except Exception:
+                self.logger.exception('_on_shm_views_invalidated - tab %s reset failed', tabIdx)
+        for tabSpectra in self.wTab.spectrum_dict.values():
+            for info in tabSpectra.values():
+                info["spectrum"] = None
+                info["axis"]     = None
+
+    @pyqtSlot(str)
+    def _on_connection_refused(self, msg):
+        """P7 guard tripped in ConnectionManager: surface it, since the connect
+        attempt was dropped without changing the running session."""
+        QMessageBox.warning(self, "Connection refused", msg)
 
     @pyqtSlot(str)
     def _on_spectrum_removed_rest(self, name):

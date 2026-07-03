@@ -1065,3 +1065,16 @@ class PyREST:
         except Exception:
             self.logger.warning(f"[PyREST] REST health FAIL via {url} (exception)")
             return False
+
+    # size in bytes of SpecTcl's display shared memory (the region the mirror
+    # copies); same endpoint the mirror client itself uses to size the mapping
+    def shmemSize(self):
+        url = self._build_url("spectcl/shmem/size")
+        response = self.sendRequest(url)
+        if response is None:
+            return None
+        try:
+            return int(json.loads(response.decode()).get("detail"))
+        except (ValueError, TypeError, json.JSONDecodeError):
+            self.logger.warning('shmemSize - could not parse response')
+            return None
