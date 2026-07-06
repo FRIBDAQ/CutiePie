@@ -10,15 +10,18 @@ def test_fit_manager_importable():
     assert FitManager is not None
 
 def test_fit_manager_constructor_params():
+    # (pre-H2 this asserted a 'window' param that never existed — the real
+    # name was parent_widget — so this test failed on any PyQt5 machine)
     from services.fit_manager import FitManager
     import inspect
     sig = inspect.signature(FitManager.__init__)
     params = list(sig.parameters)
-    assert 'window' in params
     assert 'fit_factory' in params
     assert 'spectra' in params
-    assert 'extra_popup' in params
+    assert 'parent_widget' in params
     assert 'logger' in params
+    # H2: the service must not receive the extra popup widget
+    assert 'extra_popup' not in params
 
 def test_fit_manager_has_fit_method():
     from services.fit_manager import FitManager

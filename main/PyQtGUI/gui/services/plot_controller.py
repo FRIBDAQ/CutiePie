@@ -8,7 +8,7 @@ from copy import copy
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from PyQt5 import QtCore
-from PyQt5.QtCore import pyqtSlot
+from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import QMenu, QMessageBox, QFileDialog
 
 
@@ -19,20 +19,25 @@ class centeredNorm(colors.Normalize):
         super().__init__(vmin=vcenter - halfrange, vmax=vcenter + halfrange, clip=clip)
 
 
-class PlotController:
+class PlotController(QObject):
     """Owns all plot rendering, axis control, zoom, and canvas management."""
 
-    def __init__(self, wTab, wConf, spectra,
+    # H2: cutoff-popup rendering inverted into signals — MainWindow owns the
+    # popup (adapters _show_cutoff_popup / cutoffp.close). Payload keys:
+    # name, dim, xmin, xmax, ymin, ymax, zmin, zmax (z entries None for 1D).
+    cutoffPopupPrepared      = pyqtSignal(dict)
+    cutoffPopupCloseRequested = pyqtSignal()
+
+    def __init__(self, spectra,
                  get_current_plot, get_geo, set_geo,
                  get_spectrum_info, set_spectrum_info, get_spectrum_info_dict,
                  name_from_index, get_enlarged_spectrum,
                  auto_index, next_index, bind_dynamic_signal,
                  draw_gate, clean_popup_exit, auto_update_start,
-                 stop_auto_update_thread, cutoff_popup,
+                 stop_auto_update_thread,
                  min_y, max_y, min_z, max_z,
                  parent_widget=None, logger=None):
-        self._wTab                    = wTab
-        self._wConf                   = wConf
+        super().__init__()
         self._spectra                 = spectra
         self._get_current_plot        = get_current_plot        # () -> wPlot widget
         self._get_geo                 = get_geo                 # () -> {index: name}
@@ -49,7 +54,6 @@ class PlotController:
         self._clean_popup_exit        = clean_popup_exit        # (doClose) -> None
         self._auto_update_start       = auto_update_start       # () -> None
         self._stop_auto_update_thread = stop_auto_update_thread # threading.Event
-        self._cutoffp                 = cutoff_popup
         self.minY                     = min_y
         self.maxY                     = max_y
         self.minZ                     = min_z
@@ -66,18 +70,11 @@ class PlotController:
     # Canvas / layout
     # ------------------------------------------------------------------
 
-    def setCanvasLayout(self):
-        self.logger.info('setCanvasLayout')
-        indexTab = self._wTab.currentIndex()
-        nRow = int(self._wConf.histo_geo_row.currentText())
-        nCol = int(self._wConf.histo_geo_col.currentText())
-        self._wTab.layout[indexTab] = [nRow, nCol]
-        self._wTab.wPlot[indexTab].InitializeCanvas(nRow, nCol)
-        self._wTab.selected_plot_index_bak[indexTab] = None
-        cp = self._get_current_plot()
-        cp.selected_plot_index = None
-        cp.next_plot_index     = -1
-        self.geometry_applied  = True
+    def markGeometryApplied(self):
+        """Called by MainWindow.setCanvasLayout after the canvas grid is
+        (re)initialized (H2: the geometry combos and tab widget live there)."""
+        self.logger.info('markGeometryApplied')
+        self.geometry_applied = True
 
     # ------------------------------------------------------------------
     # Axis scaling
@@ -486,7 +483,10 @@ class PlotController:
     # Cutoff popup
     # ------------------------------------------------------------------
 
-    def okCutoff(self):
+    def okCutoff(self, xmin_text="", xmax_text="", ymin_text="", ymax_text="",
+                 zmin_text="", zmax_text=""):
+        """Apply the cutoff/zoom popup values, supplied as text by the
+        MainWindow adapter (H2)."""
         self.logger.info('okCutoff')
         cp    = self._get_current_plot()
         index = cp.selected_plot_index
@@ -503,14 +503,14 @@ class PlotController:
 
         name       = self._name_from_index(index)
         dim        = self._spectra.get(name, "dim")
-        rangeXmin  = self._cutoffp.lineeditXMin.text()
-        rangeXmax  = self._cutoffp.lineeditXMax.text()
-        rangeYmin  = self._cutoffp.lineeditYMin.text()
-        rangeYmax  = self._cutoffp.lineeditYMax.text()
+        rangeXmin  = xmin_text
+        rangeXmax  = xmax_text
+        rangeYmin  = ymin_text
+        rangeYmax  = ymax_text
 
         cutoffVal  = [None, None]
-        cutoffMin  = self._cutoffp.lineeditZMin.text()
-        cutoffMax  = self._cutoffp.lineeditZMax.text()
+        cutoffMin  = zmin_text
+        cutoffMax  = zmax_text
 
         try:
             rangeXmin = float(rangeXmin)
@@ -528,10 +528,10 @@ class PlotController:
             buff = rangeYmin; rangeYmin = rangeYmax; rangeYmax = buff
             self.logger.warning('okCutoff Range - new range Y values swapped because min > max')
         if dim == 2:
-            if self._cutoffp.lineeditZMin.text() != "" and self._cutoffp.lineeditZMin.text().isdigit():
+            if cutoffMin != "" and cutoffMin.isdigit():
                 cutoffVal[0] = float(cutoffMin)
                 self._set_spectrum_info(cutoff=cutoffVal, index=index)
-            if self._cutoffp.lineeditZMax.text() != "" and self._cutoffp.lineeditZMax.text().isdigit():
+            if cutoffMax != "" and cutoffMax.isdigit():
                 cutoffVal[1] = float(cutoffMax)
                 self._set_spectrum_info(cutoff=cutoffVal, index=index)
             if cutoffVal[0] is not None and cutoffVal[1] is not None and cutoffVal[1] < cutoffVal[0]:
@@ -557,10 +557,7 @@ class PlotController:
             self.logger.debug('okCutoff - exception', exc_info=True)
             pass
 
-        self._cutoffp.close()
-
-    def cancelCutoff(self):
-        self._cutoffp.close()
+        self.cutoffPopupCloseRequested.emit()
 
     def resetCutoff(self, doUpdate):
         self.logger.info('resetCutoff - doUpdate: %s', doUpdate)
@@ -571,7 +568,7 @@ class PlotController:
         self._set_spectrum_info(cutoff=cutoffVal, index=index)
         if doUpdate:
             self.updatePlot()
-        self._cutoffp.close()
+        self.cutoffPopupCloseRequested.emit()
 
     def cutoffButtonCallback(self, *arg):
         self.logger.info('cutoffButtonCallback')
@@ -581,32 +578,21 @@ class PlotController:
         if index is None:
             return QMessageBox.about(self._parent_widget, "Warning!", "Please Add/Select a Spectrum")
         name = self._name_from_index(index)
-        if name is not None:
-            self._cutoffp.setWindowTitle("Set zoom range for: " + name)
-        else:
-            self._cutoffp.setWindowTitle("Set zoom range for: ???")
-        self._cutoffp.setGeometry(300, 100, 300, 100)
-        if self._cutoffp.isVisible():
-            self._cutoffp.close()
         if self._get_spectrum_info("cutoff", index=index) is not None and len(self._get_spectrum_info("cutoff", index=index)) > 0:
             ax  = self._get_spectrum_info("axis", index=index)
             dim = self._spectra.get(name, "dim")
             xmin, xmax = ax.get_xlim()
             ymin, ymax = ax.get_ylim()
-            self._cutoffp.lineeditXMin.setText(f"{xmin:.1f}")
-            self._cutoffp.lineeditXMax.setText(f"{xmax:.1f}")
-            self._cutoffp.lineeditYMin.setText(f"{ymin:.1f}")
-            self._cutoffp.lineeditYMax.setText(f"{ymax:.1f}")
+            zmin = zmax = None
             if dim == 2:
                 spectrum = self._get_spectrum_info("spectrum", index=index)
                 zmin, zmax = spectrum.get_clim()
-                self._cutoffp.lineeditZMin.setText(f"{zmin:.1f}")
-                self._cutoffp.lineeditZMax.setText(f"{zmax:.1f}")
-            if dim == 1:
-                self._cutoffp.layout1d()
-            elif dim == 2:
-                self._cutoffp.layout2d()
-            self._cutoffp.show()
+            # H2: MainWindow renders the popup from this payload
+            self.cutoffPopupPrepared.emit({
+                "name": name, "dim": dim,
+                "xmin": xmin, "xmax": xmax, "ymin": ymin, "ymax": ymax,
+                "zmin": zmin, "zmax": zmax,
+            })
         else:
             QMessageBox.about(self._parent_widget, "Warning!", "Please Add/Select a Spectrum")
             self.logger.warning('cutoffButtonCallback - you broke something really bad - spectrum dict: %s',
@@ -658,10 +644,12 @@ class PlotController:
             if (i == index and axis is not None):
                 return axis
 
-    def plotPosition(self, index):
+    def plotPosition(self, index, canvas_layout):
+        """Map a flat slot index to (row, col) in `canvas_layout` — the
+        current tab's [nRow, nCol], supplied by the MainWindow adapter (H2)."""
         self.logger.info('plotPosition - index: %s', index)
         cntr = 0
-        canvasLayout = self._wTab.layout[self._wTab.currentIndex()]
+        canvasLayout = canvas_layout
         for i in range(canvasLayout[0]):
             for j in range(canvasLayout[1]):
                 if index == cntr:
@@ -757,14 +745,17 @@ class PlotController:
         a.clear()
         self.setupPlot(a, index)
 
-    def addPlot(self):
+    def addPlot(self, selected_name=None, tab_click_bound=True):
+        """Place the selected spectrum (H2: `selected_name` is the histo_list
+        selection — None when the list is empty — and `tab_click_bound` is the
+        current tab's click-binding state, both supplied by the adapter)."""
         self.logger.info('addPlot')
         if not self.geometry_applied:
             print("addPlot: Apply Geometry first!, return")
             return
 
         cp = self._get_current_plot()
-        if self._wConf.histo_list.count() == 0:
+        if selected_name is None:
             QMessageBox.about(self._parent_widget, "Warning",
                               'Please click on "Connection" and fill in the information')
 
@@ -779,7 +770,7 @@ class PlotController:
                     self.autoScaleAxisBox(key)
             else:
                 index = self._next_index()
-                name  = str(self._wConf.histo_list.currentText())
+                name  = str(selected_name)
                 self.logger.debug('addPlot - isLoaded FALSE - index, name: %s, %s', index, name)
 
                 if self._spectra.get(name, "dim") is None:
@@ -832,7 +823,7 @@ class PlotController:
         if self._stop_auto_update_thread.is_set():
             self._auto_update_start()
 
-        if not self._wTab.countClickTab[self._wTab.currentIndex()]:
+        if not tab_click_bound:
             self._bind_dynamic_signal()
 
     @staticmethod

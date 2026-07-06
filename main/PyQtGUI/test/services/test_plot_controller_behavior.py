@@ -1,0 +1,397 @@
+"""Characterization tests for PlotController (H2 step 0).
+
+These pin PlotController's CURRENT observable behavior — rendering data flow,
+axis scaling, cutoff masking, the wConf/wTab/cutoff-popup widget effects —
+before the H2 step-1 inversion. The ~50 widget touches that go through the
+injected `_get_current_plot()` seam are exercised via a fake plot widget
+carrying a REAL matplotlib figure (Agg), so line/imshow/axis behavior is real.
+
+Two standing regression pins live here: the E7 two-tier axis rule (bin edges
+from the REST store tier, never the per-tab view tier) and the P1 customMinMax
+semantics.
+"""
+
+import importlib
+import logging
+import os
+import sys
+import threading
+
+import matplotlib
+matplotlib.use("Agg", force=True)
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+import numpy as np
+import pytest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../gui'))
+sys.path.insert(0, os.path.dirname(__file__))
+
+import qt_stubs
+
+
+_AFFECTED_MODULES = (
+    "PyQt5", "PyQt5.QtCore", "PyQt5.QtWidgets",
+    "CPyConverter", "httplib2",
+    "services.plot_controller",
+)
+
+
+@pytest.fixture(scope="module")
+def pc_mod():
+    saved = {name: sys.modules.get(name) for name in _AFFECTED_MODULES}
+    installed = qt_stubs.install_missing_runtime_stubs()
+    if installed:
+        sys.modules.pop("services.plot_controller", None)
+    module = importlib.import_module("services.plot_controller")
+    yield module
+    for name, prev in saved.items():
+        if prev is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = prev
+
+
+class FakeAction:
+    def __init__(self):
+        self.triggered = qt_stubs.BoundStubSignal()
+        self.checked = False
+
+    def setChecked(self, checked):
+        self.checked = checked
+
+
+class FakePlotWidget:
+    """The per-tab plot widget: REAL matplotlib figure + fake Qt controls."""
+
+    def __init__(self, nrows=1, ncols=1):
+        self.figure = Figure()
+        FigureCanvasAgg(self.figure)
+        for i in range(nrows * ncols):
+            self.figure.add_subplot(nrows, ncols, i + 1)
+        self.canvas = self.figure.canvas
+        self.histo_autoscale = qt_stubs.FakeCheckBox()
+        self.logButton = qt_stubs.FakeButton()
+        self.customZoomButton = qt_stubs.FakeButton()
+        self.zoom_action = FakeAction()
+        self.isEnlarged = False
+        self.isLoaded = False
+        self.isSelected = False
+        self.zoomPress = False
+        self.selected_plot_index = None
+        self.next_plot_index = -1
+        self.rec = None
+        self.recDashed = None
+
+
+class Rig:
+    """Composition-root double: wires PlotController exactly as MainWindow does."""
+
+    def __init__(self, module, monkeypatch, nrows=1, ncols=1):
+        from services.spectrum_store import SpectrumStore
+        self.mod = module
+        self.store = SpectrumStore()
+        self.cp = FakePlotWidget(nrows, ncols)
+        self.geo = {}
+        self.info = {}
+        self.enlarged = object()          # not-None: skip colorbar creation
+        self.auto_index_val = 0
+        self.next_index_val = 0
+        self.draw_gate_calls = []
+        self.clean_popup_calls = []
+        self.bind_calls = []
+        self.auto_update_calls = []
+        self.stop_auto = threading.Event()
+        self.msgbox = qt_stubs.fresh_message_box()
+        monkeypatch.setattr(module, "QMessageBox", self.msgbox)
+
+        self.pc = module.PlotController(
+            spectra=self.store,
+            get_current_plot=lambda: self.cp,
+            get_geo=lambda: self.geo,
+            set_geo=self.geo.__setitem__,
+            get_spectrum_info=self.get_info,
+            set_spectrum_info=self.set_info,
+            get_spectrum_info_dict=lambda: self.info,
+            name_from_index=lambda i: self.geo.get(i),
+            get_enlarged_spectrum=lambda: self.enlarged,
+            auto_index=lambda: self.auto_index_val,
+            next_index=lambda: self.next_index_val,
+            bind_dynamic_signal=lambda: self.bind_calls.append(1),
+            draw_gate=self.draw_gate_calls.append,
+            clean_popup_exit=self.clean_popup_calls.append,
+            auto_update_start=lambda: self.auto_update_calls.append(1),
+            stop_auto_update_thread=self.stop_auto,
+            min_y=0.001, max_y=1024, min_z=0.001, max_z=256,
+            parent_widget=None,
+            logger=logging.getLogger("test.plot_controller"),
+        )
+        # H2 output signals, recorded from construction on
+        self.prepared = qt_stubs.record_signal(self.pc.cutoffPopupPrepared)
+        self.close_req = qt_stubs.record_signal(self.pc.cutoffPopupCloseRequested)
+
+    def get_info(self, key, index=None):
+        return self.info.get(index, {}).get(key)
+
+    def set_info(self, index=None, **kwargs):
+        self.info.setdefault(index, {}).update(kwargs)
+
+    def add_1d(self, name="h1", index=0, binx=10, minx=0.0, maxx=10.0, data=None):
+        if data is None:
+            data = np.arange(binx + 1, dtype=float)
+        self.store.set(name, dim=1, binx=binx, minx=minx, maxx=maxx,
+                       data=data, parameters=[], type="1")
+        self.geo[index] = name
+        ax = self.cp.figure.axes[index]
+        self.info.setdefault(index, {}).update(axis=ax, name=name)
+        return ax
+
+
+@pytest.fixture
+def rig(pc_mod, monkeypatch):
+    return Rig(pc_mod, monkeypatch)
+
+
+# ---------------------------------------------------------------- pure logic
+
+def test_custom_min_max_semantics(rig):
+    # P1 pin: min/max over strictly positive values only
+    assert rig.pc.customMinMax(np.array([0, 3, 1, 7])) == (1, 7)
+    assert rig.pc.customMinMax(np.zeros(4)) == (None, None)
+    masked = np.ma.masked_where(np.array([5, 1, 9]) > 6, np.array([5, 1, 9]))
+    assert rig.pc.customMinMax(masked) == (1, 5)
+
+
+def test_create_range(pc_mod):
+    r = pc_mod.PlotController.createRange(4, 0, 8)
+    assert list(r) == [0.0, 2.0, 4.0, 6.0, 8.0]
+
+
+def test_cutoff_masked_data(rig):
+    rig.add_1d(data=np.array([0.0, 2.0, 5.0, 9.0]), binx=3)
+    rig.set_info(index=0, cutoff=[3.0, 8.0])
+    w = rig.pc._cutoff_masked_data(0)
+    assert list(w.compressed()) == [5.0]
+    # canonical store data untouched (B4)
+    assert list(rig.store.get("h1", "data")) == [0.0, 2.0, 5.0, 9.0]
+
+
+def test_get_min_max_in_range_1d(rig):
+    rig.add_1d(binx=10, minx=0.0, maxx=10.0, data=np.arange(11, dtype=float))
+    # bins for x in (2, 8]: data[3:10].max() * 1.1
+    assert rig.pc.getMinMaxInRange(0, xmin=2.0, xmax=8.0) == pytest.approx(9 * 1.1)
+
+
+def test_get_axis_properties(rig):
+    ax = rig.add_1d()
+    ax.set_xlim(1, 9)
+    ax.set_ylim(2, 8)
+    xr, yr = rig.pc.getAxisProperties(0)
+    assert xr == [1.0, 9.0] and yr == [2.0, 8.0]
+
+
+# ------------------------------------------------------------- axis scaling
+
+def test_set_axis_scale_1d_linear_and_log(rig):
+    ax = rig.add_1d()
+    rig.set_info(index=0, minx=0.0, maxx=10.0, miny=1.0, maxy=100.0, log=False)
+    rig.pc.setAxisScale(ax, 0, "x", "y")
+    assert ax.get_xlim() == (0.0, 10.0)
+    assert ax.get_ylim() == (1.0, 100.0)
+    assert ax.get_yscale() == "linear"
+
+    rig.set_info(index=0, log=True)
+    rig.pc.setAxisScale(ax, 0, "log")
+    assert ax.get_yscale() == "log"
+    # miny/maxy written back to the display tier
+    assert rig.get_info("miny", index=0) == 1.0
+    assert rig.get_info("maxy", index=0) == 100.0
+
+
+def test_set_axis_scale_1d_autoscale_uses_visible_range(rig):
+    ax = rig.add_1d(binx=10, minx=0.0, maxx=10.0, data=np.arange(11, dtype=float))
+    rig.set_info(index=0, minx=2.0, maxx=8.0, miny=0.0, maxy=0.0, log=False)
+    rig.cp.histo_autoscale.setChecked(True)
+    rig.pc.setAxisScale(ax, 0, "x", "y")
+    # ymax recomputed from the data inside the visible x-range
+    assert ax.get_ylim()[1] == pytest.approx(9 * 1.1)
+
+
+# ---------------------------------------------------------------- rendering
+
+def make_line(ax):
+    line, = ax.plot([], [], drawstyle='steps')
+    return line
+
+
+def test_plot_plot_1d_sets_bin_edges_from_store(rig):
+    ax = rig.add_1d(binx=10, minx=0.0, maxx=10.0)
+    line = make_line(ax)
+    rig.set_info(index=0, spectrum=line)
+    rig.pc.plotPlot(0)
+    x, y = line.get_data()
+    assert len(x) == 11 and x[0] == 0.0 and x[-1] == 10.0
+    assert list(y) == list(np.arange(11, dtype=float))
+
+
+def test_setup_plot_1d_uses_rest_tier_bin_edges(rig):
+    # E7 pin: view tier (per-tab minx/maxx) holds a ZOOM range; bin edges must
+    # come from the store tier or the spectrum compresses into the zoom window.
+    ax = rig.add_1d(binx=10, minx=0.0, maxx=10.0)
+    rig.set_info(index=0, minx=4.0, maxx=6.0)      # zoomed view range
+    rig.pc.setupPlot(ax, 0)
+    line = rig.get_info("spectrum", index=0)
+    x = line.get_xdata()
+    assert x[0] == 0.0 and x[-1] == 10.0           # store tier, not 4..6
+    assert ax.get_xlim() == (4.0, 6.0)             # view restore untouched
+
+
+def test_setup_plot_2d_imshow_extent_from_store(rig):
+    rig.store.set("m2", dim=2, binx=4, minx=0.0, maxx=4.0,
+                  biny=4, miny=0.0, maxy=8.0,
+                  data=np.arange(16, dtype=float).reshape(4, 4),
+                  parameters=[], type="2")
+    rig.geo[0] = "m2"
+    ax = rig.cp.figure.axes[0]
+    rig.info.setdefault(0, {}).update(axis=ax, name="m2",
+                                      minx=0.0, maxx=4.0, binx=4, biny=4)
+    rig.pc.setupPlot(ax, 0)
+    spectrum = rig.get_info("spectrum", index=0)
+    assert list(spectrum.get_extent()) == [0.0, 4.0, 0.0, 8.0]
+
+
+def test_update_plot_grid_flow(rig):
+    ax = rig.add_1d()
+    line = make_line(ax)
+    rig.set_info(index=0, spectrum=line)
+    rig.pc._layout_dirty = False
+    rig.pc.updatePlot()
+    assert rig.clean_popup_calls == [False]
+    assert rig.draw_gate_calls == [0]
+    x, _ = line.get_data()
+    assert len(x) == 11                             # plotPlot ran
+
+
+def test_zoom_in_out_1d(rig):
+    ax = rig.add_1d()
+    line = make_line(ax)
+    ax.set_ylim(0.0, 100.0)
+    rig.set_info(index=0, spectrum=line)
+    rig.cp.histo_autoscale.setChecked(True)
+    rig.pc.zoomInOut("in")
+    assert ax.get_ylim() == (0.0, 50.0)
+    assert rig.cp.histo_autoscale.isChecked() is False
+    assert rig.draw_gate_calls == [0]
+    rig.pc.zoomInOut("out")
+    assert ax.get_ylim() == (0.0, 100.0)
+
+
+def test_log_button_toggles_scale(rig):
+    ax = rig.add_1d()
+    line = make_line(ax)
+    rig.set_info(index=0, spectrum=line, minx=0.0, maxx=10.0,
+                 miny=1.0, maxy=100.0, log=False)
+    rig.pc.logButtonCallback(0)
+    assert rig.get_info("log", index=0) is True
+    assert ax.get_yscale() == "log"
+    rig.pc.logButtonCallback(0)
+    assert rig.get_info("log", index=0) is False
+    assert ax.get_yscale() == "linear"
+
+
+# --------------------------------------------- layout / add-plot arguments
+
+def test_mark_geometry_applied(rig):
+    assert rig.pc.geometry_applied is False
+    rig.pc.markGeometryApplied()
+    assert rig.pc.geometry_applied is True
+
+
+def test_plot_position_walks_given_layout(rig):
+    assert rig.pc.plotPosition(0, [2, 2]) == (0, 0)
+    assert rig.pc.plotPosition(1, [2, 2]) == (0, 1)
+    assert rig.pc.plotPosition(3, [2, 2]) == (1, 1)
+
+
+def test_add_plot_requires_geometry(rig):
+    rig.pc.geometry_applied = False
+    rig.pc.addPlot("h1")
+    assert rig.geo == {} and rig.msgbox.calls == []
+
+
+def test_add_plot_warns_when_no_spectra_connected(rig):
+    rig.pc.geometry_applied = True
+    rig.pc.addPlot(None)                           # empty histo_list
+    assert rig.msgbox.calls[0][0] == "about"
+    assert any("Connection" in text for _, _, text in rig.msgbox.calls)
+
+
+def test_add_plot_places_selected_spectrum(rig):
+    rig.pc.geometry_applied = True
+    rig.store.set("h1", dim=1, binx=10, minx=0.0, maxx=10.0,
+                  data=np.arange(11, dtype=float), parameters=[], type="1")
+    ax = rig.cp.figure.axes[0]
+    rig.info.setdefault(0, {}).update(axis=ax, name="h1", miny=0.0)
+    rig.pc.addPlot("h1", tab_click_bound=True)
+    assert rig.geo == {0: "h1"}
+    assert rig.cp.histo_autoscale.isChecked() is True
+    assert rig.cp.logButton.down is False
+    assert rig.get_info("log", index=0) is False
+    assert 0 in rig.draw_gate_calls
+    assert rig.cp.recDashed is not None
+    assert rig.cp.isSelected is False
+
+
+# ------------------------------------------------------------- cutoff popup
+
+def test_ok_cutoff_applies_ranges_and_requests_close(rig):
+    ax = rig.add_1d()
+    line = make_line(ax)
+    rig.set_info(index=0, spectrum=line)
+    rig.cp.selected_plot_index = 0
+    rig.pc.okCutoff("8", "2", "1", "50")           # x min/max swapped on purpose
+    assert ax.get_xlim() == (2.0, 8.0)             # swapped back
+    assert ax.get_ylim() == (1.0, 50.0)
+    assert rig.get_info("minx", index=0) == 2.0
+    assert rig.get_info("maxx", index=0) == 8.0
+    assert rig.draw_gate_calls == [0]
+    assert rig.close_req == [()]
+
+
+def test_ok_cutoff_invalid_input_aborts(rig):
+    rig.add_1d()
+    rig.cp.selected_plot_index = 0
+    rig.set_info(index=0, spectrum=make_line(rig.info[0]["axis"]))
+    rig.pc.okCutoff("junk", "2", "1", "50")
+    assert rig.close_req == []                     # bails before closing
+
+
+def test_cutoff_button_publishes_popup_payload(rig):
+    ax = rig.add_1d()
+    ax.set_xlim(1.0, 9.0)
+    ax.set_ylim(2.0, 60.0)
+    rig.cp.selected_plot_index = 0
+    rig.set_info(index=0, cutoff=[None, None])
+    rig.pc.cutoffButtonCallback()
+    assert rig.prepared == [({"name": "h1", "dim": 1,
+                              "xmin": 1.0, "xmax": 9.0,
+                              "ymin": 2.0, "ymax": 60.0,
+                              "zmin": None, "zmax": None},)]
+    assert rig.cp.histo_autoscale.isChecked() is False
+
+
+def test_cutoff_button_without_selection_warns(rig):
+    rig.cp.selected_plot_index = None
+    rig.pc.cutoffButtonCallback()
+    assert rig.msgbox.calls[0][0] == "about"
+    assert rig.prepared == []
+
+
+def test_reset_cutoff_clears_and_requests_close(rig):
+    rig.add_1d()
+    rig.cp.selected_plot_index = 0
+    rig.set_info(index=0, cutoff=[3.0, 8.0])
+    rig.pc.resetCutoff(doUpdate=False)
+    assert rig.get_info("cutoff", index=0) == [None, None]
+    assert rig.close_req == [()]

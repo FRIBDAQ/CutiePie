@@ -14,10 +14,13 @@ def test_connection_manager_constructor_params():
     import inspect
     sig = inspect.signature(ConnectionManager.__init__)
     params = list(sig.parameters)
-    for p in ('wConf', 'connect_config', 'spectra',
+    for p in ('spectra',
               'update_intervals', 'update_intervals_user',
               'stop_rest', 'stop_auto', 'skip_auto'):
         assert p in params, f"Missing: {p}"
+    # H2: the service must not receive widgets (main-window bundle or popup)
+    assert 'wConf' not in params
+    assert 'connect_config' not in params
 
 def test_connection_manager_has_connect():
     from services.connection_manager import ConnectionManager

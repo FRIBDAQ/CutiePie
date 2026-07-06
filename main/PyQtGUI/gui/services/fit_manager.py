@@ -12,23 +12,31 @@ from PyQt5.QtWidgets import (
     QMessageBox, QFileDialog, QDialog, QLabel, QPushButton, QCheckBox,
     QHBoxLayout, QVBoxLayout, QInputDialog, QTextEdit, QApplication,
 )
-from PyQt5.QtCore import Qt, QSettings, QEventLoop
+from PyQt5.QtCore import Qt, QObject, QSettings, QEventLoop, pyqtSignal
 
 from alpha_filter_dialog import AlphaChainIsoFilterDialog
 
 FIT_PREFIX = "fit-_-"
 
 
-class FitManager:
+class FitManager(QObject):
     """Owns all fitting operations: execute, CSV, manage artists, result popups."""
 
     FIT_PREFIX = FIT_PREFIX
 
-    def __init__(self, fit_factory, spectra, extra_popup, parent_widget=None, logger=None):
+    # H2: extraPopup widget writes inverted into signals — MainWindow owns the
+    # widgets (adapters _on_fit_busy / _on_abort_enabled / _append_fit_results
+    # / _set_fit_labels_text).
+    fitBusyChanged      = pyqtSignal(bool)  # True: fit running (fit off, abort on)
+    abortEnabledChanged = pyqtSignal(bool)  # abort button enable state only
+    fitResultsAppended  = pyqtSignal(str)   # one fit_results text-box line
+    fitLabelsTextChanged = pyqtSignal(str)  # delete_fitIdx_list contents
+
+    def __init__(self, fit_factory, spectra, parent_widget=None, logger=None):
+        super().__init__()
         self._parent_widget = parent_widget  # Qt dialog parent only — no domain calls
         self._factory = fit_factory
         self._spectra = spectra
-        self._popup   = extra_popup
         self.logger   = logger or logging.getLogger(__name__)
         # instance state
         self._abort_fit        = False
@@ -49,19 +57,23 @@ class FitManager:
     # Axis limits helper
     # ------------------------------------------------------------------
 
-    def axisLimitsForFit(self, ax):
+    def axisLimitsForFit(self, ax, range_min_text="", range_max_text=""):
+        """Fit x-range from the popup's Min/Max X fields, supplied as text by
+        the MainWindow adapter (H2); empty/invalid fields fall back to xlim."""
         left, right = ax.get_xlim()
         self.logger.info('axisLimitsForFit - left, right: %s, %s', left, right)
-        if self._popup.fit_range_min.text():
+        range_min_text = range_min_text or ""
+        range_max_text = range_max_text or ""
+        if range_min_text:
             try:
-                left = float(self._popup.fit_range_min.text())
+                left = float(range_min_text)
             except ValueError:
                 self.logger.warning('axisLimitsForFit - Invalid input for Min X. Please enter a valid number.')
         else:
             left = ax.get_xlim()[0]
-        if self._popup.fit_range_max.text():
+        if range_max_text:
             try:
-                right = float(self._popup.fit_range_max.text())
+                right = float(range_max_text)
             except ValueError:
                 self.logger.warning('axisLimitsForFit - Invalid input for Max X. Please enter a valid number.')
         else:
@@ -77,16 +89,15 @@ class FitManager:
 
     def on_abort_clicked(self):
         self._abort_fit = True
-        try: self._popup.abort_button.setEnabled(False)
-        except Exception: self.logger.debug('on_abort_clicked - could not disable abort button', exc_info=True)
-        try: self._popup.fit_results.append("[abort] Requested…")
-        except Exception: self.logger.debug('on_abort_clicked - could not append abort message', exc_info=True)
+        self.abortEnabledChanged.emit(False)
+        self.fitResultsAppended.emit("[abort] Requested…")
 
     # ------------------------------------------------------------------
     # CSV helpers
     # ------------------------------------------------------------------
 
-    def on_fit_csv_clicked(self):
+    def on_fit_csv_clicked(self, fit_funct="", fitpar_texts=None,
+                           range_min_text="", range_max_text=""):
         if not hasattr(self, "_csv_x") or self._csv_x is None or len(self._csv_x) == 0:
             QMessageBox.warning(self._parent_widget, "No CSV loaded", "Click 'Plot CSV' first.")
             return
@@ -96,7 +107,8 @@ class FitManager:
 
         self._use_csv_fit = True
         try:
-            self.fit()
+            self.fit(fit_funct=fit_funct, fitpar_texts=fitpar_texts,
+                     range_min_text=range_min_text, range_max_text=range_max_text)
         finally:
             self._use_csv_fit = False
 
@@ -144,10 +156,14 @@ class FitManager:
     # Main fit entry point
     # ------------------------------------------------------------------
 
-    def fit(self, index=None, name=None, ax=None):
+    def fit(self, index=None, name=None, ax=None, fit_funct="",
+            fitpar_texts=None, range_min_text="", range_max_text=""):
+        """Run a fit. All popup-field values (model name, the 20 parameter
+        fields, the Min/Max X range) arrive as arguments gathered by the
+        MainWindow adapter (H2)."""
         self.logger.info('fit')
 
-        fit_funct = self._popup.fit_list.currentText().strip()
+        fit_funct = (fit_funct or "").strip()
 
         self._close_alpha_filter_popup()
 
@@ -160,10 +176,9 @@ class FitManager:
             QMessageBox.warning(self._parent_widget, "Fit cancelled", str(e))
             return
 
-        self._abort_fit = False
-        self._popup.fit_button.setEnabled(False)
-        self._popup.abort_button.setEnabled(True)
-
+        # B6 fix: resolve the fit context BEFORE going busy — the early return
+        # below sits outside the try/finally, so a busy state entered first
+        # would never be cleared and the fit button stayed disabled.
         use_csv = getattr(self, "_use_csv_fit", False)
         if use_csv:
             ax = self._csv_ax
@@ -174,6 +189,9 @@ class FitManager:
                 self.logger.warning('fit - called without name/ax context; cannot fit histogram')
                 return
             spectrumName = name
+
+        self._abort_fit = False
+        self.fitBusyChanged.emit(True)
 
         self.logger.debug('fit - spectrumName, fit_funct, index: %s, %s, %s', spectrumName, fit_funct, index)
 
@@ -198,26 +216,20 @@ class FitManager:
         try:
             if spectrumName != "":
                 if dim == 1:
-                    widgets = (
-                        self._popup.fit_p0, self._popup.fit_p1, self._popup.fit_p2,
-                        self._popup.fit_p3, self._popup.fit_p4, self._popup.fit_p5,
-                        self._popup.fit_p6, self._popup.fit_p7, self._popup.fit_p8,
-                        self._popup.fit_p9, self._popup.fit_p10, self._popup.fit_p11,
-                        self._popup.fit_p12, self._popup.fit_p13, self._popup.fit_p14,
-                        self._popup.fit_p15, self._popup.fit_p16, self._popup.fit_p17,
-                        self._popup.fit_p18, self._popup.fit_p19
-                    )
+                    texts = list(fitpar_texts or [])
+                    texts += [""] * (20 - len(texts))
+                    texts = texts[:20]
 
                     fitpar = []
-                    for w in widgets:
-                        t = w.text().strip() if (w is not None) else ""
+                    for raw in texts:
+                        t = raw.strip() if raw is not None else ""
                         try:
                             fitpar.append(float(t) if t != "" else None)
                         except Exception:
                             fitpar.append(None)
 
                     if use_csv:
-                        xmin, xmax = self.axisLimitsForFit(ax)
+                        xmin, xmax = self.axisLimitsForFit(ax, range_min_text, range_max_text)
 
                         xdata_min = float(np.nanmin(x))
                         xdata_max = float(np.nanmax(x))
@@ -241,7 +253,7 @@ class FitManager:
                         y = []
                         xtmp = self._create_range(binx, minxREST, maxxREST)
                         ytmp = self._spectra.get(spectrumName, "data").tolist()
-                        xmin, xmax = self.axisLimitsForFit(ax)
+                        xmin, xmax = self.axisLimitsForFit(ax, range_min_text, range_max_text)
                         for i in range(1, len(xtmp)):
                             if (xtmp[i] > xmin and xtmp[i] <= xmax):
                                 x.append(xtmp[i-1] + (xtmp[i] - xtmp[i-1]) / 2)
@@ -422,8 +434,8 @@ class FitManager:
                     if model_name == "AlphaEMG22":
                         try:
                             s = QSettings("YourLab", "AlphaGUI")
-                            s.setValue("AlphaEMG22/mu1", float(self._popup.fit_p1.text()))
-                            s.setValue("AlphaEMG22/mu2", float(self._popup.fit_p7.text()))
+                            s.setValue("AlphaEMG22/mu1", float(texts[1]))
+                            s.setValue("AlphaEMG22/mu2", float(texts[7]))
                         except Exception:
                             pass
 
@@ -448,8 +460,7 @@ class FitManager:
             pass
 
         finally:
-            self._popup.abort_button.setEnabled(False)
-            self._popup.fit_button.setEnabled(True)
+            self.fitBusyChanged.emit(False)
 
     # ------------------------------------------------------------------
     # Energy calibration dialog
@@ -802,8 +813,7 @@ class FitManager:
         for ax in list(fig.axes):
             try:
                 labels = self.listFitLineLabels(ax)
-                if hasattr(self._popup, "delete_fitIdx_list"):
-                    self._popup.delete_fitIdx_list.setText(" ".join(labels) if labels else "")
+                self.fitLabelsTextChanged.emit(" ".join(labels) if labels else "")
             except Exception:
                 pass
 
@@ -844,9 +854,9 @@ class FitManager:
     def setFitResultsLineLabel(self, fitLineLabelIdx, resultsText, spectrumName):
         self.logger.info('setFitResultsLineLabel - fitLineLabelIdx: %d', fitLineLabelIdx)
         title = 'Fit ' + str(fitLineLabelIdx) + ' (' + spectrumName + ') :'
-        self._popup.fit_results.append(title)
-        self._popup.fit_results.append(resultsText.toPlainText())
-        self._popup.fit_results.append(' ')
+        self.fitResultsAppended.emit(title)
+        self.fitResultsAppended.emit(resultsText.toPlainText())
+        self.fitResultsAppended.emit(' ')
 
     def setFitLineLabel(self, ax, line, resultsText, spectrumName):
         self.logger.info('setFitLineLabel')
@@ -872,7 +882,9 @@ class FitManager:
         self.setFitResultsLineLabel(fitIdx, resultsText, spectrumName)
         self.logger.debug('setFitLineLabel - line label: %s', line.get_label())
 
-    def deleteFit(self, index=None, name=None, ax=None):
+    def deleteFit(self, index=None, name=None, ax=None, fit_idx_text=""):
+        """Delete the fit lines whose indices appear in `fit_idx_text`, the
+        popup field contents supplied by the MainWindow adapter (H2)."""
         self.logger.info('deleteFit')
 
         self._close_alpha_filter_popup()
@@ -880,7 +892,7 @@ class FitManager:
         if ax is None:
             self.logger.warning('deleteFit - called without ax context; cannot delete fit')
             return
-        userFitIdxs = self._popup.delete_fitIdx_list.text().split()
+        userFitIdxs = (fit_idx_text or "").split()
         availableFitIdxs = self.listFitLineLabels(ax)
         notAvailableFitIdxs = [fitIdx for fitIdx in userFitIdxs if fitIdx not in availableFitIdxs]
         if notAvailableFitIdxs:
@@ -916,4 +928,4 @@ class FitManager:
         textLabels = ''
         for label in fitLabels:
             textLabels += label + " "
-        self._popup.delete_fitIdx_list.setText(textLabels)
+        self.fitLabelsTextChanged.emit(textLabels)

@@ -3,7 +3,6 @@ import logging
 import CPyConverter as cpy
 
 from PyQt5.QtCore import QThread, QTimer, pyqtSignal, pyqtSlot
-from PyQt5.QtWidgets import QComboBox, QCompleter
 from PyQt5 import QtCore
 
 from PyREST import PyREST
@@ -25,13 +24,16 @@ class ConnectionManager(QtCore.QObject):
     # P7: connect attempt refused (shm mapping cannot change within a process);
     # payload is the user-facing message.
     connectionRefused     = pyqtSignal(str)
+    # H2: connect-button rendering inverted into signals — MainWindow owns the
+    # widget (adapters _render_connect_state / _on_connect_attempt_busy).
+    connectionStateChanged = pyqtSignal(str)   # "connected" | "connecting" | "disconnected"
+    connectAttemptBusy     = pyqtSignal(bool)  # True while the mirror transfer runs
+    spectrumListUpdated    = pyqtSignal(list, bool)  # (sorted names, init) — replaces histo_list surgery
 
-    def __init__(self, wConf, connect_config, spectra,
+    def __init__(self, spectra,
                  update_intervals, update_intervals_user,
                  stop_rest, stop_auto, skip_auto, logger=None):
         super().__init__()
-        self._wConf              = wConf
-        self._connect_config     = connect_config
         self._spectra            = spectra
         self._update_intervals      = update_intervals
         self._update_intervals_user = update_intervals_user
@@ -56,35 +58,21 @@ class ConnectionManager(QtCore.QObject):
         self._mapped_shmem_size  = None   # bytes, REST-reported at mapping time
         self._pending_endpoint   = None
         self._pending_shmem_size = None
-
-    # ------------------------------------------------------------------
-    # Connection popup callbacks
-    # ------------------------------------------------------------------
-
-    def connectPopup(self):
-        self.logger.info('callback connectPopup')
-        self._connect_config.show()
-
-    def closeConnect(self):
-        self.logger.info('closeConnect callback')
-        self._connect_config.close()
-
-    def okConnect(self):
-        self.logger.info('okConnect')
-        self.connectShMem()
-        self.closeConnect()
+        # H2: connect parameters of the last attempt that passed the P7 guards;
+        # flush-time CPyConverter calls reuse these instead of re-reading the
+        # popup fields (which now live in MainWindow). Order matches
+        # CPyConverter.Update: (hostname, port, mirror, user).
+        self._last_connect_params = None
 
     # ------------------------------------------------------------------
     # REST + shared memory connection
     # ------------------------------------------------------------------
 
-    def connectShMem(self):
+    def connectShMem(self, hostname, port, user, mirror):
+        """Connect to SpecTcl REST + the shm mirror. The four parameters are
+        supplied by the MainWindow adapter from the connection popup (H2)."""
         self.logger.info('connectShMem')
         try:
-            hostname = str(self._connect_config.server.text())
-            port     = str(self._connect_config.rest.text())
-            user     = str(self._connect_config.user.text())
-            mirror   = str(self._connect_config.mirror.text())
             self.logger.debug('connectShMem - host: %s -- user: %s -- RESTPort: %s -- MirrorPort: %s',
                                hostname, user, port, mirror)
 
@@ -113,8 +101,7 @@ class ConnectionManager(QtCore.QObject):
             else:
                 self._rest = PyREST(self.logger, hostname, port)
 
-            self._wConf.connectButton.setStyleSheet("background-color:rgb(252, 48, 3);")
-            self._wConf.connectButton.setText("Disconnected")
+            self.connectionStateChanged.emit("disconnected")
 
             if not self._rest.checkSpecTclREST():
                 self.logger.debug('connectShMem - invalid URL for SpecTclREST')
@@ -140,6 +127,7 @@ class ConnectionManager(QtCore.QObject):
                 self.logger.warning('connectShMem - shmem size unavailable from REST; size-change guard inactive for this connect')
             self._pending_endpoint   = endpoint
             self._pending_shmem_size = shmem_size
+            self._last_connect_params = (hostname, port, mirror, user)
 
             self.logger.debug("connectShMem - could make REST request of server")
             self._stop_rest_thread()
@@ -155,9 +143,8 @@ class ConnectionManager(QtCore.QObject):
             self._rest_thread.start()
 
             # Mirror transfer is slow (full shmem copy over TCP) — run it off the GUI thread.
-            self._wConf.connectButton.setStyleSheet("background-color:rgb(255, 200, 0);")
-            self._wConf.connectButton.setText("Connecting to mirror…")
-            self._wConf.connectButton.setEnabled(False)
+            self.connectionStateChanged.emit("connecting")
+            self.connectAttemptBusy.emit(True)
 
             if self._connect_thread is not None:
                 self._connect_thread.quit()
@@ -173,7 +160,7 @@ class ConnectionManager(QtCore.QObject):
 
         except Exception:
             self.logger.exception('connectShMem - Exception')
-            self._wConf.connectButton.setEnabled(True)
+            self.connectAttemptBusy.emit(False)
             raise
 
     @pyqtSlot(object)
@@ -223,15 +210,14 @@ class ConnectionManager(QtCore.QObject):
 
             self.updateSpectrumList(True)
         finally:
-            self._wConf.connectButton.setEnabled(True)
+            self.connectAttemptBusy.emit(False)
             self._connect_thread.quit()
 
     @pyqtSlot(str)
     def _on_connect_failed(self, msg):
         self.logger.error('connectShMem - mirror transfer failed: %s', msg)
-        self._wConf.connectButton.setStyleSheet("background-color:rgb(252, 48, 3);")
-        self._wConf.connectButton.setText("Disconnected")
-        self._wConf.connectButton.setEnabled(True)
+        self.connectionStateChanged.emit("disconnected")
+        self.connectAttemptBusy.emit(False)
         self._connect_thread.quit()
 
     # ------------------------------------------------------------------
@@ -270,10 +256,10 @@ class ConnectionManager(QtCore.QObject):
         if not pending:
             return
 
-        hostname = self._connect_config.server.text()
-        port     = self._connect_config.rest.text()
-        user     = self._connect_config.user.text()
-        mirror   = self._connect_config.mirror.text()
+        if self._last_connect_params is None:
+            self.logger.debug('_flush_spectrum_adds - no accepted connect parameters yet')
+            return
+        hostname, port, mirror, user = self._last_connect_params
         try:
             s = cpy.CPyConverter().Update(
                 bytes(hostname, encoding='utf-8'),
@@ -394,15 +380,7 @@ class ConnectionManager(QtCore.QObject):
 
     def updateSpectrumList(self, init=False):
         self.logger.debug('updateSpectrumList')
-        self._wConf.histo_list.blockSignals(True)
-        self._wConf.histo_list.clear()
-        self._wConf.histo_list.addItems(self._spectra.all_names())
-        self._wConf.histo_list.blockSignals(False)
-        if init:
-            self._wConf.histo_list.setEditable(True)
-            self._wConf.histo_list.setInsertPolicy(QComboBox.NoInsert)
-            self._wConf.histo_list.completer().setCompletionMode(QCompleter.PopupCompletion)
-            self._wConf.histo_list.completer().setFilterMode(QtCore.Qt.MatchContains)
+        self.spectrumListUpdated.emit(self._spectra.all_names(), init)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -443,15 +421,13 @@ class ConnectionManager(QtCore.QObject):
     @pyqtSlot()
     def _on_rest_connected(self):
         self.logger.info('_on_rest_connected')
-        self._wConf.connectButton.setStyleSheet("background-color:#bcee68;")
-        self._wConf.connectButton.setText("Connected")
+        self.connectionStateChanged.emit("connected")
         self.connectionEstablished.emit()
 
     @pyqtSlot()
     def _on_rest_disconnected(self):
         self.logger.info('_on_rest_disconnected')
-        self._wConf.connectButton.setStyleSheet("background-color:rgb(252, 48, 3);")
-        self._wConf.connectButton.setText("Disconnected")
+        self.connectionStateChanged.emit("disconnected")
         if self._rest_thread is not None:
             self._rest_thread.quit()
             self._rest_thread.wait()
@@ -466,11 +442,12 @@ class ConnectionManager(QtCore.QObject):
         self.logger.info('autoUpdateResume')
         self.skipAutoUpdateThread.clear()
 
-    def autoUpdateStart(self):
+    def autoUpdateStart(self, interval_index):
+        """Start the auto-update worker. `interval_index` selects from the
+        configured interval tables (H2: the combo read lives in MainWindow)."""
         self.logger.info('autoUpdateStart')
-        val_auto = self._wConf.autoUpdate2.currentIndex()
-        updateInterval     = self._update_intervals[val_auto]
-        updateIntervalUser = self._update_intervals_user[val_auto]
+        updateInterval     = self._update_intervals[interval_index]
+        updateIntervalUser = self._update_intervals_user[interval_index]
         try:
             self._stop_auto_thread()
             self.stopAutoUpdateThread.clear()

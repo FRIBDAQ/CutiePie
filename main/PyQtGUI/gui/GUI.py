@@ -311,7 +311,6 @@ class MainWindow(QMainWindow):
         self.fit_manager = FitManager(
             fit_factory=self.fit_factory,
             spectra=self.spectra,
-            extra_popup=self.extraPopup,
             parent_widget=self,
             logger=self.logger,
         )
@@ -352,8 +351,6 @@ class MainWindow(QMainWindow):
             logger=self.logger,
         )
         self.connection_manager = ConnectionManager(
-            wConf=self.wConf,
-            connect_config=self.connectConfig,
             spectra=self.spectra,
             update_intervals=AUTO_UPDATE_INTERVALS,
             update_intervals_user=AUTO_UPDATE_INTERVAL_NAMES,
@@ -372,8 +369,6 @@ class MainWindow(QMainWindow):
         self.maxZ = 256
 
         self.plot_controller = PlotController(
-            wTab=self.wTab,
-            wConf=self.wConf,
             spectra=self.spectra,
             get_current_plot=lambda: self.currentPlot,
             get_geo=self.getGeo,
@@ -390,7 +385,6 @@ class MainWindow(QMainWindow):
             clean_popup_exit=self.cleanPopupExit,
             auto_update_start=self.autoUpdateStart,
             stop_auto_update_thread=self.stopAutoUpdateThread,
-            cutoff_popup=self.cutoffp,
             min_y=self.minY,
             max_y=self.maxY,
             min_z=self.minZ,
@@ -435,15 +429,24 @@ class MainWindow(QMainWindow):
         #################
 
         # top menu signals
-        self.wConf.connectButton.clicked.connect(self.connection_manager.connectPopup)
-        self.connectConfig.ok.clicked.connect(self.connection_manager.okConnect)
-        self.connectConfig.cancel.clicked.connect(self.connection_manager.closeConnect)
+        self.wConf.connectButton.clicked.connect(self.connectPopup)
+        self.connectConfig.ok.clicked.connect(self.okConnect)
+        self.connectConfig.cancel.clicked.connect(self.closeConnect)
         self.connection_manager.connectionEstablished.connect(self.setCanvasLayout)
         self.connection_manager.spectrumRemoved.connect(self._on_spectrum_removed_rest)
         self.connection_manager.spectrumListChanged.connect(self.refreshSpectrumSumRegionDict)
         self.connection_manager.updatePlotRequested.connect(self._updatePlotOnGui)
         self.connection_manager.shmViewsInvalidated.connect(self._on_shm_views_invalidated)
         self.connection_manager.connectionRefused.connect(self._on_connection_refused)
+        self.connection_manager.connectionStateChanged.connect(self._render_connect_state)
+        self.connection_manager.connectAttemptBusy.connect(self._on_connect_attempt_busy)
+        self.connection_manager.spectrumListUpdated.connect(self._render_spectrum_list)
+        self.fit_manager.fitBusyChanged.connect(self._on_fit_busy)
+        self.fit_manager.abortEnabledChanged.connect(self._on_abort_enabled)
+        self.fit_manager.fitResultsAppended.connect(self._append_fit_results)
+        self.fit_manager.fitLabelsTextChanged.connect(self._set_fit_labels_text)
+        self.plot_controller.cutoffPopupPrepared.connect(self._show_cutoff_popup)
+        self.plot_controller.cutoffPopupCloseRequested.connect(self.cutoffp.close)
 
         ### Bashir added to auto select connect button if ports are default
         rest_text   = self.connectConfig.rest.text().strip()
@@ -615,16 +618,19 @@ class MainWindow(QMainWindow):
 
         self.wTab.countClickTab[self.wTab.currentIndex()] = True
 
-        # extra popup — wired directly to fit_manager
+        # extra popup — wired to fit_manager; popup field reads happen HERE
+        # (H2: the service takes plain arguments, never widget references)
         self.extraPopup.fit_button.clicked.connect(
-            lambda: self.fit_manager.fit(*self._current_plot_ctx()))
+            lambda: self.fit_manager.fit(*self._current_plot_ctx(), *self._fit_inputs()))
         self.extraPopup.plot_csv_button.clicked.connect(self.fit_manager.on_plot_csv_clicked)
-        self.extraPopup.fit_csv_button.clicked.connect(self.fit_manager.on_fit_csv_clicked)
+        self.extraPopup.fit_csv_button.clicked.connect(
+            lambda: self.fit_manager.on_fit_csv_clicked(*self._fit_inputs()))
         self.extraPopup.abort_button.clicked.connect(self.fit_manager.on_abort_clicked)
         self.extraPopup.all_fitIdx_button.clicked.connect(
             lambda: self.fit_manager.printFitLineLabels(*self._current_plot_ctx()))
         self.extraPopup.delete_button.clicked.connect(
-            lambda: self.fit_manager.deleteFit(*self._current_plot_ctx()))
+            lambda: self.fit_manager.deleteFit(*self._current_plot_ctx(),
+                                               self.extraPopup.delete_fitIdx_list.text()))
 
         self.extraPopup.peak.peak_analysis.clicked.connect(self.analyzePeak)
         self.extraPopup.peak.peak_analysis_clear.clicked.connect(self.peakAnalClear)
@@ -1398,7 +1404,19 @@ class MainWindow(QMainWindow):
 
 
     #set geometry of the canvas
-    def setCanvasLayout(self):                   return self.plot_controller.setCanvasLayout()
+    def setCanvasLayout(self):
+        # H2: the geometry combos and tab widget live here; the service only
+        # keeps the geometry_applied flag (markGeometryApplied).
+        self.logger.info('setCanvasLayout')
+        indexTab = self.wTab.currentIndex()
+        nRow = int(self.wConf.histo_geo_row.currentText())
+        nCol = int(self.wConf.histo_geo_col.currentText())
+        self.wTab.layout[indexTab] = [nRow, nCol]
+        self.wTab.wPlot[indexTab].InitializeCanvas(nRow, nCol)
+        self.wTab.selected_plot_index_bak[indexTab] = None
+        self.currentPlot.selected_plot_index = None
+        self.currentPlot.next_plot_index     = -1
+        self.plot_controller.markGeometryApplied()
 
     
 ###############################################
@@ -1593,6 +1611,82 @@ class MainWindow(QMainWindow):
         """P7 guard tripped in ConnectionManager: surface it, since the connect
         attempt was dropped without changing the running session."""
         QMessageBox.warning(self, "Connection refused", msg)
+
+    @pyqtSlot(str)
+    def _render_connect_state(self, state):
+        """H2 adapter: ConnectionManager reports connection state via signal;
+        only this window touches the connect button."""
+        button = self.wConf.connectButton
+        if state == "connected":
+            button.setStyleSheet("background-color:#bcee68;")
+            button.setText("Connected")
+        elif state == "connecting":
+            button.setStyleSheet("background-color:rgb(255, 200, 0);")
+            button.setText("Connecting to mirror…")
+        else:
+            button.setStyleSheet("background-color:rgb(252, 48, 3);")
+            button.setText("Disconnected")
+
+    @pyqtSlot(bool)
+    def _on_connect_attempt_busy(self, busy):
+        """H2 adapter: the connect button is disabled while the mirror transfer runs."""
+        self.wConf.connectButton.setEnabled(not busy)
+
+    @pyqtSlot(list, bool)
+    def _render_spectrum_list(self, names, init):
+        """H2 adapter: ConnectionManager publishes the bound-spectrum names;
+        only this window touches the histo_list combo."""
+        self.wConf.histo_list.blockSignals(True)
+        self.wConf.histo_list.clear()
+        self.wConf.histo_list.addItems(names)
+        self.wConf.histo_list.blockSignals(False)
+        if init:
+            self.wConf.histo_list.setEditable(True)
+            self.wConf.histo_list.setInsertPolicy(QComboBox.NoInsert)
+            self.wConf.histo_list.completer().setCompletionMode(QCompleter.PopupCompletion)
+            self.wConf.histo_list.completer().setFilterMode(QtCore.Qt.MatchContains)
+
+    @pyqtSlot(bool)
+    def _on_fit_busy(self, busy):
+        """H2 adapter: while a fit runs, the fit button is off and abort is on."""
+        self.extraPopup.fit_button.setEnabled(not busy)
+        self.extraPopup.abort_button.setEnabled(busy)
+
+    @pyqtSlot(bool)
+    def _on_abort_enabled(self, enabled):
+        """H2 adapter: FitManager acknowledges an abort request."""
+        self.extraPopup.abort_button.setEnabled(enabled)
+
+    @pyqtSlot(str)
+    def _append_fit_results(self, text):
+        """H2 adapter: FitManager publishes fit-result lines for the popup box."""
+        self.extraPopup.fit_results.append(text)
+
+    @pyqtSlot(str)
+    def _set_fit_labels_text(self, text):
+        """H2 adapter: FitManager publishes the current fit-line label list."""
+        self.extraPopup.delete_fitIdx_list.setText(text)
+
+    @pyqtSlot(dict)
+    def _show_cutoff_popup(self, info):
+        """H2 adapter: PlotController prepared the cutoff/zoom popup payload;
+        only this window touches the popup widget."""
+        name = info.get("name")
+        self.cutoffp.setWindowTitle("Set zoom range for: " + (name if name is not None else "???"))
+        self.cutoffp.setGeometry(300, 100, 300, 100)
+        if self.cutoffp.isVisible():
+            self.cutoffp.close()
+        self.cutoffp.lineeditXMin.setText(f"{info['xmin']:.1f}")
+        self.cutoffp.lineeditXMax.setText(f"{info['xmax']:.1f}")
+        self.cutoffp.lineeditYMin.setText(f"{info['ymin']:.1f}")
+        self.cutoffp.lineeditYMax.setText(f"{info['ymax']:.1f}")
+        if info["dim"] == 2:
+            self.cutoffp.lineeditZMin.setText(f"{info['zmin']:.1f}")
+            self.cutoffp.lineeditZMax.setText(f"{info['zmax']:.1f}")
+            self.cutoffp.layout2d()
+        elif info["dim"] == 1:
+            self.cutoffp.layout1d()
+        self.cutoffp.show()
 
     @pyqtSlot(str)
     def _on_spectrum_removed_rest(self, name):
@@ -2095,9 +2189,14 @@ class MainWindow(QMainWindow):
 
 
     #button of the cutoff window, sets the cutoff values in the spectrum dict
-    def okCutoff(self):                          return self.plot_controller.okCutoff()
+    def okCutoff(self):
+        return self.plot_controller.okCutoff(
+            self.cutoffp.lineeditXMin.text(), self.cutoffp.lineeditXMax.text(),
+            self.cutoffp.lineeditYMin.text(), self.cutoffp.lineeditYMax.text(),
+            self.cutoffp.lineeditZMin.text(), self.cutoffp.lineeditZMax.text())
         
-    def cancelCutoff(self):                      return self.plot_controller.cancelCutoff()
+    def cancelCutoff(self):
+        self.cutoffp.close()
 
     def resetCutoff(self, doUpdate):             return self.plot_controller.resetCutoff(doUpdate)
 
@@ -2121,7 +2220,9 @@ class MainWindow(QMainWindow):
 
 
     # returns position in grid based on indexing
-    def plotPosition(self, index):               return self.plot_controller.plotPosition(index)
+    def plotPosition(self, index):
+        return self.plot_controller.plotPosition(
+            index, self.wTab.layout[self.wTab.currentIndex()])
 
 
     # setup histogram limits according to the ReST info
@@ -2138,7 +2239,11 @@ class MainWindow(QMainWindow):
     # also called in loadGeo
     # geometrically add plots to the right place
     # plot axis as defined in the ReST interface.
-    def addPlot(self):                           return self.plot_controller.addPlot()
+    def addPlot(self):
+        selected = (self.wConf.histo_list.currentText()
+                    if self.wConf.histo_list.count() else None)
+        return self.plot_controller.addPlot(
+            selected, self.wTab.countClickTab[self.wTab.currentIndex()])
 
 
     #why not using np.linspace(vmin, vmax, bins)
@@ -2203,6 +2308,14 @@ class MainWindow(QMainWindow):
         Used by fit_manager signal lambdas to pass resolved context without a bridge."""
         idx = self.autoIndex()
         return idx, self.nameFromIndex(idx), self.getSpectrumInfo("axis", index=idx)
+
+    def _fit_inputs(self):
+        """Gather the fit popup fields FitManager needs as plain values (H2):
+        (fit_funct, [20 parameter texts], range_min_text, range_max_text)."""
+        p = self.extraPopup
+        texts = [getattr(p, f"fit_p{i}").text() for i in range(20)]
+        return (p.fit_list.currentText(), texts,
+                p.fit_range_min.text(), p.fit_range_max.text())
 
     #go to next index, used in addPlot, so that one can add spectrum without selecting everytime the pad where to draw
     def nextIndex(self):
@@ -2476,15 +2589,20 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Fit methods — delegated to FitManager (see gui/services/fit_manager.py)
     # ------------------------------------------------------------------
-    def fit(self):               return self.fit_manager.fit(*self._current_plot_ctx())
-    def deleteFit(self):         return self.fit_manager.deleteFit(*self._current_plot_ctx())
+    def fit(self):
+        return self.fit_manager.fit(*self._current_plot_ctx(), *self._fit_inputs())
+    def deleteFit(self):
+        return self.fit_manager.deleteFit(*self._current_plot_ctx(),
+                                          self.extraPopup.delete_fitIdx_list.text())
     def listFitLineLabels(self, ax):     return self.fit_manager.listFitLineLabels(ax)
     def printFitLineLabels(self): return self.fit_manager.printFitLineLabels(*self._current_plot_ctx())
     def setFitLineLabel(self, ax, line, resultsText, spectrumName):
         return self.fit_manager.setFitLineLabel(ax, line, resultsText, spectrumName)
     def setFitResultsLineLabel(self, fitLineLabelIdx, resultsText, spectrumName):
         return self.fit_manager.setFitResultsLineLabel(fitLineLabelIdx, resultsText, spectrumName)
-    def axisLimitsForFit(self, ax):      return self.fit_manager.axisLimitsForFit(ax)
+    def axisLimitsForFit(self, ax):
+        return self.fit_manager.axisLimitsForFit(
+            ax, self.extraPopup.fit_range_min.text(), self.extraPopup.fit_range_max.text())
 
     # ------------------------------------------------------------------
     # Gate methods — delegated to GateManager (see gui/services/gate_manager.py)
@@ -2526,12 +2644,26 @@ class MainWindow(QMainWindow):
         name = self.nameFromIndex(idx)
         return self.sum_region_manager.integrateGateLocal(idx, name, lines)
 
-    # -- ConnectionManager shims --
-    def connectShMem(self):              return self.connection_manager.connectShMem()
-    def connectPopup(self):              return self.connection_manager.connectPopup()
-    def okConnect(self):                 return self.connection_manager.okConnect()
-    def closeConnect(self):              return self.connection_manager.closeConnect()
-    def autoUpdateStart(self):           return self.connection_manager.autoUpdateStart()
+    # -- ConnectionManager shims + popup adapters (H2: the popup widget and
+    #    its field reads live here; the service takes plain arguments) --
+    def connectShMem(self):
+        return self.connection_manager.connectShMem(
+            str(self.connectConfig.server.text()),
+            str(self.connectConfig.rest.text()),
+            str(self.connectConfig.user.text()),
+            str(self.connectConfig.mirror.text()),
+        )
+    def connectPopup(self):
+        self.logger.info('callback connectPopup')
+        self.connectConfig.show()
+    def okConnect(self):
+        self.logger.info('okConnect')
+        self.connectShMem()
+        self.closeConnect()
+    def closeConnect(self):
+        self.logger.info('closeConnect callback')
+        self.connectConfig.close()
+    def autoUpdateStart(self):           return self.connection_manager.autoUpdateStart(self.wConf.autoUpdate2.currentIndex())
     def autoUpdateResume(self):          return self.connection_manager.autoUpdateResume()
     def updateSpectrumList(self, init=False): return self.connection_manager.updateSpectrumList(init)
     def updateFromTraces(self, tracesDetails): return self.connection_manager.updateFromTraces(tracesDetails)

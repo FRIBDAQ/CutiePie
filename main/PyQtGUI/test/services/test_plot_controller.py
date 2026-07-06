@@ -16,8 +16,13 @@ def test_plot_controller_constructor_params():
     import inspect
     sig = inspect.signature(PlotController.__init__)
     params = list(sig.parameters)
-    for p in ('wTab', 'wConf', 'spectra', 'parent_widget', 'logger'):
+    for p in ('spectra', 'parent_widget', 'logger'):
         assert p in params, f"Missing: {p}"
+    # H2: the service must not receive widgets (tab bundle, main-window
+    # widget bundle, or the cutoff popup)
+    assert 'wTab' not in params
+    assert 'wConf' not in params
+    assert 'cutoff_popup' not in params
 
 
 def test_plot_controller_has_update_plot():
