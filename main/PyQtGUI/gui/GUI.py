@@ -339,8 +339,8 @@ class MainWindow(QMainWindow):
             spectra=self.spectra,
             name_from_index=self.nameFromIndex,
             get_spectrum_info=self.getSpectrumInfo,
-            histo_list=self.wConf.histo_list,
-            integrate_popup=self.integratePopup,
+            get_histo_names=lambda: [self.wConf.histo_list.itemText(i)
+                                     for i in range(self.wConf.histo_list.count())],
             skip_auto=self.skipAutoUpdateThread,
             add_line=lambda *a, **kw: self.gate_manager.addLine(*a, mode="sum_region", **kw),
             remove_prev_line=lambda: self.gate_manager.removePrevLine(mode="sum_region"),
@@ -548,10 +548,14 @@ class MainWindow(QMainWindow):
         # summing region
         self.wConf.createSumRegionButton.clicked.connect(
             lambda: self.sum_region_manager.createSumRegion(*self._current_plot_ctx()))
-        self.sumRegionPopup.ok.clicked.connect(self.sum_region_manager.okSumRegion)
+        self.sumRegionPopup.ok.clicked.connect(
+            lambda: self.sum_region_manager.okSumRegion(
+                self.sumRegionPopup.sumRegionNameList.currentText()))
         self.sumRegionPopup.cancel.clicked.connect(self.sum_region_manager.cancelSumRegion)
         self.sumRegionPopup.delete.clicked.connect(
-            lambda: self.sum_region_manager.deleteSumRegion(*self._current_plot_ctx()))
+            lambda: self.sum_region_manager.deleteSumRegion(
+                *self._current_plot_ctx(),
+                self.sumRegionPopup.sumRegionNameList.currentText()))
         self.sumRegionPopup.clearInfoSignal.connect(self.sumRegionPopup.clearInfo)
         self.sumRegionPopup.clearInfoSignal.connect(self.autoUpdateResume)
         self.sum_region_manager.canvasDrawRequested.connect(self._on_srm_canvas_draw)
@@ -560,7 +564,13 @@ class MainWindow(QMainWindow):
         self.sum_region_manager.sumRegionStarted.connect(self._on_sum_region_started)
         self.sum_region_manager.sumRegionEnded.connect(self._on_sum_region_ended)
         self.sum_region_manager.gateSignalsDisconnectRequested.connect(self.disconnectGateSignals)
-        self.sum_region_manager.sidTableConnectionUpdated.connect(self._on_side_table_conn_updated)
+        # H2 adapters: only this window touches the sum-region popup / integrate table
+        self.sum_region_manager.regionReadoutChanged.connect(self._on_region_readout_changed)
+        self.sum_region_manager.sumRegionCreatePrepared.connect(self._on_sum_region_create_prepared)
+        self.sum_region_manager.sumRegionSelectionChanged.connect(self._on_sum_region_selection_changed)
+        self.sum_region_manager.sumRegionPopupCloseRequested.connect(self._on_sum_region_popup_close)
+        self.sum_region_manager.integrationResultsReady.connect(self._on_integration_results)
+        self.sum_region_manager.integratePopupCloseRequested.connect(self._on_integrate_popup_close)
 
         # self.wConf.editGate.setToolTip("Key bindings for Modify->Edit:\n"
         #                               "'i' insert vertex\n"
@@ -1552,9 +1562,66 @@ class MainWindow(QMainWindow):
     def _on_sum_region_ended(self):
         self.currentPlot.toCreateSumRegion = False
 
-    @pyqtSlot(object)
-    def _on_side_table_conn_updated(self, conn):
-        self.sidTableIntegrateCopy = conn
+    @pyqtSlot(str)
+    def _on_region_readout_changed(self, text):
+        """H2 adapter: SumRegionManager reports the region-point readout via
+        signal; only this window writes the popup text box."""
+        self.sumRegionPopup.regionPoint.clear()
+        self.sumRegionPopup.regionPoint.insertPlainText(text)
+
+    @pyqtSlot(list)
+    def _on_sum_region_create_prepared(self, names):
+        """H2 adapter: populate the sum-region name combo from the names the
+        service resolved, then show the popup."""
+        combo = self.sumRegionPopup.sumRegionNameList
+        self.sumRegionPopup.clearInfo()
+        combo.setEditable(True)
+        combo.setInsertPolicy(QComboBox.NoInsert)
+        for name in names:
+            combo.addItem(name)
+        combo.setCurrentText("None")
+        combo.completer().setCompletionMode(QCompleter.PopupCompletion)
+        combo.completer().setFilterMode(QtCore.Qt.MatchContains)
+        self.sumRegionPopup.show()
+
+    @pyqtSlot(str)
+    def _on_sum_region_selection_changed(self, text):
+        self.sumRegionPopup.sumRegionNameList.setCurrentText(text)
+
+    @pyqtSlot()
+    def _on_sum_region_popup_close(self):
+        self.sumRegionPopup.close()
+
+    @pyqtSlot(list)
+    def _on_integration_results(self, rows):
+        """H2 adapter: SumRegionManager computes integration result rows; only
+        this window builds the integrate table. Empty rows -> 'Nothing to
+        integrate'."""
+        table = self.integratePopup.resultsText
+        self.integratePopup.clearInfo()
+        colHeader = ['Spectrum', 'Region', 'Counts', 'Centroid X', 'Centroid Y', 'FWHM X', 'FWHM Y']
+        for col, header in enumerate(colHeader):
+            headerItem = QTableWidgetItem(header)
+            font = table.font()
+            font.setBold(True)
+            headerItem.setFont(font)
+            table.setHorizontalHeaderItem(col, headerItem)
+        if not rows:
+            table.insertRow(0)
+            table.setItem(0, 0, QTableWidgetItem("Nothing to integrate"))
+            self.integratePopup.show()
+            return
+        for irow, row in enumerate(rows):
+            table.insertRow(irow)
+            for icol, cell in enumerate(row):
+                table.setItem(irow, icol, QTableWidgetItem(cell))
+        self.sidTableIntegrateCopy = table.itemSelectionChanged.connect(
+            self.copySelectionIntegrateTable)
+        self.integratePopup.show()
+
+    @pyqtSlot()
+    def _on_integrate_popup_close(self):
+        self.integratePopup.close()
 
     @pyqtSlot()
     def _on_gm_canvas_draw(self):
@@ -2629,16 +2696,34 @@ class MainWindow(QMainWindow):
     def refreshSpectrumSumRegionDict(self):      return self.sum_region_manager.refreshSpectrumSumRegionDict()
     def saveSumRegion(self, index):
         name = self.nameFromIndex(index)
-        return self.sum_region_manager.saveSumRegion(index, name)
+        return self.sum_region_manager.saveSumRegion(
+            index, name, self.sumRegionPopup.sumRegionNameList.currentText())
     def createSumRegion(self):                   return self.sum_region_manager.createSumRegion(*self._current_plot_ctx())
-    def okSumRegion(self):                       return self.sum_region_manager.okSumRegion()
+    def okSumRegion(self):
+        return self.sum_region_manager.okSumRegion(
+            self.sumRegionPopup.sumRegionNameList.currentText())
     def cancelSumRegion(self, doClose=True):     return self.sum_region_manager.cancelSumRegion(doClose)
-    def cleanPopupExit(self, doClose=True):      return self.sum_region_manager.cleanPopupExit(doClose)
-    def deleteSumRegion(self):                   return self.sum_region_manager.deleteSumRegion(*self._current_plot_ctx())
+    def cleanPopupExit(self, doClose=True):
+        return self.sum_region_manager.cleanPopupExit(doClose, self.sumRegionPopup.isVisible())
+    def deleteSumRegion(self):
+        return self.sum_region_manager.deleteSumRegion(
+            *self._current_plot_ctx(), self.sumRegionPopup.sumRegionNameList.currentText())
     def integrate(self):                         return self.sum_region_manager.integrate(*self._current_plot_ctx())
     def okIntegrate(self):                       return self.sum_region_manager.okIntegrate()
-    def copySelectionIntegrateTable(self):       return self.sum_region_manager.copySelectionIntegrateTable()
-    def formatResultsIntegrate(self, results):   return self.sum_region_manager.formatResultsIntegrate(results)
+    def copySelectionIntegrateTable(self):
+        # H2: the integrate table lives here now; this reads it + writes clipboard.
+        resultTable = self.integratePopup.resultsText
+        if not resultTable.selectedItems():
+            return
+        allValues = []
+        for irow in range(resultTable.rowCount()):
+            rowValues = []
+            for icol in range(resultTable.columnCount()):
+                item = resultTable.item(irow, icol)
+                rowValues.append(item.text() if item else "")
+            if rowValues:
+                allValues.append("\t".join(rowValues))
+        QApplication.clipboard().setText("\n".join(allValues))
     def setPrecisionIntegrationResult(self, d):  return self.sum_region_manager.setPrecisionIntegrationResult(d)
     def integrateGateLocal(self, idx, lines):
         name = self.nameFromIndex(idx)

@@ -217,6 +217,7 @@ def _build_stub_pyqt5():
     qtwidgets.QVBoxLayout = _StubWidget
     qtwidgets.QInputDialog = _StubWidget
     qtwidgets.QTextEdit = _StubWidget
+    qtwidgets.QTableWidgetItem = _StubWidget
     qtwidgets.QMenu = StubQMenu
 
     pyqt5 = types.ModuleType("PyQt5")
