@@ -903,9 +903,12 @@ class PlotController(QObject):
                 self.logger.debug('updatePlot - self.currentPlot.isEnlarged TRUE')
                 ax = self._get_spectrum_info("axis", index=0)
                 if ax is None:
-                    self.logger.debug('updatePlot - ax is None')
-                    if len(self._get_spectrum_info_dict()) == 0:
-                        return QMessageBox.about(self._parent_widget, "Warning!", "Configuration file has probably changed, please reset the window geometry (add plots or load geo file)")
+                    # No axis built for the enlarged pad yet (polling started
+                    # before Add/geometry, or the geo file drifted). Skip the
+                    # tick quietly — never a modal here: this path is driven by
+                    # the auto-update timer, so a blocking dialog stacks a new
+                    # one every tick and freezes the GUI (SMOKE-A7).
+                    self.logger.debug('updatePlot - ax is None (enlarged); skipping tick')
                     return
                 self.plotPlot(index)
                 dim = self._spectra.get(self._name_from_index(0), "dim")
@@ -920,9 +923,12 @@ class PlotController(QObject):
                 for index, value in self._get_geo().items():
                     ax = self._get_spectrum_info("axis", index=index)
                     if ax is None:
-                        self.logger.debug('updatePlot - ax is None')
-                        if len(self._get_spectrum_info_dict()) == 0:
-                            return QMessageBox.about(self._parent_widget, "Warning!", "Configuration file has probably changed, please reset the window geometry (add plots or load geo file)")
+                        # This geometry slot has no built axis yet — skip it and
+                        # keep refreshing the valid pads. Never a modal here (see
+                        # the enlarged branch above): the auto-update timer drives
+                        # this loop, so a per-tick blocking dialog freezes the GUI
+                        # (SMOKE-A7).
+                        self.logger.debug('updatePlot - ax is None for index %s; skipping slot', index)
                         continue
                     self.plotPlot(index)
                     dim = self._spectra.get(self._name_from_index(index), "dim")

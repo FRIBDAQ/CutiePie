@@ -273,6 +273,32 @@ def test_update_plot_grid_flow(rig):
     assert len(x) == 11                             # plotPlot ran
 
 
+def test_update_plot_no_axis_never_pops_modal(rig):
+    # SMOKE-A7 regression: an auto-update tick that finds a geometry slot with
+    # no built axis (polling started before Add/geometry, or a config change)
+    # must NOT raise a modal dialog — the timer keeps firing, so a modal here
+    # stacks a new blocking dialog every tick and freezes the GUI.
+    rig.geo[0] = "h1"          # geometry references a spectrum...
+    assert rig.info == {}      # ...but no axis has been built for it
+    rig.pc.updatePlot()
+    assert rig.msgbox.calls == []          # no dialog from the render tick
+    assert rig.draw_gate_calls == []       # nothing drawn, cleanly skipped
+
+
+def test_update_plot_skips_empty_slot_but_draws_valid_one(pc_mod, monkeypatch):
+    # A half-configured grid (slot 0 unbuilt, slot 1 valid) must still refresh
+    # the valid pad instead of bailing on the whole tick.
+    rig = Rig(pc_mod, monkeypatch, nrows=1, ncols=2)
+    rig.geo[0] = "missing"
+    ax = rig.add_1d(name="h1", index=1)
+    line = make_line(ax)
+    rig.set_info(index=1, spectrum=line)
+    rig.pc._layout_dirty = False
+    rig.pc.updatePlot()
+    assert rig.msgbox.calls == []
+    assert rig.draw_gate_calls == [1]      # valid slot 1 was drawn
+
+
 def test_zoom_in_out_1d(rig):
     ax = rig.add_1d()
     line = make_line(ax)

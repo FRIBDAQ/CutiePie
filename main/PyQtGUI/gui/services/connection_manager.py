@@ -402,6 +402,21 @@ class ConnectionManager(QtCore.QObject):
 
     def _stop_rest_thread(self):
         self.logger.info('_stop_rest_thread')
+        # Detach the worker we're discarding BEFORE we stop it. Its run() emits
+        # disconnected() (and possibly connected/traces/adds) from the
+        # finally-block as it exits; that queued signal would otherwise be
+        # delivered AFTER a reconnect has already installed a FRESH worker/
+        # thread, and _on_rest_disconnected would then quit()+wait() the fresh
+        # thread on the GUI thread — which hangs the GUI, because the fresh
+        # thread's run loop never stops (its stop event was just cleared).
+        # Severing the connections first makes the superseded worker's late
+        # signals no-ops (BUGS.md E16 / SMOKE-A4).
+        if self._rest_worker is not None:
+            for sig in ("disconnected", "connected", "tracesReady", "spectrumAdded"):
+                try:
+                    getattr(self._rest_worker, sig).disconnect()
+                except (TypeError, RuntimeError):
+                    pass
         self.stopRestThread.set()
         if self._rest_thread is not None:
             self._rest_thread.quit()

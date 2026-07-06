@@ -259,6 +259,34 @@ def test_failed_mirror_transfer_restores_button(env, monkeypatch):
 
 # --------------------------------------------------------- REST worker wiring
 
+def test_reconnect_ignores_stale_disconnect_from_old_worker(env, monkeypatch):
+    # SMOKE-A4 regression: reconnecting (same endpoint) tears down the old
+    # RestWorker, whose run() emits disconnected() from its finally-block as it
+    # exits. That signal is delivered AFTER the reconnect has installed a fresh
+    # worker/thread; if _on_rest_disconnected acts on it, it quit()+wait()s the
+    # BRAND-NEW thread on the GUI thread — and that thread's run loop never
+    # stops (its stop event was just cleared), so the GUI hangs. The superseded
+    # worker's signals must be detached at teardown so its late disconnect is a
+    # no-op.
+    env.cm._mapped_endpoint = ENDPOINT
+    env.cm._mapped_shmem_size = 4096
+    patched_connect(env, monkeypatch, qt_stubs.FakeRest(check=True, shmem_size=4096))
+    old_worker = env.cm._rest_worker
+    old_worker.connected.emit()                       # be in the connected state
+
+    env.cm.connectShMem(*CONNECT_ARGS)                 # reconnect, same values
+    new_worker = env.cm._rest_worker
+    new_thread = env.cm._rest_thread
+    assert new_worker is not old_worker
+
+    old_worker.disconnected.emit()                     # its finally-block fires late
+
+    # the fresh thread/worker must survive the stale disconnect
+    assert env.cm._rest_worker is new_worker
+    assert env.cm._rest_thread is new_thread
+    assert new_thread.quit_count == 0
+
+
 def test_rest_worker_connected_then_disconnected_updates_button(env, monkeypatch):
     patched_connect(env, monkeypatch, qt_stubs.FakeRest(check=True, shmem_size=4096))
     established = record_signal(env.cm.connectionEstablished)
