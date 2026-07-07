@@ -24,6 +24,10 @@ class ConnectionManager(QtCore.QObject):
     # P7: connect attempt refused (shm mapping cannot change within a process);
     # payload is the user-facing message.
     connectionRefused     = pyqtSignal(str)
+    # H5: the mirror transfer raised (e.g. getSpecTclMemory returned nullptr —
+    # wrong port / dead mirror service). The C++ side now raises instead of
+    # segfaulting (CPyConverter::Update null-check); MainWindow shows the message.
+    connectFailed         = pyqtSignal(str)
     # H2: connect-button rendering inverted into signals — MainWindow owns the
     # widget (adapters _render_connect_state / _on_connect_attempt_busy).
     connectionStateChanged = pyqtSignal(str)   # "connected" | "connecting" | "disconnected"
@@ -216,6 +220,7 @@ class ConnectionManager(QtCore.QObject):
     @pyqtSlot(str)
     def _on_connect_failed(self, msg):
         self.logger.error('connectShMem - mirror transfer failed: %s', msg)
+        self.connectFailed.emit(msg)                  # H5: surface the reason to the user
         self.connectionStateChanged.emit("disconnected")
         self.connectAttemptBusy.emit(False)
         self._connect_thread.quit()

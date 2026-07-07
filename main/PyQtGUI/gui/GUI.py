@@ -124,6 +124,7 @@ from PlotGUI import Tabs # area defined for the Tabs
 from PyREST import PyREST # class interface for SpecTcl REST plugin
 from services.spectrum_store import SpectrumStore
 from services.display_slot import DisplaySlot
+from services import geometry_io
 from services.thread_workers import RestWorker, AutoUpdateWorker
 from services.fit_manager import FitManager
 from services.gate_manager import GateManager
@@ -446,6 +447,7 @@ class MainWindow(QMainWindow):
         self.connection_manager.updatePlotRequested.connect(self._updatePlotOnGui)
         self.connection_manager.shmViewsInvalidated.connect(self._on_shm_views_invalidated)
         self.connection_manager.connectionRefused.connect(self._on_connection_refused)
+        self.connection_manager.connectFailed.connect(self._on_connect_failed_dialog)
         self.connection_manager.connectionStateChanged.connect(self._render_connect_state)
         self.connection_manager.connectAttemptBusy.connect(self._on_connect_attempt_busy)
         self.connection_manager.spectrumListUpdated.connect(self._render_spectrum_list)
@@ -1756,6 +1758,13 @@ class MainWindow(QMainWindow):
         attempt was dropped without changing the running session."""
         QMessageBox.warning(self, "Connection refused", msg)
 
+    def _on_connect_failed_dialog(self, msg):
+        """H5: the mirror transfer failed (CPyConverter::Update now raises a
+        Python exception instead of segfaulting when getSpecTclMemory returns
+        nullptr). Surface the reason so the user can fix the endpoint and retry;
+        the button has already reverted to disconnected."""
+        QMessageBox.critical(self, "Connection failed", msg)
+
     @pyqtSlot(str)
     def _render_connect_state(self, state):
         """H2 adapter: ConnectionManager reports connection state via signal;
@@ -2055,95 +2064,9 @@ class MainWindow(QMainWindow):
 
     # definition for both legacy and not window defs
     def openGeo(self, filename):
-        self.logger.info('openGeo')
-        if os.stat(filename).st_size == 0:
-            self.logger.warning('openGeo - empty geometry file: %s', filename)
-            return None
-
-        # Sniff the format from the first meaningful (non-blank, non-comment) line:
-        # legacy Xamine/dispwind ".win" files begin with a "Geometry R,C" line, while
-        # native (qtpy) files are a single-line Python dict literal beginning with "{".
-        firstMeaningful = ""
-        with open(filename) as f:
-            for line in f:
-                stripped = line.strip()
-                if stripped and not stripped.startswith('#'):
-                    firstMeaningful = stripped
-                    break
-
-        if firstMeaningful.lower().startswith("geometry"):
-            return self.parseOldGeo(filename)
-        if firstMeaningful.startswith("{"):
-            return eval(open(filename, "r").read())
-        self.logger.warning('openGeo - unrecognized geometry file format: %s', filename)
-        return None
-
-    def parseOldGeo(self, filename):
-        """Parse a legacy Xamine/dispwind ``.win`` geometry file into the same
-        structure :meth:`openGeo` returns for the native format::
-
-            {"row": <nrows>, "col": <ncols>,
-             "geo": {flatIndex: {"name": str,
-                                 "x": [min, max] | None,
-                                 "y": [min, max] | None,
-                                 "scale": bool}}}
-
-        Windows get sequential flat indices in file order (matching the original
-        loader). ``COUNTSAXIS`` maps to log scale; ``Expanded`` supplies the x/y view
-        range when present, otherwise the spectrum keeps its natural range. ``SCALE``,
-        ``Refresh``, ``MAPPED`` and other per-window settings are ignored.
-        """
-        self.logger.info('parseOldGeo - filename: %s', filename)
-        nrow = ncol = None
-        properties = {}
-        index  = 0
-        name   = None
-        scale  = False
-        xRange = None
-        yRange = None
-
-        def _numbers(text):
-            return [float(n) for n in re.findall(r'-?\d+(?:\.\d+)?', text)]
-
-        try:
-            with open(filename) as f:
-                for raw in f:
-                    line = raw.strip()
-                    if not line or line.startswith('#'):
-                        continue
-                    keyword = line.split()[0].lower()
-                    if keyword == 'geometry':
-                        nums = _numbers(line)
-                        if len(nums) >= 2:
-                            nrow, ncol = int(nums[0]), int(nums[1])
-                    elif keyword == 'window':
-                        name, scale, xRange, yRange = None, False, None, None
-                        match = re.search(r'"([^"]*)"', line)
-                        if match:
-                            name = match.group(1)
-                    elif keyword == 'countsaxis':
-                        scale = True
-                    elif keyword == 'expanded':
-                        nums = _numbers(line)
-                        if len(nums) >= 2:
-                            xRange = [nums[0], nums[1]]
-                        if len(nums) >= 4:
-                            yRange = [nums[2], nums[3]]
-                    elif keyword == 'endwindow':
-                        if name:
-                            properties[index] = {"name": name, "x": xRange,
-                                                 "y": yRange, "scale": scale}
-                        index += 1
-                        name, scale, xRange, yRange = None, False, None, None
-        except OSError:
-            self.logger.warning('parseOldGeo - could not read %s', filename, exc_info=True)
-            return None
-
-        if nrow is None or ncol is None:
-            self.logger.warning('parseOldGeo - no "Geometry" line found in %s', filename)
-            return None
-        return {"row": nrow, "col": ncol, "geo": properties}
-
+        # Format-sniff + parse now lives in the Qt-free services.geometry_io module
+        # (legacy .win vs native dict literal); MainWindow keeps only orchestration.
+        return geometry_io.read_geometry(filename, self.logger)
 
     def saveGeo(self):
         fileName = self.saveFileDialog()
@@ -2162,16 +2085,14 @@ class MainWindow(QMainWindow):
                     properties[index] = {"name": '', "x": None, "y": None, "scale": None}
                     pass
             ##### Bashir changed to examine the apply button
-            tmp = {"row": int(self.wConf.histo_geo_row.currentText()), "col": int(self.wConf.histo_geo_col.currentText()), "geo": properties}
-            # tmp = {
-            #     "row": self.wConf.histo_geo_row.value(),
-            #     "col": self.wConf.histo_geo_col.value(),
-            #     "geo": properties
-            # }
+            tmp_text = geometry_io.serialize_geometry(
+                self.wConf.histo_geo_row.currentText(),
+                self.wConf.histo_geo_col.currentText(),
+                properties)
             #######################################################################
 
             QMessageBox.about(self, "Saving...", "Window configuration saved!")
-            f.write(str(tmp))
+            f.write(tmp_text)
             f.close()
         except :
             self.logger.debug('saveGeo - exception', exc_info=True)

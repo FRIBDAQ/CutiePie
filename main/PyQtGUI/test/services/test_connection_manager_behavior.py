@@ -250,11 +250,25 @@ def test_reconnect_emits_invalidation_before_repopulating(env, monkeypatch):
 
 def test_failed_mirror_transfer_restores_button(env, monkeypatch):
     patched_connect(env, monkeypatch, qt_stubs.FakeRest(check=True, shmem_size=4096))
+    failed = record_signal(env.cm.connectFailed)      # H5: reason surfaced to the user
     env.cm._connect_worker.failed.emit("boom")
+    assert failed[-1] == ("boom",)                    # dialog gets the message
     assert env.states[-1] == ("disconnected",)
     assert env.busy[-1] == (False,)
     assert env.cm._connect_thread.quit_count == 1
     assert env.cm._mapped_endpoint is None            # nothing committed
+
+
+def test_h5_mirror_failure_message_reaches_dialog_signal(env, monkeypatch):
+    # H5: CPyConverter::Update now raises (PyErr) instead of segfaulting when the
+    # mirror can't be set up; ConnectWorker.run catches it -> failed.emit(str),
+    # and _on_connect_failed re-emits connectFailed so MainWindow pops a dialog.
+    patched_connect(env, monkeypatch, qt_stubs.FakeRest(check=True, shmem_size=4096))
+    failed = record_signal(env.cm.connectFailed)
+    msg = "SpecTcl mirror setup failed (host:1234 mirror=): connection refused"
+    env.cm._connect_worker.failed.emit(msg)
+    assert failed == [(msg,)]                          # exactly one, verbatim
+    assert env.states[-1] == ("disconnected",)         # button reverts, GUI survives
 
 
 # --------------------------------------------------------- REST worker wiring

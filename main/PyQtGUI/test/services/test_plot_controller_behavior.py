@@ -437,3 +437,81 @@ def test_reset_cutoff_clears_and_requests_close(rig):
     rig.pc.resetCutoff(doUpdate=False)
     assert rig.get_info("cutoff", index=0) == [None, None]
     assert rig.close_req == [()]
+
+
+# ------------------------------------------------ P6: change-driven redraw skip
+
+def _spy_draw_idle(rig):
+    """Replace the real Agg draw_idle with a call counter."""
+    draws = []
+    rig.cp.canvas.draw_idle = lambda: draws.append(1)
+    return draws
+
+
+def test_timer_tick_skips_redraw_when_data_unchanged(rig):
+    # P6: the auto-update timer tick (_updatePlotOnGui -> updatePlot(force=False))
+    # must NOT redraw when no pad's counts changed since the previous tick.
+    ax = rig.add_1d()
+    line = make_line(ax)
+    rig.set_info(index=0, spectrum=line)
+    rig.pc._layout_dirty = False
+    draws = _spy_draw_idle(rig)
+
+    rig.pc._updatePlotOnGui()                     # first tick: draws + records sig
+    assert draws == [1]
+    assert rig.draw_gate_calls == [0]
+
+    rig.pc._updatePlotOnGui()                     # data identical: skip entirely
+    assert draws == [1]                           # no second draw
+    assert rig.draw_gate_calls == [0]             # loop body did not re-run
+
+
+def test_timer_tick_redraws_when_counts_change(rig):
+    # A cumulative-counter increment must move the signature -> redraw.
+    ax = rig.add_1d()
+    line = make_line(ax)
+    rig.set_info(index=0, spectrum=line)
+    rig.pc._layout_dirty = False
+    draws = _spy_draw_idle(rig)
+
+    rig.pc._updatePlotOnGui()
+    assert draws == [1]
+
+    w = rig.store.get("h1", "data")               # live shm view; counts grow
+    w[:] = w + 1
+    rig.pc._updatePlotOnGui()
+    assert draws == [1, 1]                         # changed -> drew again
+    assert rig.draw_gate_calls == [0, 0]
+
+
+def test_forced_updateplot_always_redraws_even_if_unchanged(rig):
+    # The hide-gates toggle / gate / sum-region / geometry paths call updatePlot()
+    # with force=True (default) and must ALWAYS render, even with static data —
+    # otherwise a toggle would not take effect until counts next changed (SMOKE GX10).
+    ax = rig.add_1d()
+    line = make_line(ax)
+    rig.set_info(index=0, spectrum=line)
+    rig.pc._layout_dirty = False
+    draws = _spy_draw_idle(rig)
+
+    rig.pc._updatePlotOnGui()                      # timer tick records signature
+    assert draws == [1]
+
+    rig.pc.updatePlot()                            # force=True, data unchanged
+    assert draws == [1, 1]                         # still drew
+    rig.pc.updatePlot()
+    assert draws == [1, 1, 1]
+
+
+def test_first_timer_tick_always_draws(rig):
+    # No prior signature (None) -> never skip the very first tick.
+    ax = rig.add_1d()
+    line = make_line(ax)
+    rig.set_info(index=0, spectrum=line)
+    rig.pc._layout_dirty = False
+    draws = _spy_draw_idle(rig)
+    assert rig.pc._last_tick_signature is None
+
+    rig.pc._updatePlotOnGui()
+    assert draws == [1]
+    assert rig.pc._last_tick_signature is not None

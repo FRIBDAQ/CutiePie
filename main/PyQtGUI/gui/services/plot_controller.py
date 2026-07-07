@@ -65,6 +65,11 @@ class PlotController(QObject):
         self.old_cmap         = None
         self.geometry_applied = False
         self._layout_dirty    = False
+        # P6 (change-driven redraw): fingerprint of the last frame the auto-update
+        # tick rendered. When an unforced (timer) tick produces an identical
+        # fingerprint, the redundant full-figure redraw is skipped. None = always
+        # draw the next tick.
+        self._last_tick_signature = None
 
     # ------------------------------------------------------------------
     # Canvas / layout
@@ -891,13 +896,55 @@ class PlotController(QObject):
 
     @pyqtSlot()
     def _updatePlotOnGui(self):
-        self.updatePlot()
+        # The auto-update timer's tick — the only unforced path, so the P6
+        # change-driven skip applies here (all other callers force a redraw).
+        self.updatePlot(force=False)
 
-    def updatePlot(self):
+    def _tick_signature(self, cp, auto_scale_status):
+        """Cheap fingerprint of everything the auto-update tick would render, so a
+        redundant redraw can be skipped when nothing changed since the previous
+        tick (P6, change-driven redraw). SpecTcl spectra are cumulative counters,
+        so a per-pad data sum is a reliable change signal — any increment moves it,
+        and a clear resets it to 0 (also a change). Interactions (zoom/log/gate/
+        colormap/hide) either self-draw or route through the forced `updatePlot`
+        path, so between two unforced ticks only live counts can change the frame.
+        Returns None on any error so the caller always redraws (never skip on doubt).
+        """
+        try:
+            indices = [0] if cp.isEnlarged else list(self._get_geo().keys())
+            pad_sigs = []
+            for index in indices:
+                name   = self._name_from_index(index)
+                log    = self._get_spectrum_info("log", index=index)
+                cutoff = self._get_spectrum_info("cutoff", index=index)
+                w = self._spectra.get(name, "data") if name is not None else None
+                data_sig = float(np.ma.sum(w)) if w is not None and len(w) > 0 else None
+                pad_sigs.append((
+                    index, name,
+                    tuple(log)    if isinstance(log, list)    else log,
+                    tuple(cutoff) if isinstance(cutoff, list) else cutoff,
+                    data_sig,
+                ))
+            return (id(cp), bool(cp.isEnlarged), bool(auto_scale_status), tuple(pad_sigs))
+        except Exception:
+            self.logger.debug('_tick_signature - exception; forcing redraw', exc_info=True)
+            return None
+
+    def updatePlot(self, force=True):
         cp = self._get_current_plot()
         auto_scale_status = cp.histo_autoscale.isChecked()
         cp.histo_autoscale.setChecked(auto_scale_status)
         self.logger.debug('updatePlot')
+
+        # P6: on an unforced (auto-update timer) tick, skip the whole redraw when
+        # the frame is byte-identical to the last one we drew. Forced calls (the
+        # hide-gates toggle, gate/sum-region/geometry updates) always render.
+        signature = self._tick_signature(cp, auto_scale_status)
+        if (not force
+                and signature is not None
+                and signature == self._last_tick_signature):
+            self.logger.debug('updatePlot - unchanged since last tick; skipping redraw')
+            return
 
         self._clean_popup_exit(False)
 
@@ -951,6 +998,7 @@ class PlotController(QObject):
                 cp.figure.tight_layout()
                 self._layout_dirty = False
             cp.canvas.draw_idle()
+            self._last_tick_signature = signature
         except Exception:
             self.logger.debug('updatePlot - exception', exc_info=True)
 
