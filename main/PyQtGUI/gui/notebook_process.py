@@ -10,6 +10,12 @@ _process = None
 _monitor = None
 _webaddr = None
 
+# Wall-clock ceiling on the "wait for the server to publish its address" loop
+# (AUDIT M10). Runs on the GUI thread via jupyterStart, so an alive-but-mute
+# server must not block it forever — on expiry we raise RuntimeError, which
+# jupyterStart already catches and reports through its warning dialog.
+STARTUP_DEADLINE_SECS = 30.0
+
 
 def testnotebook(notebook_executable="jupyter-notebook"):
     return 0 == os.system("%s --version" % notebook_executable)
@@ -31,7 +37,16 @@ def startnotebook(notebook_executable="jupyter-notebook", port=8888, directory='
 
     log("Waiting for server to start...")
     webaddr = None
+    deadline = time.monotonic() + STARTUP_DEADLINE_SECS
     while webaddr is None:
+        if time.monotonic() > deadline:
+            # Server stayed alive but never published an address within the
+            # deadline (spewing non-http lines, or stderr-EOF-while-alive
+            # spinning at 10 Hz) — without this the GUI thread blocks here
+            # forever (AUDIT M10).
+            raise RuntimeError(
+                "jupyter-notebook did not publish a server address within "
+                "%.0f s" % STARTUP_DEADLINE_SECS)
         raw = notebookp.stderr.readline()
         if not raw:
             # EOF on stderr: server died (or closed stderr) before

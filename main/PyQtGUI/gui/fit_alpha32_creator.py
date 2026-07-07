@@ -40,7 +40,7 @@ try:
 except Exception:
     QApplication = None
 
-from fit_alpha_base import _GL7_T, _GL7_W, _INV_SQRT2
+from fit_alpha_base import _GL7_T, _GL7_W, _INV_SQRT2, _as_float
 
 
 def _emg_one_tail_stable(x, A, mu, sigma, tau):
@@ -140,19 +140,7 @@ def _sum3_binned(x,
     )
 
 
-def _as_float(x):
-    """Return float(x) or np.nan if x is None/blank/non-numeric."""
-    try:
-        if x is None:
-            return np.nan
-        if isinstance(x, str):
-            s = x.strip()
-            if not s or s.lower() in {"none", "nan"}:
-                return np.nan
-            return float(s)
-        return float(x)
-    except Exception:
-        return np.nan
+# _as_float is imported from fit_alpha_base.
 
 def pick(ui, auto, *, zero_means_blank=True):
     f = _as_float(ui)

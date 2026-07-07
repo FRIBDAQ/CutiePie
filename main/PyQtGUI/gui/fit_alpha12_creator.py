@@ -41,7 +41,7 @@ from scipy.special import erfcx
 
 import fit_factory  # keep import so the factory can discover this module
 
-from fit_alpha_base import _GL7_T, _GL7_W, _INV_SQRT2
+from fit_alpha_base import _GL7_T, _GL7_W, _INV_SQRT2, _as_float
 try:
     from PyQt5.QtWidgets import QApplication
 except Exception:
@@ -90,20 +90,7 @@ def _alphaemg1_binned(x, A, mu, sigma, tau1, tau2, eta, bw):
     """
     return _bin_integral(_emg_tail_mixture, x, bw, A, mu, sigma, tau1, tau2, eta)
 
-# Helper to parse user inputs
-def _as_float(x):
-    """Return float(x) or np.nan if x is None/blank/non-numeric."""
-    try:
-        if x is None:
-            return np.nan
-        if isinstance(x, str):
-            s = x.strip()
-            if not s or s.lower() in {"none", "nan"}:
-                return np.nan
-            return float(s)
-        return float(x)
-    except Exception:
-        return np.nan
+# Helper to parse user inputs: _as_float is imported from fit_alpha_base.
 
 def parse_wmode(v):
     v = _as_float(v)

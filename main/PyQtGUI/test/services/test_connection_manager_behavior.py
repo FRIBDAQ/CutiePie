@@ -422,16 +422,16 @@ def test_spectrum_info_joins_only_bound(env):
         spectra=[{"name": "a", "parameters": ["p"], "type": "1"},
                  {"name": "b", "parameters": ["q"], "type": "1"}],
         binds=[{"name": "a", "binding": 7}])
-    out = env.cm.getSpectrumInfoFromReST()
+    out = env.cm.getSpectrumInfoFromREST()
     assert list(out) == ["a"]
     assert out["a"] == {"parameters": ["p"], "type": "1", "binding": 7}
 
 
 def test_spectrum_info_tolerates_non_list_replies(env):
     env.cm._rest = qt_stubs.FakeRest(spectra={"status": "error"}, binds=[])
-    assert env.cm.getSpectrumInfoFromReST() == {}
+    assert env.cm.getSpectrumInfoFromREST() == {}
     env.cm._rest = qt_stubs.FakeRest(spectra=[], binds="nope")
-    assert env.cm.getSpectrumInfoFromReST() == {}
+    assert env.cm.getSpectrumInfoFromREST() == {}
 
 
 def test_applylistgate_shields_callers(env):

@@ -84,6 +84,13 @@ class GateManager(QObject):
         # its items are exactly these). Mirrors findText()/count() reads. H2 step 1.
         self._gate_names        = []
 
+        # Leak-proof registry for canvas mpl callbacks + the edit QShortcut
+        # (AUDIT M5). role -> (canvas, cid); connecting a role disconnects any
+        # prior connection first, so re-entering an edit flow (or an unclean
+        # teardown) can't strand a live callback on the canvas.
+        self._mpl_cids     = {}
+        self._edit_shortcut = None
+
         self._gate_cache     = []
         self._gate_cache_ts  = 0.0
         self._GATE_CACHE_TTL = 30.0
@@ -521,32 +528,67 @@ class GateManager(QObject):
             self.gatePopupCloseRequested.emit()
         self.updatePlotRequested.emit()
 
+    # ------------------------------------------------------------------
+    # Canvas-callback + shortcut registry (AUDIT M5) — leak-proof connect/clean
+    # ------------------------------------------------------------------
+
+    def _mpl_connect(self, role, event, handler):
+        # Drop any live connection for this role before making a new one, so a
+        # repeated connect (e.g. the per-move 'release' rebind in followmouse)
+        # can't strand the previous cid on the canvas.
+        self._mpl_disconnect(role)
+        canvas = self._get_current_canvas()
+        cid = canvas.mpl_connect(event, handler)
+        self._mpl_cids[role] = (canvas, cid)
+        return cid
+
+    def _mpl_disconnect(self, role):
+        entry = self._mpl_cids.pop(role, None)
+        if entry is None:
+            return
+        canvas, cid = entry
+        try:
+            canvas.mpl_disconnect(cid)
+        except (TypeError, RuntimeError):
+            pass
+
+    def _mpl_disconnect_all(self):
+        for role in list(self._mpl_cids):
+            self._mpl_disconnect(role)
+
+    def _install_edit_shortcut(self):
+        # Replace (not just disable) any prior shortcut so edit sessions don't
+        # accumulate lingering QShortcut children on the parent widget.
+        self._dispose_edit_shortcut()
+        sc = QShortcut(QKeySequence("Alt+E"), self._parent_widget)
+        sc.activated.connect(self.onKeyActivateEditGate)
+        self._edit_shortcut = sc
+
+    def _dispose_edit_shortcut(self):
+        sc = self._edit_shortcut
+        if sc is None:
+            return
+        try:
+            sc.activated.disconnect()
+        except (TypeError, RuntimeError):
+            pass
+        try:
+            sc.setEnabled(False)
+        except (TypeError, RuntimeError):
+            pass
+        try:
+            sc.setParent(None)      # release so it can be GC'd, not lingered
+        except (TypeError, RuntimeError, AttributeError):
+            pass
+        self._edit_shortcut = None
+
     def disconnectGateSignals(self):
         self.logger.info('disconnectGateSignals')
-        canvas = self._get_current_canvas()
-        try:
-            if hasattr(self, 'gateReleaser'):
-                canvas.mpl_disconnect(self.gateReleaser)
-        except TypeError:
-            pass
-        try:
-            if hasattr(self, 'gateFollower'):
-                canvas.mpl_disconnect(self.gateFollower)
-        except TypeError:
-            pass
-        try:
-            if hasattr(self, 'sid'):
-                canvas.mpl_disconnect(self.sid)
-        except TypeError:
-            pass
+        self._mpl_disconnect_all()
         # gateNameList/listGateType widget signals are wired permanently in
         # MainWindow now (M5); gateNameListChanged/gateTypeListChanged self-gate
         # on _editing_gate/_creating_gate, so no per-mode disconnect here.
-        try:
-            if hasattr(self, 'shortcutInsertRegionPoint'):
-                self.shortcutInsertRegionPoint.setEnabled(False)
-        except TypeError:
-            pass
+        self._dispose_edit_shortcut()
         conn = self._get_integrate_copy()
         if conn is not None:
             try:
@@ -706,12 +748,9 @@ class GateManager(QObject):
         self.logger.info('editGate')
         self.gateActionCreateChecked.emit(False)
 
-        self.sid = self._get_current_canvas().mpl_connect(
-            'pick_event', self.clickOnGateLine)
+        self._mpl_connect('pick', 'pick_event', self.clickOnGateLine)
 
-        self.shortcutInsertRegionPoint = QShortcut(
-            QKeySequence("Alt+E"), self._parent_widget)
-        self.shortcutInsertRegionPoint.activated.connect(self.onKeyActivateEditGate)
+        self._install_edit_shortcut()
 
         if self._active_gate_index is None:
             self.logger.debug('editGate - gateSpectrumIndex is None')
@@ -928,8 +967,7 @@ class GateManager(QObject):
         dim  = self._spectra.get(name, "dim")
         if dim == 2:
             self._gate_edit_option = "2d_move_all"
-            self.gateReleaser = self._get_current_canvas().mpl_connect(
-                "button_press_event", self.releaseonclick)
+            self._mpl_connect('release', "button_press_event", self.releaseonclick)
 
     def addLine(self, posx, posy, index, label=None, mode="gate"):
         self.logger.info('addLine - posx, posy, index, label: %s, %s, %s, %s',
@@ -987,17 +1025,8 @@ class GateManager(QObject):
 
     def releaseonclick(self, event):
         self.logger.info('releaseonclick')
-        canvas = self._get_current_canvas()
-        try:
-            if hasattr(self, 'gateReleaser'):
-                canvas.mpl_disconnect(self.gateReleaser)
-        except TypeError:
-            pass
-        try:
-            if hasattr(self, 'gateFollower'):
-                canvas.mpl_disconnect(self.gateFollower)
-        except TypeError:
-            pass
+        self._mpl_disconnect('release')
+        self._mpl_disconnect('follow')
         self._gate_edit_option = None
         self.xyRef        = None
         self.movingMarker = []
@@ -1110,8 +1139,7 @@ class GateManager(QObject):
                             lineY[mIdx] = event.ydata
                             self.movingMarker.append(mIdx)
                         self.editThisGateLine.set_data(lineX, lineY)
-                        self.gateReleaser = self._get_current_canvas().mpl_connect(
-                            "button_press_event", self.releaseonclick)
+                        self._mpl_connect('release', "button_press_event", self.releaseonclick)
                 except NameError:
                     raise
         self.canvasDrawIdleRequested.emit()
@@ -1177,13 +1205,10 @@ class GateManager(QObject):
         gateLines = [child for child in ax.lines if gateIdentifier in child.get_label()]
         self.updateTextGatePopup(gateLines)
 
-        canvas = self._get_current_canvas()
-        self.gateFollower = canvas.mpl_connect(
-            "motion_notify_event", self.followmouse)
+        self._mpl_connect('follow', "motion_notify_event", self.followmouse)
         if dim == 1:
             self._gate_edit_option = "1d_move_line"
-            self.gateReleaser = canvas.mpl_connect(
-                "button_press_event", self.releaseonclick)
+            self._mpl_connect('release', "button_press_event", self.releaseonclick)
         elif dim == 2:
             self.editThisGateLine.set_marker(marker='o')
             self.editThisGateLine.set_color("green")

@@ -33,7 +33,7 @@ try:
 except Exception:
     QApplication = None
 
-from fit_alpha_base import _GL7_T, _GL7_W, _INV_SQRT2
+from fit_alpha_base import _GL7_T, _GL7_W, _INV_SQRT2, _as_float
 
 def _peak_binned(x, A, mu, s, t1, t2, eta, bw):
     """Single EMG (two-tail) with the same GL7 bin integration used by the total."""
@@ -141,19 +141,7 @@ def _sum2_binned(x,
                         tau22, eta2 # 10, 11
                         )
 
-def _as_float(x):
-    """Return float(x) or np.nan if x is None/blank/non-numeric."""
-    try:
-        if x is None:
-            return np.nan
-        if isinstance(x, str):
-            s = x.strip()
-            if not s or s.lower() in {"none", "nan"}:
-                return np.nan
-            return float(s)
-        return float(x)
-    except Exception:
-        return np.nan
+# _as_float is imported from fit_alpha_base.
 
 def pick(ui, auto, *, zero_means_blank=True):
     v = _as_float(ui)

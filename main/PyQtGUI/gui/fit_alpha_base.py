@@ -35,6 +35,22 @@ _GL3_W = np.array([0.8888888889, 0.5555555556, 0.5555555556], dtype=float)
 
 _INV_SQRT2 = 1.0 / np.sqrt(2.0)
 
+
+def _as_float(x):
+    """Return float(x) or np.nan if x is None/blank/non-numeric."""
+    try:
+        if x is None:
+            return np.nan
+        if isinstance(x, str):
+            s = x.strip()
+            if not s or s.lower() in {"none", "nan"}:
+                return np.nan
+            return float(s)
+        return float(x)
+    except Exception:
+        return np.nan
+
+
 # ── EMG (left-tail, MINUS sign) ───────────────────────────────────────────────
 # Used by fit_alpha_linear_creator and fit_alpha_multi_creator.
 # fit_alpha_multi_sigma_creator uses the right-tail (PLUS sign) variant instead.

@@ -123,6 +123,7 @@ from PlotGUI import Plot # area defined for the histograms
 from PlotGUI import Tabs # area defined for the Tabs
 from PyREST import PyREST # class interface for SpecTcl REST plugin
 from services.spectrum_store import SpectrumStore
+from services.display_slot import DisplaySlot
 from services.thread_workers import RestWorker, AutoUpdateWorker
 from services.fit_manager import FitManager
 from services.gate_manager import GateManager
@@ -182,9 +183,13 @@ class MainWindow(QMainWindow):
         # ensure GUI dies when SpecTcl dies (was an import-time call in the class body)
         tie_lifetime_to_parent()
 
-        # initialize debug logging
-        logging.basicConfig(datefmt='%d-%b-%y %H:%M:%S')        
-        
+        # Single source of truth for root-logger config (AUDIT L2). Runs before
+        # any setup_logging() call, so THIS is the config that takes effect:
+        # default stderr handler at WARNING. (datefmt is inert here — the
+        # default format carries no %(asctime)s.) setup_logging() only swaps the
+        # logger.py sink; it no longer reconfigures root.
+        logging.basicConfig(datefmt='%d-%b-%y %H:%M:%S')
+
         self.logger = logging.getLogger(__name__)
         # WARNING in normal operation so per-tick debug/info calls in the render
         # and hover hot paths don't build LogRecords nobody consumes; flipped to
@@ -318,7 +323,7 @@ class MainWindow(QMainWindow):
         self.gate_manager = GateManager(
             spectra=self.spectra,
             name_from_index=self.nameFromIndex,
-            get_spectrum_info=self.getSpectrumInfo,
+            get_spectrum_info=self.getSpectrumViewInfo,
             get_is_enlarged=lambda: self.currentPlot.isEnlarged,
             get_geo=self.getGeo,
             get_sum_region=lambda index, name: self.sum_region_manager.getSumRegion(index, name),
@@ -341,7 +346,7 @@ class MainWindow(QMainWindow):
         self.sum_region_manager = SumRegionManager(
             spectra=self.spectra,
             name_from_index=self.nameFromIndex,
-            get_spectrum_info=self.getSpectrumInfo,
+            get_spectrum_info=self.getSpectrumViewInfo,
             get_histo_names=lambda: [self.wConf.histo_list.itemText(i)
                                      for i in range(self.wConf.histo_list.count())],
             skip_auto=self.skipAutoUpdateThread,
@@ -376,9 +381,9 @@ class MainWindow(QMainWindow):
             get_current_plot=lambda: self.currentPlot,
             get_geo=self.getGeo,
             set_geo=self.setGeo,
-            get_spectrum_info=self.getSpectrumInfo,
-            set_spectrum_info=self.setSpectrumInfo,
-            get_spectrum_info_dict=self.getSpectrumInfoDict,
+            get_spectrum_info=self.getSpectrumViewInfo,
+            set_spectrum_info=self.setSpectrumViewInfo,
+            get_spectrum_info_dict=self.getSpectrumViewDict,
             name_from_index=self.nameFromIndex,
             get_enlarged_spectrum=self.getEnlargedSpectrum,
             auto_index=self.autoIndex,
@@ -850,12 +855,12 @@ class MainWindow(QMainWindow):
         if self.getEnlargedSpectrum():
             index = self.getEnlargedSpectrum()[0]
         try:
-            ax = self.getSpectrumInfo("axis", index=index)
-            dim = self.getSpectrumInfoREST("dim", index=index)
-            minx = self.getSpectrumInfoREST("minx", index=index)
-            maxx = self.getSpectrumInfoREST("maxx", index=index)
-            binx = self.getSpectrumInfoREST("binx", index=index)
-            data = self.getSpectrumInfoREST("data", index=index)
+            ax = self.getSpectrumViewInfo("axis", index=index)
+            dim = self.getSpectrumStoreInfo("dim", index=index)
+            minx = self.getSpectrumStoreInfo("minx", index=index)
+            maxx = self.getSpectrumStoreInfo("maxx", index=index)
+            binx = self.getSpectrumStoreInfo("binx", index=index)
+            data = self.getSpectrumStoreInfo("data", index=index)
             if ax is None or len(data) <= 0:
                 return result
             x, y = ax.transData.inverted().transform([event.x, event.y])
@@ -870,9 +875,9 @@ class MainWindow(QMainWindow):
                     result = [binminx,'','']
             elif dim == 2:
                 if "coordinates" == info:
-                    miny = self.getSpectrumInfoREST("miny", index=index)
-                    maxy = self.getSpectrumInfoREST("maxy", index=index)
-                    biny = self.getSpectrumInfoREST("biny", index=index)
+                    miny = self.getSpectrumStoreInfo("miny", index=index)
+                    maxy = self.getSpectrumStoreInfo("maxy", index=index)
+                    biny = self.getSpectrumStoreInfo("biny", index=index)
                     stepy = (float(maxy)-float(miny))/float(biny)
                     binminy = int((y-miny)/stepy)
                     #ndarray [row][column]
@@ -1014,7 +1019,7 @@ class MainWindow(QMainWindow):
         self.logger.info('on_singleclick - index: %s', index)
         # change the log button status manually only here according to spectrum info
         # so that when one clicks on a spectrum the button shows if log or not
-        axisIsLog = self.getSpectrumInfo("log", index=index)
+        axisIsLog = self.getSpectrumViewInfo("log", index=index)
         wPlot = self.currentPlot
         logBut = wPlot.logButton
         if axisIsLog :
@@ -1022,7 +1027,7 @@ class MainWindow(QMainWindow):
         else :
             logBut.setDown(False) 
         # similar to log button, cutoff button change status according to spectrum info
-        cutoffVal = self.getSpectrumInfo("cutoff", index=index)
+        cutoffVal = self.getSpectrumViewInfo("cutoff", index=index)
         if cutoffVal is not None and len(cutoffVal)>1 and (cutoffVal[0] is not None or cutoffVal[1] is not None):
             # wPlot.cutoffButton.setDown(True)
             pass
@@ -1049,10 +1054,10 @@ class MainWindow(QMainWindow):
             self.logger.debug('closestBinPos - index is None')
             return result
 
-        dim = self.getSpectrumInfoREST("dim", index=index)
-        minx = self.getSpectrumInfoREST("minx", index=index)
-        maxx = self.getSpectrumInfoREST("maxx", index=index)
-        binx = self.getSpectrumInfoREST("binx", index=index)
+        dim = self.getSpectrumStoreInfo("dim", index=index)
+        minx = self.getSpectrumStoreInfo("minx", index=index)
+        maxx = self.getSpectrumStoreInfo("maxx", index=index)
+        binx = self.getSpectrumStoreInfo("binx", index=index)
         stepx = (float(maxx)-float(minx))/float(binx)
 
         if dim == 1 and x is not None:
@@ -1062,9 +1067,9 @@ class MainWindow(QMainWindow):
             result = xbinPos
             # print("Simon - closestBinPos - dim1 - ", minx, maxx, stepx, nXbin, xbinPos )
         if dim == 2 and x is not None and y is not None:
-            miny = self.getSpectrumInfoREST("miny", index=index)
-            maxy = self.getSpectrumInfoREST("maxy", index=index)
-            biny = self.getSpectrumInfoREST("biny", index=index)
+            miny = self.getSpectrumStoreInfo("miny", index=index)
+            maxy = self.getSpectrumStoreInfo("maxy", index=index)
+            biny = self.getSpectrumStoreInfo("biny", index=index)
             stepy = (float(maxy)-float(miny))/float(biny)
             # to round int essential, will give the closest bin edge
             nXbin = round((x-minx)/stepx, 0)
@@ -1133,14 +1138,14 @@ class MainWindow(QMainWindow):
                 for ax in self.currentPlot._saved_axes:
                     ax.set_visible(False)
                 
-                dim = self.getSpectrumInfoREST("dim", index=idx)
+                dim = self.getSpectrumStoreInfo("dim", index=idx)
                 if dim == 2:
-                    spectrum_old = self.getSpectrumInfo("spectrum", index=idx)
+                    spectrum_old = self.getSpectrumViewInfo("spectrum", index=idx)
                     self.plot_controller.old_cmap = spectrum_old.get_cmap()
 
                 elif dim == 1:
                     # Save current y-limits of the target axes to restore later (when autoscale is OFF)
-                    ax0 = self.getSpectrumInfo("axis", index=idx)
+                    ax0 = self.getSpectrumViewInfo("axis", index=idx)
                     if ax0 is not None:
                         if not hasattr(self.currentPlot, "_saved_ylims"):
                             self.currentPlot._saved_ylims = {}
@@ -1157,7 +1162,7 @@ class MainWindow(QMainWindow):
                 
                 ###################################################################
 
-                ax = self.getSpectrumInfo("axis", index=idx)
+                ax = self.getSpectrumViewInfo("axis", index=idx)
                 if dim == 1:
                     if not autoscale_status and hasattr(self.currentPlot, "_saved_ylims") and idx in self.currentPlot._saved_ylims:
                         ax.set_ylim(*self.currentPlot._saved_ylims[idx])   # <-- restore y only
@@ -1167,7 +1172,7 @@ class MainWindow(QMainWindow):
 
                 ########### Bashir: reuse color map
                 if dim == 2:
-                    spectrum = self.getSpectrumInfo("spectrum", index=idx)
+                    spectrum = self.getSpectrumViewInfo("spectrum", index=idx)
 
                     if spectrum is not None:
                         # print("Reusing color map for enlarged spectrum...")
@@ -1228,11 +1233,11 @@ class MainWindow(QMainWindow):
                     # if name is not None and name != "" and name != "empty":
                     if name is not None and name != "" and name != "empty" and index == idx:
                         self.add(index)
-                        ax = self.getSpectrumInfo("axis", index=index)
+                        ax = self.getSpectrumViewInfo("axis", index=index)
                         
                         #reset the axis limits as it was before enlarge
                         #dont need to specify if log scale, it is checked inside setAxisScale, if 2D histo in log its z axis is set too.
-                        dim = self.getSpectrumInfoREST("dim", index=index)
+                        dim = self.getSpectrumStoreInfo("dim", index=index)
                         if dim == 1:
                             self.plotPlot(index)
                             if not autoscale_status and hasattr(self.currentPlot, "_saved_ylims") and index in self.currentPlot._saved_ylims:
@@ -1243,7 +1248,7 @@ class MainWindow(QMainWindow):
 
                         elif dim == 2:
                             self.plotPlot(index, self.plot_controller.old_cmap)
-                            self.setSpectrumInfo(cmap=self.plot_controller.old_cmap, index=idx)
+                            self.setSpectrumViewInfo(cmap=self.plot_controller.old_cmap, index=idx)
                             # if autoscale_status:
                             self.setAxisScale(ax, index, "x", "y", "z")
                         self.drawGate(index)
@@ -1397,7 +1402,7 @@ class MainWindow(QMainWindow):
                 # If tab not empty, (re)start auto update
                 for indexPlot, name in self.getGeo().items():
                     if name:
-                        ax = self.getSpectrumInfo("axis", index=indexPlot)
+                        ax = self.getSpectrumViewInfo("axis", index=indexPlot)
                         if ax is not None :
                             self.autoUpdateStart()
                             break
@@ -1473,17 +1478,17 @@ class MainWindow(QMainWindow):
 
     #Set spectrum info from ReST in self.spectra (identified by histo name and can update multiple info at once)
     #self.spectra is used to keep track of the treegui definition (fixed)
-    def setSpectrumInfoREST(self, name, **info):
+    def setSpectrumStoreInfo(self, name, **info):
         # log keys only — info can carry the full counts array (P5)
-        self.logger.info('setSpectrumInfoREST - name: %s, keys: %s', name, list(info))
+        self.logger.info('setSpectrumStoreInfo - name: %s, keys: %s', name, list(info))
         self.spectra.set(name, **info)
 
 
     #Get spectrum info from self.spectra (identified by histo name or index and info name)
     #template of expected arguments e.g.: ("dim", index=5) takes only the first info parameter (here "dim") (one per call)
     #Important that it gets only the info from self.spectra here.
-    def getSpectrumInfoREST(self, *info, **identifier):
-        # self.logger.info('getSpectrumInfoREST - info, identifier: %s, %s',info, identifier)
+    def getSpectrumStoreInfo(self, *info, **identifier):
+        # self.logger.info('getSpectrumStoreInfo - info, identifier: %s, %s',info, identifier)
         name = None
         if not identifier and self.getEnlargedSpectrum():
             name = self.getEnlargedSpectrum()[1]
@@ -1492,8 +1497,8 @@ class MainWindow(QMainWindow):
         elif "name" in identifier:
             name = identifier["name"]
         else:
-            self.logger.debug('getSpectrumInfoREST - wrong identifier - expects name=histo_name or index=histo_index or shoud be in zoomed mode')
-            # print("getSpectrumInfo - wrong identifier - expects name=histo_name or index=histo_index or shoud be in zoomed mode")
+            self.logger.debug('getSpectrumStoreInfo - wrong identifier - expects name=histo_name or index=histo_index or shoud be in zoomed mode')
+            # print("getSpectrumViewInfo - wrong identifier - expects name=histo_name or index=histo_index or shoud be in zoomed mode")
             return
         if name is not None:
             return self.spectra.get(name, info[0])
@@ -1502,8 +1507,8 @@ class MainWindow(QMainWindow):
     #Update spectrum info in spectrum_dict (identified by index and can update multiple info at once)
     #Important that only self.wTab.spectrum_dict is changed here
     #work in normal and enlarged mode
-    def setSpectrumInfo(self, **info):
-        self.logger.debug('setSpectrumInfo - info: %s',info)
+    def setSpectrumViewInfo(self, **info):
+        self.logger.debug('setSpectrumViewInfo - info: %s',info)
         name = None
         index = None
         if self.getEnlargedSpectrum():
@@ -1516,30 +1521,30 @@ class MainWindow(QMainWindow):
         # elif "name" in info:
         #     name = info["name"]
         else:
-            self.logger.debug('setSpectrumInfo - wrong identifier - expects index=histo_index or shoud be in zoomed mode')
-            # print("setSpectrumInfo - wrong identifier - expects index=histo_index or shoud be in zoomed mode")
+            self.logger.debug('setSpectrumViewInfo - wrong identifier - expects index=histo_index or shoud be in zoomed mode')
+            # print("setSpectrumViewInfo - wrong identifier - expects index=histo_index or shoud be in zoomed mode")
             return
-        # print("Simon - setSpectrumInfo - ", index,name,info["index"])
+        # print("Simon - setSpectrumViewInfo - ", index,name,info["index"])
         for key, value in info.items():
             if key in ("name", "dim", "binx", "minx", "maxx", "biny", "miny", "maxy", "data", "parameters", "type", "log", "minz", "maxz", "spectrum", "axis", "cutoff") and index is not None:
                 if index not in self.wTab.spectrum_dict[self.wTab.currentIndex()]:
-                    # print("setSpectrumInfo -",name,"not in spectrum_dict")
-                    self.logger.debug('setSpectrumInfo - %s not in spectrum_dict', name)
+                    # print("setSpectrumViewInfo -",name,"not in spectrum_dict")
+                    self.logger.debug('setSpectrumViewInfo - %s not in spectrum_dict', name)
                     return
                     # self.wTab.spectrum_dict[self.wTab.currentIndex()][name] = {"dim":[],"binx":[],"minx":[],"maxx":[],"biny":[],"miny":[],"maxy":[],"data":[],"parameters":[],"type":[],"log":[],"minz":[],"maxz":[]}
-                self.wTab.spectrum_dict[self.wTab.currentIndex()][index][key] = value
-                # print("Simon - setSpectrumInfo -",index, self.wTab.spectrum_dict[self.wTab.currentIndex()], self.wTab.spectrum_dict[self.wTab.currentIndex()][index])
+                slot = self.wTab.spectrum_dict[self.wTab.currentIndex()][index]
+                setattr(slot, key, value)          # M3 C3: typed DisplaySlot field (key is whitelisted above)
                 #set axes info at the same time than spectrum
                 if key == "spectrum":
-                    self.wTab.spectrum_dict[self.wTab.currentIndex()][index]["axis"] = value.axes
+                    slot.axis = value.axes
 
 
     #Get spectrum info from spectrum_dict (identified by index and info name)
     #template of expected arguments e.g.: ("dim", index=5) takes only the first info parameter (here "dim") (one per call)
     #Important that it gets only the info from self.wTab.spectrum_dict[self.wTab.currentIndex()] here.
     #work in normal and enlarged mode
-    def getSpectrumInfo(self, *info, **identifier):
-        self.logger.debug('getSpectrumInfo - info, identifier: %s, %s', info, identifier)
+    def getSpectrumViewInfo(self, *info, **identifier):
+        self.logger.debug('getSpectrumViewInfo - info, identifier: %s, %s', info, identifier)
         name = None
         index = None
         if self.getEnlargedSpectrum():
@@ -1552,13 +1557,13 @@ class MainWindow(QMainWindow):
         # elif "name" in identifier:
         #     name = identifier["name"]
         else:
-            self.logger.debug('getSpectrumInfo - wrong identifier - expects index=histo_index or shoud be in zoomed mode')
-            # print("getSpectrumInfo - wrong identifier - expects index=histo_index or shoud be in zoomed mode")
+            self.logger.debug('getSpectrumViewInfo - wrong identifier - expects index=histo_index or shoud be in zoomed mode')
+            # print("getSpectrumViewInfo - wrong identifier - expects index=histo_index or shoud be in zoomed mode")
             return
         if index is not None and index in self.wTab.spectrum_dict[self.wTab.currentIndex()] and info[0] in ("name", "dim", "binx", "minx", "maxx", "biny", "miny", "maxy", "data", "parameters", "type", "log", "minz", "maxz", "spectrum", "axis", "cutoff"):
         # if index is not None and info[0] in ("name", "dim", "binx", "minx", "maxx", "biny", "miny", "maxy", "data", "parameters", "type", "log", "minz", "maxz"):
-            #print("Giordano - in getSpectrumInfo - ",self.wTab.currentIndex(), index, info[0])
-            return self.wTab.spectrum_dict[self.wTab.currentIndex()][index][info[0]]
+            #print("Giordano - in getSpectrumViewInfo - ",self.wTab.currentIndex(), index, info[0])
+            return getattr(self.wTab.spectrum_dict[self.wTab.currentIndex()][index], info[0])   # M3 C3: typed access (info[0] whitelisted above)
 
 
     #Remove spectrum from self.wTab.spectrum_dict:
@@ -1834,7 +1839,7 @@ class MainWindow(QMainWindow):
             to_delete = [key for key, value in plotVal.h_dict_geo.items() if name in value]
             for key in to_delete:
                 if key in self.wTab.spectrum_dict[tabIdx]:
-                    spectrum = self.wTab.spectrum_dict[tabIdx][key]["spectrum"]
+                    spectrum = self.wTab.spectrum_dict[tabIdx][key].spectrum   # M3 C3: typed access
                     if hasattr(spectrum, 'axes'):
                         ax = spectrum.axes
                         self.removeCb(ax)
@@ -1866,7 +1871,7 @@ class MainWindow(QMainWindow):
             to_delete = [key for key, value in plotVal.h_dict_geo.items() if name in value]
             for key in to_delete:
                 if key in self.wTab.spectrum_dict[tabIdx]:
-                    spectrum = self.wTab.spectrum_dict[tabIdx][key]["spectrum"]
+                    spectrum = self.wTab.spectrum_dict[tabIdx][key].spectrum   # M3 C3: typed access
                     #clear axis, remove colorbar and update in the geometry if mode="definitive"
                     if mode == "definitive":
                         ax = spectrum.axes
@@ -1877,19 +1882,19 @@ class MainWindow(QMainWindow):
 
 
     #get full spectrum dict self.wTab.spectrum_dict:
-    def getSpectrumInfoDict(self):
+    def getSpectrumViewDict(self):
         return self.wTab.spectrum_dict[self.wTab.currentIndex()]
 
 
     #get full spectrum dict from self.spectra:
-    def getSpectrumInfoRESTDict(self):
+    def getSpectrumStoreDict(self):
         return self.spectra.as_dict()
  
 
     #Find name with geo index:
     def nameFromIndex(self, index):
         # self.logger.info('nameFromIndex - index: %s', index)
-        #Can call getSpectrumInfo and setSpectrumInfo with an identifier but still check if in zoom mode,
+        #Can call getSpectrumViewInfo and setSpectrumViewInfo with an identifier but still check if in zoom mode,
         #which is important for autoScaleAxis/setAxisScale
         if self.getEnlargedSpectrum():
             return self.getEnlargedSpectrum()[1]
@@ -1917,8 +1922,10 @@ class MainWindow(QMainWindow):
         self.currentPlot.h_dict_geo[index] = name
         #Set also here the spectrum_dict with only the spectra defined in the geo
         if index not in self.wTab.spectrum_dict[self.wTab.currentIndex()]:
-            self.wTab.spectrum_dict[self.wTab.currentIndex()][index] = {"name":[], "dim":[],"binx":[],"minx":[],"maxx":[],"biny":[],"miny":[],"maxy":[],"data":[],"parameters":[],"type":[],"log":[],"minz":[],"maxz":[], "spectrum":[], "axis":[], "cutoff":[]}
-        self.wTab.spectrum_dict[self.wTab.currentIndex()][index]["name"] = name
+            # M3: typed per-pad display state (drop-in for the old 17-key dict).
+            self.wTab.spectrum_dict[self.wTab.currentIndex()][index] = DisplaySlot()
+        slot = self.wTab.spectrum_dict[self.wTab.currentIndex()][index]
+        slot.name = name
         #Initialize with the same info as in self.spectra.
         #"data" is intentionally NOT copied: the canonical array lives solely in the
         #SpectrumStore and is derived (with cutoff) on demand by the plot controller,
@@ -1931,7 +1938,7 @@ class MainWindow(QMainWindow):
         for key, value in record.items():
             if key == "data":
                 continue
-            self.wTab.spectrum_dict[self.wTab.currentIndex()][index][key] = value
+            setattr(slot, key, value)          # M3 C3: typed DisplaySlot field
 
 
     #returns h_dict_geo {key=index, value=histoName}
@@ -2149,7 +2156,7 @@ class MainWindow(QMainWindow):
                 try :
                     h_name = geo[index]
                     x_range, y_range = self.getAxisProperties(index)
-                    scale = True if self.getSpectrumInfo("log", index=index) else False
+                    scale = True if self.getSpectrumViewInfo("log", index=index) else False
                     properties[index] = {"name": h_name, "x": x_range, "y": y_range, "scale": scale}
                 except Exception:
                     properties[index] = {"name": '', "x": None, "y": None, "scale": None}
@@ -2175,7 +2182,7 @@ class MainWindow(QMainWindow):
         """Return a spectrum name present in the store that matches `name`, tolerating
         case differences (legacy .win files often store names upper-cased). Returns the
         exact name if it exists, a unique case-insensitive match otherwise, or None."""
-        if self.getSpectrumInfoREST("dim", name=name) is not None:
+        if self.getSpectrumStoreInfo("dim", name=name) is not None:
             return name
         lowered = name.lower()
         matches = [n for n in self.spectra.all_names() if n.lower() == lowered]
@@ -2222,15 +2229,15 @@ class MainWindow(QMainWindow):
                         continue
 
                     self.setGeo(index, resolved)
-                    self.setSpectrumInfo(log=val_dict["scale"], index=index)
+                    self.setSpectrumViewInfo(log=val_dict["scale"], index=index)
                     # Old .win files may omit the view range (no "Expanded"); when it
                     # is absent the spectrum keeps its natural full range from the store.
                     if val_dict.get("x") is not None:
-                        self.setSpectrumInfo(minx=val_dict["x"][0], index=index)
-                        self.setSpectrumInfo(maxx=val_dict["x"][1], index=index)
+                        self.setSpectrumViewInfo(minx=val_dict["x"][0], index=index)
+                        self.setSpectrumViewInfo(maxx=val_dict["x"][1], index=index)
                     if val_dict.get("y") is not None:
-                        self.setSpectrumInfo(miny=val_dict["y"][0], index=index)
-                        self.setSpectrumInfo(maxy=val_dict["y"][1], index=index)
+                        self.setSpectrumViewInfo(miny=val_dict["y"][0], index=index)
+                        self.setSpectrumViewInfo(maxy=val_dict["y"][1], index=index)
 
                 if len(notFound) > 0:
                     self.logger.warning('loadGeo - definition not found for: %s', notFound)
@@ -2446,7 +2453,7 @@ class MainWindow(QMainWindow):
         """Return (index, name, ax) for the currently selected plot slot.
         Used by fit_manager signal lambdas to pass resolved context without a bridge."""
         idx = self.autoIndex()
-        return idx, self.nameFromIndex(idx), self.getSpectrumInfo("axis", index=idx)
+        return idx, self.nameFromIndex(idx), self.getSpectrumViewInfo("axis", index=idx)
 
     def _fit_inputs(self):
         """Gather the fit popup fields FitManager needs as plain values (H2):
@@ -2538,7 +2545,7 @@ class MainWindow(QMainWindow):
 
             self.logger.debug('applyCopy - flags: %s', flags)
 
-            dim = self.getSpectrumInfoREST("dim", index=self.currentPlot.selected_plot_index)
+            dim = self.getSpectrumStoreInfo("dim", index=self.currentPlot.selected_plot_index)
             indexes = []
             xlim_src = []
             ylim_src = []
@@ -2570,18 +2577,18 @@ class MainWindow(QMainWindow):
             for index in indexes:
                 # set the limits for x,y
                 if flags[0]:
-                    self.setSpectrumInfo(minx=xlim_src[0], index=index)
-                    self.setSpectrumInfo(maxx=xlim_src[1], index=index)
+                    self.setSpectrumViewInfo(minx=xlim_src[0], index=index)
+                    self.setSpectrumViewInfo(maxx=xlim_src[1], index=index)
                 if flags[1]:
-                    self.setSpectrumInfo(miny=ylim_src[0], index=index)
-                    self.setSpectrumInfo(maxy=ylim_src[1], index=index)
+                    self.setSpectrumViewInfo(miny=ylim_src[0], index=index)
+                    self.setSpectrumViewInfo(maxy=ylim_src[1], index=index)
                 # set log/lin scale
                 if flags[2]:
-                    self.setSpectrumInfo(log=scale_src_bool, index=index)
+                    self.setSpectrumViewInfo(log=scale_src_bool, index=index)
                 # set minZ/maxZ
                 if dim == 2 and (flags[3] or flags[4]):
-                    self.setSpectrumInfo(minz=zlim_src[0], index=index)
-                    self.setSpectrumInfo(maxz=zlim_src[1], index=index)
+                    self.setSpectrumViewInfo(minz=zlim_src[0], index=index)
+                    self.setSpectrumViewInfo(maxz=zlim_src[1], index=index)
             self.updatePlot()
         except Exception:
             self.logger.debug('applyCopy - exception occured', exc_info=True)
@@ -2606,7 +2613,7 @@ class MainWindow(QMainWindow):
             self.copyAttr.close()
         index = self.currentPlot.selected_plot_index
         name = self.nameFromIndex(index)
-        dim = self.getSpectrumInfoREST("dim", index=index)
+        dim = self.getSpectrumStoreInfo("dim", index=index)
 
         if dim is None : 
             self.logger.debug('copyPopup - dim is None', exc_info=True)
@@ -2616,15 +2623,15 @@ class MainWindow(QMainWindow):
         self.copyAttr.histoLabel.setText(name)
         # hdim = 2 if self.wConf.button2D.isChecked() else 1
         if dim == 2 :
-            spectrum = self.getSpectrumInfo("spectrum", index=index)
+            spectrum = self.getSpectrumViewInfo("spectrum", index=index)
             zmin, zmax = spectrum.get_clim()
             self.copyAttr.histoScaleValueminZ.setText(f"{zmin}")
             self.copyAttr.histoScaleValuemaxZ.setText(f"{zmax}")
-        self.copyAttr.axisSLabel.setText("Log" if self.getSpectrumInfo("log", index=index) else "Linear")
-        xmin = self.getSpectrumInfo("minx", index=index)
-        xmax = self.getSpectrumInfo("maxx", index=index)
-        ymin = self.getSpectrumInfo("miny", index=index)
-        ymax = self.getSpectrumInfo("maxy", index=index)
+        self.copyAttr.axisSLabel.setText("Log" if self.getSpectrumViewInfo("log", index=index) else "Linear")
+        xmin = self.getSpectrumViewInfo("minx", index=index)
+        xmax = self.getSpectrumViewInfo("maxx", index=index)
+        ymin = self.getSpectrumViewInfo("miny", index=index)
+        ymax = self.getSpectrumViewInfo("maxy", index=index)
         self.copyAttr.axisLimLabelX.setText(f"[{xmin:.1f},{xmax:.1f}]")
         self.copyAttr.axisLimLabelY.setText(f"[{ymin:.1f},{ymax:.1f}]")
 
@@ -2635,7 +2642,7 @@ class MainWindow(QMainWindow):
 
         try:
             for idx, nameTarget in self.getGeo().items():
-                if dim == self.getSpectrumInfoREST("dim", index=idx) and idx is not index:
+                if dim == self.getSpectrumStoreInfo("dim", index=idx) and idx is not index:
                     instance = QPushButton(nameTarget, self)
                     instance.setCheckable(True)
                     instance.setStyleSheet('QPushButton {color: red;}')
@@ -2698,7 +2705,7 @@ class MainWindow(QMainWindow):
                 self.copyAttr.histoScaleminZ.setChecked(False)
                 self.copyAttr.histoScalemaxZ.setChecked(False)
 
-        dim = self.getSpectrumInfoREST("dim", index=self.currentPlot.selected_plot_index)
+        dim = self.getSpectrumStoreInfo("dim", index=self.currentPlot.selected_plot_index)
 
         if dim == 1:
             self.copyAttr.histoScaleminZ.setEnabled(False)
@@ -2897,7 +2904,7 @@ class MainWindow(QMainWindow):
 
     def drawSinglePeaks(self, peaks, properties, data, index):
         self.logger.info('drawSinglePeaks - index, properties: %s, %s', index, properties)
-        ax = self.getSpectrumInfo("axis", index=self.currentPlot.selected_plot_index)
+        ax = self.getSpectrumViewInfo("axis", index=self.currentPlot.selected_plot_index)
         x = self.datax.tolist()
         self.peak_pos[index] = ax.plot(x[peaks[index]], int(data[peaks[index]]), "v", color="red")
         self.peak_vl[index] = ax.vlines(x=x[peaks[index]], ymin=data[peaks[index]] - properties["prominences"][index], ymax = data[peaks[index]], color = "red")
@@ -2916,18 +2923,18 @@ class MainWindow(QMainWindow):
         self.logger.info('analyzePeak')
         try:
             index = self.currentPlot.selected_plot_index
-            ax = self.getSpectrumInfo("axis", index=index)
+            ax = self.getSpectrumViewInfo("axis", index=index)
             x = []
             y = []
             # input points for peak finding
             width = int(self.extraPopup.peak.peak_width.text())
-            dim = self.getSpectrumInfoREST("dim", index=index)
-            binx = self.getSpectrumInfoREST("binx", index=index)
-            minxREST = self.getSpectrumInfoREST("minx", index=index)
-            maxxREST = self.getSpectrumInfoREST("maxx", index=index)
+            dim = self.getSpectrumStoreInfo("dim", index=index)
+            binx = self.getSpectrumStoreInfo("binx", index=index)
+            minxREST = self.getSpectrumStoreInfo("minx", index=index)
+            maxxREST = self.getSpectrumStoreInfo("maxx", index=index)
 
             xtmp = self.createRange(binx, minxREST, maxxREST)
-            ytmp = (self.getSpectrumInfoREST("data", index=index)).tolist()
+            ytmp = (self.getSpectrumStoreInfo("data", index=index)).tolist()
 
             xmin, xmax = ax.get_xlim()
             self.logger.debug('analyzePeak - xmin, xmax: %s, %s', xmin, xmax)
@@ -3109,7 +3116,7 @@ class MainWindow(QMainWindow):
     def createDf(self):
         self.logger.info('createDf')
         try:
-            spectrumDict = self.getSpectrumInfoRESTDict()
+            spectrumDict = self.getSpectrumStoreDict()
             #reformat spectrumDict which is {spectrumName: {info1: , info2: ,...}} to {spectrumName: [],info1: [], info2: [],...}
             formatedDict = {'name': [], 'dim': [], 'binx': [], 'minx': [], 'maxx': [], 'biny': [], 'miny': [], 'maxy': [], 'data': [], 'parameters': [], 'type': []}
             for spectrumName, infoDict in spectrumDict.items():

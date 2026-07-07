@@ -177,7 +177,7 @@ class ConnectionManager(QtCore.QObject):
             # repointed below (P7). Synchronous: handler runs before we continue.
             self.shmViewsInvalidated.emit()
         try:
-            otherInfo = self.getSpectrumInfoFromReST()
+            otherInfo = self.getSpectrumInfoFromREST()
             self.logger.debug('connectShMem - populating spectra from shmem + REST')
             for i, name in enumerate(s[1]):
                 if name not in otherInfo:
@@ -338,16 +338,16 @@ class ConnectionManager(QtCore.QObject):
     # Spectrum list helpers
     # ------------------------------------------------------------------
 
-    def getSpectrumInfoFromReST(self):
-        self.logger.info('getSpectrumInfoFromReST')
+    def getSpectrumInfoFromREST(self):
+        self.logger.info('getSpectrumInfoFromREST')
         outDict  = {}
         inpDict  = self._rest.listSpectrum()
         bindList = self._rest.listsbind("*")
         if not isinstance(inpDict, list):
-            self.logger.warning('getSpectrumInfoFromReST - listSpectrum returned non-list: %s', inpDict)
+            self.logger.warning('getSpectrumInfoFromREST - listSpectrum returned non-list: %s', inpDict)
             return outDict
         if not isinstance(bindList, list):
-            self.logger.warning('getSpectrumInfoFromReST - listsbind returned non-list: %s', bindList)
+            self.logger.warning('getSpectrumInfoFromREST - listsbind returned non-list: %s', bindList)
             return outDict
         bindings = {}
         for d in bindList:
@@ -360,7 +360,7 @@ class ConnectionManager(QtCore.QObject):
                     "binding":    bindings[el["name"]],
                 }
         # log the count only — the full registry dict is large (P5)
-        self.logger.info('getSpectrumInfoFromReST - %d bound spectra', len(outDict))
+        self.logger.info('getSpectrumInfoFromREST - %d bound spectra', len(outDict))
         return outDict
 
     def applylistgate(self, spectrum_name):

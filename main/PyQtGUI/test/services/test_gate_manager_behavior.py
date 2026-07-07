@@ -127,7 +127,9 @@ class FakeShortcut:
     def __init__(self, *a, **kw):
         self.activated = qt_stubs.BoundStubSignal()
         self.enabled = None
+        self.parent_set = "unset"
     def setEnabled(self, e): self.enabled = e
+    def setParent(self, p): self.parent_set = p
 
 
 class FakeCanvas:
@@ -414,6 +416,69 @@ def test_push_gate_to_rest_1d_sorts_boundaries(rig):
     name, gtype, params, boundaries = rig.rest.created[0]
     assert name == "G1" and gtype == "s"
     assert boundaries == [2.0, 8.0]              # sorted low..high
+
+
+# ---------------------------------------------------------------
+# M5: leak-proof canvas-callback + shortcut registry
+# ---------------------------------------------------------------
+
+def test_mpl_connect_replaces_prior_role_cid(rig):
+    # MUTATION-worthy: reconnecting a role must disconnect the previous cid
+    # (the followmouse per-move 'release' rebind used to leak it).
+    rig.gm._mpl_connect('release', 'button_press_event', lambda e: None)   # cid 1
+    rig.gm._mpl_connect('release', 'button_press_event', lambda e: None)   # cid 2
+    assert 1 in rig.canvas.disconnected          # prior connection dropped
+    assert rig.gm._mpl_cids['release'][1] == 2   # registry now holds the new cid
+
+
+def test_mpl_disconnect_all_clears_registry(rig):
+    rig.gm._mpl_connect('pick', 'pick_event', lambda e: None)              # cid 1
+    rig.gm._mpl_connect('follow', 'motion_notify_event', lambda e: None)   # cid 2
+    rig.gm._mpl_disconnect_all()
+    assert set(rig.canvas.disconnected) >= {1, 2}
+    assert rig.gm._mpl_cids == {}
+
+
+def test_releaseonclick_disconnects_follow_and_release(rig):
+    rig.gm._mpl_connect('follow', 'motion_notify_event', lambda e: None)   # cid 1
+    rig.gm._mpl_connect('release', 'button_press_event', lambda e: None)   # cid 2
+
+    class Evt:
+        pass
+    rig.gm.releaseonclick(Evt())
+    assert 'follow' not in rig.gm._mpl_cids and 'release' not in rig.gm._mpl_cids
+    assert set(rig.canvas.disconnected) >= {1, 2}
+
+
+def test_edit_gate_replaces_prior_shortcut(rig, gm_mod, monkeypatch):
+    monkeypatch.setattr(gm_mod, "QShortcut", FakeShortcut)
+    monkeypatch.setattr(gm_mod, "QKeySequence", lambda *a: None)
+    rig.add_1d("h1", index=0, type_="1")
+    ax = _ax()
+    ax.add_line(mlines.Line2D([4.0, 4.0], [0, 100], label="gate_-_G1_-_0"))
+    rig.info[0]["axis"] = ax
+    rig.gm._active_gate_index = 0
+
+    rig.gm.editGate()
+    first = rig.gm._edit_shortcut
+    assert first is not None
+
+    rig.gm.editGate()                       # second session must dispose the first
+    assert rig.gm._edit_shortcut is not first
+    assert first.enabled is False           # disabled...
+    assert first.parent_set is None         # ...and released for GC (not lingered)
+
+
+def test_disconnect_gate_signals_disposes_shortcut_and_cids(rig, gm_mod, monkeypatch):
+    monkeypatch.setattr(gm_mod, "QShortcut", FakeShortcut)
+    monkeypatch.setattr(gm_mod, "QKeySequence", lambda *a: None)
+    rig.gm._install_edit_shortcut()
+    rig.gm._mpl_connect('pick', 'pick_event', lambda e: None)
+    sc = rig.gm._edit_shortcut
+    rig.gm.disconnectGateSignals()
+    assert rig.gm._mpl_cids == {}           # all canvas callbacks gone
+    assert rig.gm._edit_shortcut is None     # shortcut disposed
+    assert sc.parent_set is None
 
 
 # ---------------------------------------------------------------
