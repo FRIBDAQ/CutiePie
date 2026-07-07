@@ -99,6 +99,14 @@ class PlotController(QObject):
                 if (not ymin or ymin is None or ymin == 0) and (not ymax or ymax is None or ymax == 0):
                     ymin = self.minY
                     ymax = self.maxY
+                # Asymmetric guard: the fallback above only fires when BOTH are
+                # empty; when just one is None (e.g. miny None, maxy a real value)
+                # the log branch's `ymin <= 0` would raise TypeError. Coerce each
+                # independently to the log-safe defaults.
+                if ymin is None:
+                    ymin = self.minY
+                if ymax is None:
+                    ymax = self.maxY
                 if axisIsAutoScale:
                     xmin, xmax = ax.get_xlim()
                     ymax = self.getMinMaxInRange(index, xmin=xmin, xmax=xmax)

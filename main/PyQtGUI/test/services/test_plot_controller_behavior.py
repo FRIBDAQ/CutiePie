@@ -209,6 +209,22 @@ def test_set_axis_scale_1d_linear_and_log(rig):
     assert rig.get_info("maxy", index=0) == 100.0
 
 
+def test_set_axis_scale_log_with_miny_none_does_not_crash(rig):
+    # Regression: the log branch did `if ymin <= 0` where ymin could be None
+    # when only miny (not maxy) was unset — the both-empty fallback on line 99
+    # doesn't fire in the asymmetric case, so `None <= 0` raised TypeError.
+    # The asymmetric-None guard coerces ymin to the log-safe default self.minY.
+    ax = rig.add_1d()
+    rig.cp.histo_autoscale.setChecked(False)
+    # maxy is a real value but miny is left UNSET -> get_info("miny") is None
+    rig.set_info(index=0, minx=0.0, maxx=10.0, maxy=100.0, log=True)
+    rig.pc.setAxisScale(ax, 0, "log")            # must not raise TypeError
+    assert ax.get_yscale() == "log"
+    lo, hi = ax.get_ylim()
+    assert lo == pytest.approx(0.001)            # coerced to self.minY
+    assert hi == pytest.approx(100.0)
+
+
 def test_set_axis_scale_1d_autoscale_uses_visible_range(rig):
     ax = rig.add_1d(binx=10, minx=0.0, maxx=10.0, data=np.arange(11, dtype=float))
     rig.set_info(index=0, minx=2.0, maxx=8.0, miny=0.0, maxy=0.0, log=False)
