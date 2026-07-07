@@ -218,12 +218,18 @@ def _build_stub_pyqt5():
     qtwidgets.QInputDialog = _StubWidget
     qtwidgets.QTextEdit = _StubWidget
     qtwidgets.QTableWidgetItem = _StubWidget
+    qtwidgets.QShortcut = _StubWidget
     qtwidgets.QMenu = StubQMenu
+
+    qtgui = types.ModuleType("PyQt5.QtGui")
+    qtgui.QKeySequence = _StubWidget
 
     pyqt5 = types.ModuleType("PyQt5")
     pyqt5.QtCore = qtcore
     pyqt5.QtWidgets = qtwidgets
-    return {"PyQt5": pyqt5, "PyQt5.QtCore": qtcore, "PyQt5.QtWidgets": qtwidgets}
+    pyqt5.QtGui = qtgui
+    return {"PyQt5": pyqt5, "PyQt5.QtCore": qtcore,
+            "PyQt5.QtWidgets": qtwidgets, "PyQt5.QtGui": qtgui}
 
 
 def _build_stub_cpyconverter():

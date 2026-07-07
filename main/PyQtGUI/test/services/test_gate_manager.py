@@ -14,10 +14,20 @@ def test_gate_manager_constructor_params():
     import inspect
     sig = inspect.signature(GateManager.__init__)
     params = list(sig.parameters)
-    assert 'window' in params
+    # kept collaborators / documented residuals
     assert 'spectra' in params
-    assert 'gate_popup' in params
+    assert 'gate_popup' in params          # residual: listRegionLine/prevPoint buffer
+    assert 'sum_region_popup' in params    # residual: shared draw buffer
+    assert 'parent_widget' in params
     assert 'logger' in params
+    # H2 step-1 seams (widget reads pulled through callables)
+    for seam in ('get_hide', 'get_annotate', 'get_edit_disable',
+                 'get_readout', 'get_gate_type', 'get_gate_name'):
+        assert seam in params
+    # widget refs inverted away must be ABSENT
+    for gone in ('window', 'gate_hide_cb', 'gate_annotation_cb',
+                 'gate_edit_disable_cb'):
+        assert gone not in params
 
 def test_gate_manager_has_create_gate():
     from services.gate_manager import GateManager

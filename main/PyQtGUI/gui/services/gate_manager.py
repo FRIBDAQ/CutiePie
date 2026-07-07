@@ -11,7 +11,7 @@ import numpy as np
 from PyQt5.QtCore import Qt, QObject, pyqtSignal
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
-    QCompleter, QComboBox, QMessageBox, QShortcut,
+    QMessageBox, QShortcut,
 )
 
 
@@ -24,11 +24,26 @@ class GateManager(QObject):
     gateCreationStarted     = pyqtSignal(int)   # sets currentPlot.toCreateGate=True, toEditGate=False
     gateEditingStarted      = pyqtSignal()      # sets toEditGate=True, toCreateGate=False
     gateEnded               = pyqtSignal()      # sets both flags to False
+    gateReadoutChanged      = pyqtSignal(str)   # replaces regionPoint text (clear + insert)
+    gateReadoutEditable     = pyqtSignal(bool)  # regionPoint.setReadOnly(not value)
+    gateTypeCleared         = pyqtSignal()       # listGateType.clear()
+    gateTypeItemAdded       = pyqtSignal(str)    # listGateType.addItem(text)
+    gateNamesPrepared       = pyqtSignal(list, str)  # clear + addItems(names) + setCurrentText(current)
+    gateNameSelected        = pyqtSignal(str)    # gateNameList.setCurrentText(text)
+    gateNameListEditable    = pyqtSignal()       # setEditable(True) + setInsertPolicy(NoInsert)
+    gateNameCompleterConfigured = pyqtSignal()   # completer PopupCompletion + MatchContains
+    gateClearInfoRequested  = pyqtSignal()       # popup.clearInfo()
+    gatePopupShowRequested  = pyqtSignal()       # popup.show()
+    gatePopupCloseRequested = pyqtSignal()       # popup.close()
+    gateActionCreateChecked = pyqtSignal(bool)   # gateActionCreate.setChecked(value)
+    gateActionEditChecked   = pyqtSignal(bool)   # gateActionEdit.setChecked(value)
+    gateActionEditEnabled   = pyqtSignal(bool)   # gateActionEdit.setEnabled(value)
 
     def __init__(self, spectra, name_from_index, get_spectrum_info,
                  get_is_enlarged, get_geo, get_sum_region, get_current_canvas,
                  integrate_popup, get_integrate_copy,
-                 gate_hide_cb, gate_annotation_cb, gate_edit_disable_cb,
+                 get_hide, get_annotate, get_edit_disable, get_readout,
+                 get_gate_type, get_gate_name,
                  sum_region_popup, skip_auto, get_rest,
                  gate_popup, parent_widget=None, logger=None):
         super().__init__()
@@ -41,9 +56,12 @@ class GateManager(QObject):
         self._get_current_canvas   = get_current_canvas     # () -> canvas
         self._integrate_popup      = integrate_popup
         self._get_integrate_copy   = get_integrate_copy     # () -> connection|None
-        self._gate_hide_cb         = gate_hide_cb           # QCheckBox
-        self._gate_annotation_cb   = gate_annotation_cb     # QCheckBox
-        self._gate_edit_disable_cb = gate_edit_disable_cb   # QCheckBox
+        self._get_hide             = get_hide               # () -> bool (hide gates)
+        self._get_annotate         = get_annotate           # () -> bool (annotate gates)
+        self._get_edit_disable     = get_edit_disable       # () -> bool (disable edit)
+        self._get_readout          = get_readout            # () -> str (regionPoint text)
+        self._get_gate_type        = get_gate_type          # () -> str (listGateType current)
+        self._get_gate_name        = get_gate_name          # () -> str (gateNameList current)
         self._sum_region_popup     = sum_region_popup
         self._skip_auto            = skip_auto              # threading.Event
         self._get_rest             = get_rest               # () -> PyREST|None
@@ -57,6 +75,14 @@ class GateManager(QObject):
 
         self._creating_gate = False
         self._editing_gate  = False
+
+        # Gate scratch state (was on the popup; pure service state, never read
+        # by the widget — MenuGate only default-initialized these). H2 step 1.
+        self._active_gate_index = 0     # was self._popup.gateSpectrumIndex
+        self._gate_edit_option  = None  # was self._popup.gateEditOption
+        # Names the service populated into gateNameList (combo is NoInsert, so
+        # its items are exactly these). Mirrors findText()/count() reads. H2 step 1.
+        self._gate_names        = []
 
         self._gate_cache     = []
         self._gate_cache_ts  = 0.0
@@ -122,7 +148,7 @@ class GateManager(QObject):
         linesByLabel = {}
         for gl in ax.lines:
             linesByLabel.setdefault(gl.get_label(), []).append(gl)
-        hideGates = self._gate_hide_cb.isChecked()
+        hideGates = self._get_hide()
 
         def _updateGateLine(lineLabel, xData, yData):
             existing = linesByLabel.get(lineLabel, [])
@@ -169,8 +195,8 @@ class GateManager(QObject):
         if gateList:
             # index-wide (scans every line on the axis), so once after the
             # loop — inside it the cost is O(gates^2 x lines)
-            doAnnotate = (self._gate_annotation_cb.isChecked()
-                          and not self._gate_hide_cb.isChecked())
+            doAnnotate = (self._get_annotate()
+                          and not self._get_hide())
             self.setGateAnnotation(index, doAnnotate)
 
         lineListSumReg = self._get_sum_region(index, spectrumName)
@@ -195,9 +221,8 @@ class GateManager(QObject):
     # ------------------------------------------------------------------
 
     def gateAnnotationCallBack(self):
-        self.logger.info('gateAnnotationCallBack - isChecked: %s',
-                         self._gate_annotation_cb.isChecked())
-        doAnnotate = self._gate_annotation_cb.isChecked()
+        doAnnotate = self._get_annotate()
+        self.logger.info('gateAnnotationCallBack - isChecked: %s', doAnnotate)
         if self._get_is_enlarged():
             self.setGateAnnotation(0, doAnnotate)
         else:
@@ -320,8 +345,8 @@ class GateManager(QObject):
             self.logger.warning('pushGateToREST - REST client not available')
             return
 
-        dim          = self._get_spectrum_info("dim", index=self._popup.gateSpectrumIndex)
-        name         = self._name_from_index(self._popup.gateSpectrumIndex)
+        dim          = self._get_spectrum_info("dim", index=self._active_gate_index)
+        name         = self._name_from_index(self._active_gate_index)
         parameters   = self._spectra.get(name, "parameters")
         spectrumType = self._spectra.get(name, "type")
 
@@ -391,11 +416,15 @@ class GateManager(QObject):
         else:
             rest.createGate(gateName, gateType, parameters, boundaries)
 
+    def _set_gate_readout(self, text=""):
+        # Replaces the old regionPoint.clear()+insertPlainText() pair.
+        self.gateReadoutChanged.emit(text)
+
     def formatGatePopupPointText(self, dim):
         self.logger.info('formatGatePopupPointText - dim: %s', dim)
         points    = []
         pointDict = {}
-        textBlockLines = self._popup.regionPoint.toPlainText().split("\n")
+        textBlockLines = self._get_readout().split("\n")
         for line in textBlockLines:
             if not line:
                 continue
@@ -443,12 +472,12 @@ class GateManager(QObject):
     # Gate popup ok / cancel
     # ------------------------------------------------------------------
 
-    def okGate(self):
+    def okGate(self, gate_name):
         self.logger.info('okGate')
         rest = self._get_rest()
         if rest is None:
             return
-        gateName     = self._popup.gateNameList.currentText()
+        gateName     = gate_name
         gateNameList = [gate["name"] for gate in rest.listGate()]
         if not self._editing_gate:
             if gateName in gateNameList:
@@ -477,9 +506,9 @@ class GateManager(QObject):
                 ret = msgBox.exec()
                 if ret == QMessageBox.Ok:
                     pass
-        self.pushGateToREST(gateName, self._popup.listGateType.currentText())
+        self.pushGateToREST(gateName, self._get_gate_type())
         self._gate_cache_ts = 0.0   # invalidate so new/edited gate shows on next draw
-        self._popup.clearInfo()
+        self.gateClearInfoRequested.emit()
         self.cancelGate()
 
     def cancelGate(self, doClose=True):
@@ -489,7 +518,7 @@ class GateManager(QObject):
         self.gateEnded.emit()
         self.disconnectGateSignals()
         if doClose:
-            self._popup.close()
+            self.gatePopupCloseRequested.emit()
         self.updatePlotRequested.emit()
 
     def disconnectGateSignals(self):
@@ -510,21 +539,9 @@ class GateManager(QObject):
                 canvas.mpl_disconnect(self.sid)
         except TypeError:
             pass
-        try:
-            if hasattr(self, 'sidGateNameListChanged'):
-                self._popup.gateNameList.currentTextChanged.disconnect(self.sidGateNameListChanged)
-        except TypeError:
-            pass
-        try:
-            if hasattr(self, 'sidGateTypeListChanged'):
-                self._popup.listGateType.currentIndexChanged.disconnect(self.sidGateTypeListChanged)
-        except TypeError:
-            pass
-        try:
-            if hasattr(self, 'gatePopupPreview'):
-                self._popup.preview.clicked.disconnect(self.gatePopupPreview)
-        except TypeError:
-            pass
+        # gateNameList/listGateType widget signals are wired permanently in
+        # MainWindow now (M5); gateNameListChanged/gateTypeListChanged self-gate
+        # on _editing_gate/_creating_gate, so no per-mode disconnect here.
         try:
             if hasattr(self, 'shortcutInsertRegionPoint'):
                 self.shortcutInsertRegionPoint.setEnabled(False)
@@ -544,23 +561,15 @@ class GateManager(QObject):
     def createGate(self, index):
         self.logger.info('createGate')
         self._skip_auto.set()
-        self._popup.gateActionCreate.setChecked(True)
-        if self._gate_edit_disable_cb.isChecked():
-            self._popup.gateActionEdit.setChecked(False)
-            self._popup.gateActionEdit.setEnabled(False)
+        self.gateActionCreateChecked.emit(True)
+        if self._get_edit_disable():
+            self.gateActionEditChecked.emit(False)
+            self.gateActionEditEnabled.emit(False)
         else:
-            self._popup.gateActionEdit.setEnabled(True)
+            self.gateActionEditEnabled.emit(True)
 
-        try:
-            if hasattr(self, 'sidGateNameListChanged'):
-                self._popup.gateNameList.currentTextChanged.disconnect(self.sidGateNameListChanged)
-                self.logger.debug('createGate - disconnected sidGateNameListChanged')
-        except TypeError:
-            pass
-
-        self._popup.gateNameList.setEditable(True)
-        self._popup.gateNameList.setInsertPolicy(QComboBox.NoInsert)
-        self._popup.gateNameList.setCurrentText("gate-001")
+        self.gateNameListEditable.emit()
+        self.gateNameSelected.emit("gate-001")
 
         if index is None:
             return QMessageBox.about(self._parent_widget, "Warning!", "Please add at least one spectrum")
@@ -580,7 +589,7 @@ class GateManager(QObject):
         if spectrumType is None:
             return
 
-        self._popup.clearInfo()
+        self.gateClearInfoRequested.emit()
         self.disconnectGateSignals()
 
         gateTypesList = gateTypesDict[spectrumType]
@@ -595,30 +604,34 @@ class GateManager(QObject):
                 msgBox.setDefaultButton(QMessageBox.Ok)
                 msgBox.exec()
                 return
-            self._popup.listGateType.addItem(gtype)
+            self.gateTypeItemAdded.emit(gtype)
 
         self._creating_gate = True
         self._editing_gate  = False
         self.gateCreationStarted.emit(index)
 
-        self.sidGateTypeListChanged = self._popup.listGateType.currentIndexChanged.connect(
-            self.gateTypeListChanged)
+        # listGateType.currentIndexChanged -> gateTypeListChanged is wired
+        # permanently in MainWindow (M5); gateTypeListChanged self-gates on
+        # _creating_gate, which is now True.
 
-        self._popup.gateSpectrumIndex = index
+        self._active_gate_index = index
 
-        self._populateGateNameListFromAxis(index)
-        self._popup.gateNameList.setCurrentText(self._nextGateName())
+        names = self._populateGateNameListFromAxis(index)
+        self.gateNamesPrepared.emit(names, self._nextGateName(names))
 
-        self._popup.show()
+        self.gatePopupShowRequested.emit()
 
     def _populateGateNameListFromAxis(self, spec_index):
+        # Builds the gate-name list for gateNameList; caller emits
+        # gateNamesPrepared. Records the names in _gate_names so findText()
+        # membership checks read service state, not the widget.
         ax   = self._get_spectrum_info("axis", index=spec_index)
         name = self._name_from_index(spec_index)
         dim  = self._spectra.get(name, "dim")
-        cb   = self._popup.gateNameList
-        cb.clear()
+        names = []
         if ax is None or dim is None:
-            return
+            self._gate_names = names
+            return names
         seen = set()
         for child in ax.lines:
                 label = child.get_label()
@@ -627,28 +640,29 @@ class GateManager(QObject):
                 parts = label.split("_-_")
                 if dim == 1 and parts[0] == "gate" and parts[2] == "0":
                     if parts[1] not in seen:
-                        cb.addItem(parts[1]); seen.add(parts[1])
+                        names.append(parts[1]); seen.add(parts[1])
                 elif dim == 2 and parts[0] == "gate":
                     if parts[1] not in seen:
-                        cb.addItem(parts[1]); seen.add(parts[1])
+                        names.append(parts[1]); seen.add(parts[1])
+        self._gate_names = names
+        return names
 
-    def _nextGateName(self):
+    def _nextGateName(self, names):
         rx = re.compile(r"^gate-(\d+)$")
         mx = 0
-        cb = self._popup.gateNameList
-        for i in range(cb.count()):
-            m = rx.match(cb.itemText(i))
+        for itemText in names:
+            m = rx.match(itemText)
             if m:
                 mx = max(mx, int(m.group(1)))
         return f"gate-{mx+1:03d}"
 
     def onGatePopupPreview(self):
         self.logger.info('onGatePopupPreview')
-        ax = self._get_spectrum_info("axis", index=self._popup.gateSpectrumIndex)
+        ax = self._get_spectrum_info("axis", index=self._active_gate_index)
         if ax is None:
             self.logger.debug('onGatePopupPreview - ax is None')
             return
-        name   = self._name_from_index(self._popup.gateSpectrumIndex)
+        name   = self._name_from_index(self._active_gate_index)
         dim    = self._spectra.get(name, "dim")
         points = self.formatGatePopupPointText(dim)
         if points is None:
@@ -656,7 +670,7 @@ class GateManager(QObject):
             return
         if not hasattr(self, 'editThisGateLine') or self.editThisGateLine is None:
             try:
-                gateIdentifier    = "gate_-_" + self._popup.gateNameList.currentText() + "_-_"
+                gateIdentifier    = "gate_-_" + self._get_gate_name() + "_-_"
                 self.editThisGateLine = [
                     child for child in ax.lines
                     if gateIdentifier in child.get_label()
@@ -678,7 +692,7 @@ class GateManager(QObject):
                 lineX.append(point[0])
                 lineY.append(point[1])
             specialTypes = ["c", "gc"]
-            if self._popup.listGateType.currentText() in specialTypes:
+            if self._get_gate_type() in specialTypes:
                 lineX.append(points[0][0])
                 lineY.append(points[0][1])
             self.editThisGateLine.set_data(lineX, lineY)
@@ -690,14 +704,7 @@ class GateManager(QObject):
 
     def editGate(self):
         self.logger.info('editGate')
-        self._popup.gateActionCreate.setChecked(False)
-
-        try:
-            if hasattr(self, 'sidGateTypeListChanged'):
-                self._popup.listGateType.currentIndexChanged.disconnect(self.sidGateTypeListChanged)
-                self.logger.debug('editGate - disconnected sidGateTypeListChanged')
-        except TypeError:
-            pass
+        self.gateActionCreateChecked.emit(False)
 
         self.sid = self._get_current_canvas().mpl_connect(
             'pick_event', self.clickOnGateLine)
@@ -706,65 +713,69 @@ class GateManager(QObject):
             QKeySequence("Alt+E"), self._parent_widget)
         self.shortcutInsertRegionPoint.activated.connect(self.onKeyActivateEditGate)
 
-        if self._popup.gateSpectrumIndex is None:
+        if self._active_gate_index is None:
             self.logger.debug('editGate - gateSpectrumIndex is None')
             return QMessageBox.about(self._parent_widget, "Warning!", "Please add at least one spectrum")
 
-        spectrumName = self._name_from_index(self._popup.gateSpectrumIndex)
+        spectrumName = self._name_from_index(self._active_gate_index)
         dim = self._spectra.get(spectrumName, "dim")
-        ax  = self._get_spectrum_info("axis", index=self._popup.gateSpectrumIndex)
+        ax  = self._get_spectrum_info("axis", index=self._active_gate_index)
         if ax is None:
             self.logger.debug('editGate - ax is None')
             return
 
-        self._popup.clearInfo()
+        self.gateClearInfoRequested.emit()
 
         gateLabels = [child.get_label() for child in ax.lines if "_-_" in child.get_label()]
+        names = []
         for label in gateLabels:
             if dim == 1:
                 label = label.split("_-_")
                 if label[0] == 'gate' and label[2] == '0':
-                    self._popup.gateNameList.addItem(label[1])
+                    names.append(label[1])
             elif dim == 2:
                 label = label.split("_-_")
                 if label[0] == 'gate':
-                    self._popup.gateNameList.addItem(label[1])
-        self._popup.gateNameList.setCurrentText("-- select a gate --")
-        self._popup.gateNameList.completer().setCompletionMode(QCompleter.PopupCompletion)
-        self._popup.gateNameList.completer().setFilterMode(Qt.MatchContains)
-        self.sidGateNameListChanged = self._popup.gateNameList.currentTextChanged.connect(
-            self.gateNameListChanged)
+                    names.append(label[1])
+        self._gate_names = names
+        self.gateNamesPrepared.emit(names, "-- select a gate --")
+        self.gateNameCompleterConfigured.emit()
+        # gateNameList.currentTextChanged -> gateNameListChanged is wired
+        # permanently in MainWindow (M5); the slot self-gates on _editing_gate.
 
         self._creating_gate = False
         self._editing_gate  = True
         self.gateEditingStarted.emit()
         self.altPressed = False
-        self._popup.regionPoint.setReadOnly(False)
+        self.gateReadoutEditable.emit(True)
 
     def gateTypeListChanged(self):
+        if not self._creating_gate:   # permanently wired in MainWindow (M5); act only in create mode
+            return
         self.logger.info('gateTypeListChanged')
-        self._popup.gateNameList.clear()
-        self._popup.gateNameList.setCurrentText("gate-001")
+        self._gate_names = []
+        self.gateNamesPrepared.emit([], "gate-001")
         for line in self._popup.listRegionLine:
             line.remove()
         self._popup.listRegionLine.clear()
         self._popup.prevPoint.clear()
-        self._popup.regionPoint.clear()
-        self._popup.gateSpectrumIndex  = 0
-        self._popup.gateEditOption     = None
+        self._set_gate_readout("")
+        self._active_gate_index  = 0
+        self._gate_edit_option     = None
 
     def gateNameListChanged(self):
+        if not self._editing_gate:   # permanently wired in MainWindow (M5); act only in edit mode
+            return
         self.logger.info('gateNameListChanged')
-        ax = self._get_spectrum_info("axis", index=self._popup.gateSpectrumIndex)
+        ax = self._get_spectrum_info("axis", index=self._active_gate_index)
         if ax is None:
             self.logger.debug('gateNameListChanged - ax is None')
             return
-        gateName       = self._popup.gateNameList.currentText()
-        gateFoundAtIdx = self._popup.gateNameList.findText(gateName)
-        if gateFoundAtIdx == -1:
-            self._popup.regionPoint.clear()
-            self._popup.listGateType.clear()
-            self.logger.debug('gateNameListChanged - gateFoundAtIdx == -1')
+        gateName       = self._get_gate_name()
+        if gateName not in self._gate_names:      # was gateNameList.findText() == -1
+            self._set_gate_readout("")
+            self.gateTypeCleared.emit()
+            self.logger.debug('gateNameListChanged - gate not in list')
             return
         gateIdentifier = "gate_-_" + gateName + "_-_"
         lines = [child for child in ax.lines if gateIdentifier in child.get_label()]
@@ -772,8 +783,8 @@ class GateManager(QObject):
         if rest is None:
             return
         gate = [d for d in rest.listGate() if d["name"] == gateName]
-        self._popup.gateNameList.setCurrentText(gateName)
-        self._popup.listGateType.addItem(gate[0]["type"])
+        self.gateNameSelected.emit(gateName)
+        self.gateTypeItemAdded.emit(gate[0]["type"])
         self.updateTextGatePopup(lines)
         for line in lines:
             line.set_marker(marker='o')
@@ -789,7 +800,7 @@ class GateManager(QObject):
         if not self._get_is_enlarged():
             return
         dim      = self._spectra.get(self._name_from_index(index), "dim")
-        gateType = self._popup.listGateType.currentText()
+        gateType = self._get_gate_type()
         if dim == 1:
             l = self.addLine(float(event.xdata), 0, index)
             self._popup.listRegionLine.append(l)
@@ -799,8 +810,7 @@ class GateManager(QObject):
             for nbLine in range(len(self._popup.listRegionLine)):
                 prefix = "" if nbLine == 0 else "\n"
                 lineText += prefix + f"{nbLine}: X= {self._popup.listRegionLine[nbLine].get_xdata()[0]:.3f}"
-            self._popup.regionPoint.clear()
-            self._popup.regionPoint.insertPlainText(lineText)
+            self._set_gate_readout(lineText)
 
         elif dim == 2:
             tempLine = [ln for ln in self._popup.listRegionLine
@@ -824,8 +834,7 @@ class GateManager(QObject):
                 lineText += f"{lineNb}: X= {float(event.xdata):.3f}   Y= {float(event.ydata):.3f}"
             else:
                 lineText += f"\n{lineNb}: X= {float(event.xdata):.3f}   Y= {float(event.ydata):.3f}"
-            self._popup.regionPoint.clear()
-            self._popup.regionPoint.insertPlainText(lineText)
+            self._set_gate_readout(lineText)
 
             if gateType not in ["b", "gb"] and lineNb > 1:
                 label = "closing_segment"
@@ -842,7 +851,7 @@ class GateManager(QObject):
         if not self._get_is_enlarged():
             return
         dim          = self._spectra.get(self._name_from_index(index), "dim")
-        gateType     = self._popup.listGateType.currentText()
+        gateType     = self._get_gate_type()
         gateTypeList1 = ["c", "gc"]
         gateTypeList2 = ["b"]
 
@@ -890,16 +899,15 @@ class GateManager(QObject):
             if lineNb == 1:
                 lineText += (f"\n{lineNb}: X= {self._popup.listRegionLine[0].get_xdata()[1]:.3f}"
                              f"   Y= {self._popup.listRegionLine[0].get_ydata()[1]:.3f}")
-            self._popup.regionPoint.clear()
-            self._popup.regionPoint.insertPlainText(lineText)
+            self._set_gate_readout(lineText)
 
         self.canvasDrawRequested.emit()
 
     def on_singleclick_gate_edit(self, event):
         self.logger.info('on_singleclick_gate_edit')
-        name = self._name_from_index(self._popup.gateSpectrumIndex)
+        name = self._name_from_index(self._active_gate_index)
         dim  = self._spectra.get(name, "dim")
-        ax   = self._get_spectrum_info("axis", index=self._popup.gateSpectrumIndex)
+        ax   = self._get_spectrum_info("axis", index=self._active_gate_index)
         if ax is None:
             self.logger.debug('on_singleclick_gate_edit - ax is None')
             return
@@ -916,10 +924,10 @@ class GateManager(QObject):
 
     def on_dblclick_gate_edit(self, event, index):
         self.logger.info('on_dblclick_gate_edit')
-        name = self._name_from_index(self._popup.gateSpectrumIndex)
+        name = self._name_from_index(self._active_gate_index)
         dim  = self._spectra.get(name, "dim")
         if dim == 2:
-            self._popup.gateEditOption = "2d_move_all"
+            self._gate_edit_option = "2d_move_all"
             self.gateReleaser = self._get_current_canvas().mpl_connect(
                 "button_press_event", self.releaseonclick)
 
@@ -990,7 +998,7 @@ class GateManager(QObject):
                 canvas.mpl_disconnect(self.gateFollower)
         except TypeError:
             pass
-        self._popup.gateEditOption = None
+        self._gate_edit_option = None
         self.xyRef        = None
         self.movingMarker = []
 
@@ -1002,9 +1010,9 @@ class GateManager(QObject):
 
     def insertPointGate(self, event):
         self.logger.info('insertPointGate')
-        name = self._name_from_index(self._popup.gateSpectrumIndex)
+        name = self._name_from_index(self._active_gate_index)
         dim  = self._spectra.get(name, "dim")
-        ax   = self._get_spectrum_info("axis", index=self._popup.gateSpectrumIndex)
+        ax   = self._get_spectrum_info("axis", index=self._active_gate_index)
         if ax is None or dim != 2:
             self.logger.debug('insertPointGate - ax is None or dim!=2: %s', dim)
             return
@@ -1029,9 +1037,9 @@ class GateManager(QObject):
 
     def deletePointGate(self, event):
         self.logger.info('deletePointGate')
-        name = self._name_from_index(self._popup.gateSpectrumIndex)
+        name = self._name_from_index(self._active_gate_index)
         dim  = self._spectra.get(name, "dim")
-        ax   = self._get_spectrum_info("axis", index=self._popup.gateSpectrumIndex)
+        ax   = self._get_spectrum_info("axis", index=self._active_gate_index)
         if ax is None or dim != 2:
             self.logger.debug('deletePointGate - ax is None or dim!=2: %s', dim)
             return
@@ -1046,7 +1054,7 @@ class GateManager(QObject):
 
         markerIdx = np.where(distances <= dataRadius)[0]
         if markerIdx.size > 0:
-            if markerIdx[0] == 0 and self._popup.listGateType.currentText() in specialGateTypes:
+            if markerIdx[0] == 0 and self._get_gate_type() in specialGateTypes:
                 lineX[-1] = lineX[1]
                 lineY[-1] = lineY[1]
             lineX.pop(markerIdx[0])
@@ -1061,10 +1069,10 @@ class GateManager(QObject):
         # in the other drag modes
         if event.xdata is None or event.ydata is None:
             return
-        if self._popup.gateEditOption == "1d_move_line":
+        if self._gate_edit_option == "1d_move_line":
             self.editThisGateLine.set_color("green")
             self.editThisGateLine.set_xdata([event.xdata, event.xdata])
-        elif self._popup.gateEditOption == "2d_move_all":
+        elif self._gate_edit_option == "2d_move_all":
             lineX  = self.editThisGateLine.get_xdata()
             lineY  = self.editThisGateLine.get_ydata()
             shiftX = event.xdata - lineX[0]
@@ -1072,7 +1080,7 @@ class GateManager(QObject):
             lineX  = [item + shiftX for item in lineX]
             lineY  = [item + shiftY for item in lineY]
             self.editThisGateLine.set_data(lineX, lineY)
-        elif self._popup.gateEditOption == "2d_move_point":
+        elif self._gate_edit_option == "2d_move_point":
             lineX = self.editThisGateLine.get_xdata()
             lineY = self.editThisGateLine.get_ydata()
             if hasattr(self, 'movingMarker') and len(self.movingMarker) > 0:
@@ -1083,7 +1091,7 @@ class GateManager(QObject):
             else:
                 markerPos = np.array([lineX, lineY])
                 try:
-                    ax = self._get_spectrum_info("axis", index=self._popup.gateSpectrumIndex)
+                    ax = self._get_spectrum_info("axis", index=self._active_gate_index)
                     if ax is None:
                         return
                     distances      = np.linalg.norm(markerPos - self.xyRef.reshape(2, -1), axis=0)
@@ -1113,7 +1121,7 @@ class GateManager(QObject):
         return pixel_distance * (axis_range / plotting_area_size)
 
     def updateTextGatePopup(self, gateList):
-        name = self._name_from_index(self._popup.gateSpectrumIndex)
+        name = self._name_from_index(self._active_gate_index)
         dim  = self._spectra.get(name, "dim")
         if dim == 1:
             lineText = ""
@@ -1125,22 +1133,21 @@ class GateManager(QObject):
             lineText = ""
             specialTypes = ["c", "gc"]
             nbPoints = len(lines)
-            if self._popup.listGateType.currentText() in specialTypes:
+            if self._get_gate_type() in specialTypes:
                 nbPoints = len(lines) - 1
             for nbLine in range(nbPoints):
                 prefix = "" if nbLine == 0 else "\n"
                 lineText += prefix + f"{nbLine}: X= {lines[nbLine][0]:.3f}   Y= {lines[nbLine][1]:.3f}"
-        self._popup.regionPoint.clear()
-        self._popup.regionPoint.insertPlainText(lineText)
+        self._set_gate_readout(lineText)
 
     def clickOnGateLine(self, event):
         self.logger.info('clickOnGateLine')
         if event.mouseevent.button != 1:
             return
         self.editThisGateLine = None
-        name = self._name_from_index(self._popup.gateSpectrumIndex)
+        name = self._name_from_index(self._active_gate_index)
         dim  = self._spectra.get(name, "dim")
-        ax   = self._get_spectrum_info("axis", index=self._popup.gateSpectrumIndex)
+        ax   = self._get_spectrum_info("axis", index=self._active_gate_index)
         if ax is None:
             self.logger.debug('clickOnGateLine - ax is None')
             return
@@ -1162,9 +1169,9 @@ class GateManager(QObject):
             return
         gate = [d for d in rest.listGate() if d["name"] == gateName]
 
-        self._popup.gateNameList.setCurrentText(gateName)
-        self._popup.listGateType.clear()
-        self._popup.listGateType.addItem(gate[0]["type"])
+        self.gateNameSelected.emit(gateName)
+        self.gateTypeCleared.emit()
+        self.gateTypeItemAdded.emit(gate[0]["type"])
 
         gateIdentifier = "gate_-_" + gateName + "_-_"
         gateLines = [child for child in ax.lines if gateIdentifier in child.get_label()]
@@ -1174,14 +1181,14 @@ class GateManager(QObject):
         self.gateFollower = canvas.mpl_connect(
             "motion_notify_event", self.followmouse)
         if dim == 1:
-            self._popup.gateEditOption = "1d_move_line"
+            self._gate_edit_option = "1d_move_line"
             self.gateReleaser = canvas.mpl_connect(
                 "button_press_event", self.releaseonclick)
         elif dim == 2:
             self.editThisGateLine.set_marker(marker='o')
             self.editThisGateLine.set_color("green")
             self.canvasDrawRequested.emit()
-            self._popup.gateEditOption = "2d_move_point"
+            self._gate_edit_option = "2d_move_point"
 
     # ------------------------------------------------------------------
     # Geometry helpers

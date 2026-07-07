@@ -325,9 +325,12 @@ class MainWindow(QMainWindow):
             get_current_canvas=lambda: self.wTab.wPlot[self.wTab.currentIndex()].canvas,
             integrate_popup=self.integratePopup,
             get_integrate_copy=lambda: getattr(self, 'sidTableIntegrateCopy', None),
-            gate_hide_cb=self.extraPopup.options.gateHide,
-            gate_annotation_cb=self.extraPopup.options.gateAnnotation,
-            gate_edit_disable_cb=self.extraPopup.options.gateEditDisable,
+            get_hide=lambda: self.extraPopup.options.gateHide.isChecked(),
+            get_annotate=lambda: self.extraPopup.options.gateAnnotation.isChecked(),
+            get_edit_disable=lambda: self.extraPopup.options.gateEditDisable.isChecked(),
+            get_readout=lambda: self.gatePopup.regionPoint.toPlainText(),
+            get_gate_type=lambda: self.gatePopup.listGateType.currentText(),
+            get_gate_name=lambda: self.gatePopup.gateNameList.currentText(),
             sum_region_popup=self.sumRegionPopup,
             skip_auto=self.skipAutoUpdateThread,
             get_rest=lambda: self.rest,
@@ -531,8 +534,12 @@ class MainWindow(QMainWindow):
         self.wConf.createGate.clicked.connect(
             lambda: self.gate_manager.createGate(self.currentPlot.selected_plot_index))
         self.wConf.createGate.setEnabled(False)
-        self.gatePopup.ok.clicked.connect(self.gate_manager.okGate)
-        self.gatePopup.cancel.clicked.connect(self.gate_manager.cancelGate)
+        self.gatePopup.ok.clicked.connect(
+            lambda: self.gate_manager.okGate(self.gatePopup.gateNameList.currentText()))
+        # Same clicked(bool)->doClose quirk as the sum-region Cancel (E17):
+        # call with the default so gate Cancel discards + closes the popup.
+        self.gatePopup.cancel.clicked.connect(
+            lambda: self.gate_manager.cancelGate())
         self.gatePopup.gateActionCreate.clicked.connect(
             lambda: self.gate_manager.createGate(self.currentPlot.selected_plot_index))
         self.gatePopup.gateActionEdit.clicked.connect(self.gate_manager.editGate)
@@ -544,6 +551,25 @@ class MainWindow(QMainWindow):
         self.gate_manager.gateCreationStarted.connect(self._on_gate_creation_started)
         self.gate_manager.gateEditingStarted.connect(self._on_gate_editing_started)
         self.gate_manager.gateEnded.connect(self._on_gate_ended)
+        self.gate_manager.gateReadoutChanged.connect(self._on_gate_readout_changed)
+        self.gate_manager.gateReadoutEditable.connect(self._on_gate_readout_editable)
+        self.gate_manager.gateTypeCleared.connect(self._on_gate_type_cleared)
+        self.gate_manager.gateTypeItemAdded.connect(self._on_gate_type_item_added)
+        self.gate_manager.gateNamesPrepared.connect(self._on_gate_names_prepared)
+        self.gate_manager.gateNameSelected.connect(self._on_gate_name_selected)
+        self.gate_manager.gateNameListEditable.connect(self._on_gate_name_list_editable)
+        self.gate_manager.gateNameCompleterConfigured.connect(self._on_gate_name_completer_configured)
+        self.gate_manager.gateClearInfoRequested.connect(self.gatePopup.clearInfo)
+        self.gate_manager.gatePopupShowRequested.connect(self.gatePopup.show)
+        self.gate_manager.gatePopupCloseRequested.connect(self.gatePopup.close)
+        self.gate_manager.gateActionCreateChecked.connect(self.gatePopup.gateActionCreate.setChecked)
+        self.gate_manager.gateActionEditChecked.connect(self.gatePopup.gateActionEdit.setChecked)
+        self.gate_manager.gateActionEditEnabled.connect(self.gatePopup.gateActionEdit.setEnabled)
+        # M5: gate popup combo signals are wired to the service slots ONCE here
+        # (was connect/disconnect bookkeeping inside the service). The slots
+        # self-gate on _creating_gate/_editing_gate.
+        self.gatePopup.listGateType.currentIndexChanged.connect(self.gate_manager.gateTypeListChanged)
+        self.gatePopup.gateNameList.currentTextChanged.connect(self.gate_manager.gateNameListChanged)
 
         # summing region
         self.wConf.createSumRegionButton.clicked.connect(
@@ -551,7 +577,12 @@ class MainWindow(QMainWindow):
         self.sumRegionPopup.ok.clicked.connect(
             lambda: self.sum_region_manager.okSumRegion(
                 self.sumRegionPopup.sumRegionNameList.currentText()))
-        self.sumRegionPopup.cancel.clicked.connect(self.sum_region_manager.cancelSumRegion)
+        # clicked(bool) would pass checked=False into doClose, so the bare
+        # connection made Cancel run with doClose=False and never close the
+        # popup (E17). Call with the intended default so Cancel discards the
+        # in-progress region AND closes (closeEvent -> clearInfo + resume).
+        self.sumRegionPopup.cancel.clicked.connect(
+            lambda: self.sum_region_manager.cancelSumRegion())
         self.sumRegionPopup.delete.clicked.connect(
             lambda: self.sum_region_manager.deleteSumRegion(
                 *self._current_plot_ctx(),
@@ -1645,6 +1676,47 @@ class MainWindow(QMainWindow):
     def _on_gate_ended(self):
         self.currentPlot.toCreateGate = False
         self.currentPlot.toEditGate   = False
+
+    @pyqtSlot(str)
+    def _on_gate_readout_changed(self, text):
+        self.gatePopup.regionPoint.clear()
+        self.gatePopup.regionPoint.insertPlainText(text)
+
+    @pyqtSlot(bool)
+    def _on_gate_readout_editable(self, editable):
+        self.gatePopup.regionPoint.setReadOnly(not editable)
+
+    @pyqtSlot()
+    def _on_gate_type_cleared(self):
+        self.gatePopup.listGateType.clear()
+
+    @pyqtSlot(str)
+    def _on_gate_type_item_added(self, text):
+        self.gatePopup.listGateType.addItem(text)
+
+    @pyqtSlot(list, str)
+    def _on_gate_names_prepared(self, names, current):
+        cb = self.gatePopup.gateNameList
+        cb.clear()
+        for name in names:
+            cb.addItem(name)
+        cb.setCurrentText(current)
+
+    @pyqtSlot(str)
+    def _on_gate_name_selected(self, name):
+        self.gatePopup.gateNameList.setCurrentText(name)
+
+    @pyqtSlot()
+    def _on_gate_name_list_editable(self):
+        cb = self.gatePopup.gateNameList
+        cb.setEditable(True)
+        cb.setInsertPolicy(QComboBox.NoInsert)
+
+    @pyqtSlot()
+    def _on_gate_name_completer_configured(self):
+        cb = self.gatePopup.gateNameList
+        cb.completer().setCompletionMode(QCompleter.PopupCompletion)
+        cb.completer().setFilterMode(QtCore.Qt.MatchContains)
 
     @pyqtSlot()
     def _on_shm_views_invalidated(self):
