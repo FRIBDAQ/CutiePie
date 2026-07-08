@@ -87,7 +87,6 @@ from matplotlib.artist import Artist
 from matplotlib.patches import Polygon, Circle, Ellipse
 from matplotlib.path import Path
 from scipy.optimize import curve_fit
-from scipy.signal import find_peaks
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -125,6 +124,9 @@ from PyREST import PyREST # class interface for SpecTcl REST plugin
 from services.spectrum_store import SpectrumStore
 from services.display_slot import DisplaySlot
 from services import geometry_io
+from services.dataframe_export import export_spectrum_csv
+from services.peak_finder import find_peaks_in_range, format_peak_output
+from services.figure_overlay import compute_overlay_position, apply_joystick_move, apply_fine_move
 from services.thread_workers import RestWorker, AutoUpdateWorker
 from services.fit_manager import FitManager
 from services.gate_manager import GateManager
@@ -2835,9 +2837,7 @@ class MainWindow(QMainWindow):
 
     def update_peak_output(self, peaks, properties):
         self.logger.info('update_peak_output - len(peaks), properties: %s, %s', len(peaks), properties)
-        x = self.datax.tolist()
-        for i in range(len(peaks)):
-            s = "Peak"+str(i+1)+"\n\tpeak @ " + str(int(x[peaks[i]]))+", FWHM="+str(int(properties['widths'][i]))
+        for s in format_peak_output(peaks, properties, self.datax):
             self.extraPopup.peak.peak_results.append(s)
 
     def analyzePeak(self):
@@ -2845,11 +2845,8 @@ class MainWindow(QMainWindow):
         try:
             index = self.currentPlot.selected_plot_index
             ax = self.getSpectrumViewInfo("axis", index=index)
-            x = []
-            y = []
             # input points for peak finding
             width = int(self.extraPopup.peak.peak_width.text())
-            dim = self.getSpectrumStoreInfo("dim", index=index)
             binx = self.getSpectrumStoreInfo("binx", index=index)
             minxREST = self.getSpectrumStoreInfo("minx", index=index)
             maxxREST = self.getSpectrumStoreInfo("maxx", index=index)
@@ -2860,27 +2857,17 @@ class MainWindow(QMainWindow):
             xmin, xmax = ax.get_xlim()
             self.logger.debug('analyzePeak - xmin, xmax: %s, %s', xmin, xmax)
 
-            # create new tmp list with subrange for fitting
-            for i in range(len(xtmp)):
-                if (xtmp[i]>=xmin and xtmp[i]<xmax):
-                    x.append(xtmp[i])
-                    y.append(ytmp[i])
-            self.datax = np.array(x)
-            self.datay = np.array(y)
-            # if (DEBUG):
-            #     print(self.datax)
-            #     print(self.datay)
-            #     print("xtmp", type(self.datax), "with len", len(self.datax.tolist()), "ytmp", type(self.datay), "with len", len(self.datay.tolist()))
-            self.peaks, self.properties = find_peaks(self.datay, prominence=1, width=width)
+            self.datax, self.datay, self.peaks, self.properties = \
+                find_peaks_in_range(xtmp, ytmp, xmin, xmax, width)
 
-            # if (DEBUG):
-            #     print("peak list with indices", self.peaks)
-            #     print("peak properties list", self.properties)
             self.update_peak_output(self.peaks, self.properties)
             self.create_peak_signals(self.peaks)
 
         except Exception:
-            pass
+            # Peak analysis is best-effort: a bad width entry, an empty view,
+            # or a find_peaks failure must not crash the GUI — but must not be
+            # silent either (the user would see nothing happen with no clue why).
+            self.logger.exception('analyzePeak - peak analysis failed')
 
 
     ############################
@@ -2907,69 +2894,50 @@ class MainWindow(QMainWindow):
                 self.LISEpic = cv2.imread(fileName, 0)
                 cv2.resize(self.LISEpic, (200, 100))
         except Exception:
-            pass
+            # Best-effort image load — a bad path / unreadable file must not
+            # crash the GUI, but must not be silent either.
+            self.logger.exception('loadFigure - image load failed')
 
     def fineUpMove(self):
         self.imgplot.remove()
-        self.ystart += 0.002
+        self.xstart, self.ystart = apply_fine_move(self.xstart, self.ystart, "up")
         self.drawFigure()
 
     def fineDownMove(self):
         self.imgplot.remove()
-        self.ystart -= 0.002
+        self.xstart, self.ystart = apply_fine_move(self.xstart, self.ystart, "down")
         self.drawFigure()
 
     def fineLeftMove(self):
         self.imgplot.remove()
-        self.xstart -= 0.002
+        self.xstart, self.ystart = apply_fine_move(self.xstart, self.ystart, "left")
         self.drawFigure()
 
     def fineRightMove(self):
         self.imgplot.remove()
-        self.xstart += 0.002
+        self.xstart, self.ystart = apply_fine_move(self.xstart, self.ystart, "right")
         self.drawFigure()
 
     def moveFigure(self):
         self.logger.info('moveFigure')
-        # if (DEBUG):
-        #     print(self.extraPopup.imaging.joystick.direction, self.extraPopup.imaging.joystick.distance)
         try:
             self.imgplot.remove()
-            if self.extraPopup.imaging.joystick.direction == "up":
-                self.ystart += self.extraPopup.imaging.joystick.distance*0.03
-            elif self.extraPopup.imaging.joystick.direction == "down":
-                self.ystart -= self.extraPopup.imaging.joystick.distance*0.03
-            elif self.extraPopup.imaging.joystick.direction == "left":
-                self.xstart -= self.extraPopup.imaging.joystick.distance*0.03
-            else:
-                self.xstart += self.extraPopup.imaging.joystick.distance*0.03
+            self.xstart, self.ystart = apply_joystick_move(
+                self.xstart, self.ystart,
+                self.extraPopup.imaging.joystick.direction,
+                self.extraPopup.imaging.joystick.distance)
             self.drawFigure()
         except Exception:
-            pass
+            # Best-effort overlay nudge — a bad joystick read or a missing
+            # imgplot must not crash the GUI, but must not be silent either.
+            self.logger.exception('moveFigure - overlay move failed')
 
     def indexToStartPosition(self, index):
         self.logger.info('indexToStartPosition')
-        #### Bashir changed to examine the apply button
         row = int(self.wConf.histo_geo_row.currentText())
         col = int(self.wConf.histo_geo_col.currentText())
-        # row = self.wConf.histo_geo_row.value()
-        # col = self.wConf.histo_geo_col.value()
-        ######################################################
-
-        # if (DEBUG):
-        #     print("row, col",row, col)
-        xoffs = float(1/(2*col))
-        yoffs = float(1/(2*row))
         i, j = self.plotPosition(index)
-        # if (DEBUG):
-        #     print("plot position in geometry", i, j)
-        xstart = xoffs*(2*j+1)-0.1
-        ystart = yoffs*(2*i+1)+0.1
-
-        self.xstart = xstart
-        self.ystart = 1-ystart
-        # if (DEBUG):
-        #     print("self.xstart", self.xstart, "self.ystart", self.ystart)
+        self.xstart, self.ystart = compute_overlay_position(row, col, i, j)
 
     def drawFigure(self):
         self.logger.info('drawFigure')
@@ -3037,27 +3005,14 @@ class MainWindow(QMainWindow):
     def createDf(self):
         self.logger.info('createDf')
         try:
-            spectrumDict = self.getSpectrumStoreDict()
-            #reformat spectrumDict which is {spectrumName: {info1: , info2: ,...}} to {spectrumName: [],info1: [], info2: [],...}
-            formatedDict = {'name': [], 'dim': [], 'binx': [], 'minx': [], 'maxx': [], 'biny': [], 'miny': [], 'maxy': [], 'data': [], 'parameters': [], 'type': []}
-            for spectrumName, infoDict in spectrumDict.items():
-                formatedDict["name"].append(spectrumName)
-                for keyInfo, valInfo in infoDict.items():
-                    #ndarray with data will be parsed to list (1d) or list of list (2d)
-                    #this makes the data parsing easier from csv file.
-                    #might want the same for the other valInfo...
-                    if isinstance(valInfo, np.ndarray):
-                        toList = []
-                        if len(valInfo.shape) == 1:
-                            toList = valInfo.tolist()
-                        if len(valInfo.shape) == 2:
-                            toList = [[item for item in row] for row in valInfo]
-                        valInfo = toList 
-                    formatedDict[keyInfo].append(valInfo)
-            df = pd.DataFrame.from_dict(formatedDict)
-            df.to_csv(self.extraPopup.peak.jup_df_filename.text(), index=False, compression='gzip')
+            export_spectrum_csv(self.getSpectrumStoreDict(),
+                                self.extraPopup.peak.jup_df_filename.text())
         except Exception:
-            pass
+            # Export is best-effort: a failure here must not crash the GUI or
+            # block jupyterStart (the notebook can still open). But it must not
+            # be silent either — otherwise the notebook loads stale/missing data
+            # with no clue why. Log the traceback instead of swallowing it.
+            self.logger.exception('createDf - spectrum export failed')
 
     def jupyterStop(self):
         self.logger.info('jupyterStop')
