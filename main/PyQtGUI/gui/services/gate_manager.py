@@ -329,13 +329,13 @@ class GateManager(QObject):
     def getXYAnnotation(self, spectrumName, gateName, xy):
         self.logger.info('getXYAnnotation - spectrumName, gateName, xy : %s, %s, %s',
                          spectrumName, gateName, xy)
-        if spectrumName not in self.gateAnnotation:
-            self.gateAnnotation[spectrumName] = {gateName: xy}
-            return xy
-        for gateDict in self.gateAnnotation[spectrumName]:
-            if gateName in gateDict:
-                return xy
-            return (xy[0], xy[1] - 0.05)
+        # Each gate on a spectrum keeps a stable y offset (0, 0.05, 0.10, ...)
+        # so stacked labels don't overlap; x always comes from the caller
+        # (it tracks the gate line's current position).
+        perSpectrum = self.gateAnnotation.setdefault(spectrumName, {})
+        if gateName not in perSpectrum:
+            perSpectrum[gateName] = 0.05 * len(perSpectrum)
+        return (xy[0], xy[1] - perSpectrum[gateName])
 
     # ------------------------------------------------------------------
     # REST push
@@ -822,6 +822,11 @@ class GateManager(QObject):
         if rest is None:
             return
         gate = [d for d in rest.listGate() if d["name"] == gateName]
+        if not gate:
+            self.logger.warning('gateNameListChanged - gate %r not in REST (deleted server-side?)', gateName)
+            self._set_gate_readout("")
+            self.gateTypeCleared.emit()
+            return
         self.gateNameSelected.emit(gateName)
         self.gateTypeItemAdded.emit(gate[0]["type"])
         self.updateTextGatePopup(lines)
@@ -1126,7 +1131,7 @@ class GateManager(QObject):
                     distances      = np.linalg.norm(markerPos - self.xyRef.reshape(2, -1), axis=0)
                     xlims          = ax.get_xlim()
                     ylims          = ax.get_ylim()
-                    figTest        = plt.gcf()
+                    figTest        = ax.figure
                     plottingAreaWidth, plottingAreaHeight = figTest.get_size_inches() * figTest.dpi
                     radX           = self.pixel_to_data_distance(self.epsilon, xlims, plottingAreaWidth)
                     radY           = self.pixel_to_data_distance(self.epsilon, ylims, plottingAreaHeight)
@@ -1196,6 +1201,9 @@ class GateManager(QObject):
         if rest is None:
             return
         gate = [d for d in rest.listGate() if d["name"] == gateName]
+        if not gate:
+            self.logger.warning('clickOnGateLine - gate %r not in REST (deleted server-side?)', gateName)
+            return
 
         self.gateNameSelected.emit(gateName)
         self.gateTypeCleared.emit()

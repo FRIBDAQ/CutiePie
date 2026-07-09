@@ -373,3 +373,19 @@ def test_alpha_filter_popup_closed_for_other_models(env):
     env.fm._maybe_show_alpha_filter_popup(object(), "Gaus")
     assert closes == [1]
     assert env.fm._alphaFilterDlg is None
+
+
+def test_delete_fit_index_is_exact_not_a_prefix(fm_mod):
+    # H7: "fit-_-1" is a substring of "fit-_-10"; deleting fit 1 must not
+    # delete fit 10.
+    fm = fm_mod.FitManager(fit_factory=FakeFitFactory(), spectra=None,
+                           parent_widget=None,
+                           logger=logging.getLogger("t.fm.h7"))
+    fig = Figure(); FigureCanvasAgg(fig)
+    ax = fig.add_subplot(111)
+    l1, = ax.plot([0, 1], [0, 1]); l1.set_label("fit-_-1")
+    l10, = ax.plot([0, 1], [1, 0]); l10.set_label("fit-_-10")
+    fm.deleteFit(index=0, name="h", ax=ax, fit_idx_text="1")
+    labels = [ln.get_label() for ln in ax.lines]
+    assert "fit-_-1" not in labels
+    assert "fit-_-10" in labels          # pre-fix: removed as collateral

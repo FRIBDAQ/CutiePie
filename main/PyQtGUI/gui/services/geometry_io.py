@@ -15,6 +15,7 @@ and call in here. Extracted from ``GUI.py`` so the format logic is unit-testable
 without PyQt5 (mirrors ``display_slot`` / ``notebook_process`` / ``logger``).
 """
 
+import ast
 import os
 import re
 import logging
@@ -52,12 +53,16 @@ def read_geometry(filename, logger=None):
     if firstMeaningful.lower().startswith("geometry"):
         return _parse_old_geo(filename, log)
     if firstMeaningful.startswith("{"):
-        # NOTE: preserved verbatim from GUI.openGeo (behavior-preserving extraction).
-        # `eval` on file contents is a latent code-execution risk from a hostile
-        # .win file; switching to ast.literal_eval is strictly safer and equivalent
-        # for every legitimate geometry dict, but that is a behavior change and is
-        # deferred as its own decision (see AUDIT/deferred notes).
-        return eval(open(filename, "r").read())
+        # ast.literal_eval replaces the historical eval(): equivalent for every
+        # legitimate dict-literal geometry, inert for hostile file contents
+        # (H10 — decision taken 2026-07-08, was deferred).
+        with open(filename, "r") as fh:
+            text = fh.read()
+        try:
+            return ast.literal_eval(text)
+        except (ValueError, SyntaxError, TypeError, RecursionError):
+            log.warning('read_geometry - invalid geometry dict literal in %s', filename)
+            return None
     log.warning('read_geometry - unrecognized geometry file format: %s', filename)
     return None
 

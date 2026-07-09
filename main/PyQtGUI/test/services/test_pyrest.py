@@ -53,3 +53,20 @@ def test_build_url_skips_none_params():
     client = _make_client()
     url = client._build_url("spectcl/parameter/edit", name="p", bins=None)
     assert url == "http://localhost:8000/spectcl/parameter/edit?name=p"
+
+
+def test_create_gate_encodes_hostile_names():
+    client = _make_client()
+    seen = {}
+    client.sendRequest = lambda url: seen.setdefault("url", url)
+    client.createGate("g", "s", ["par a+b"], [1.5, 2.5])
+    assert "parameter=par+a%2Bb" in seen["url"]
+    assert "low=1.5" in seen["url"] and "high=2.5" in seen["url"]
+
+
+def test_sbind_encodes_spectrum_names():
+    client = _make_client()
+    seen = {}
+    client.sendRequest = lambda url: seen.setdefault("url", url)
+    client.sbindSpectrum(["my spec&2"])
+    assert "spectrum=my+spec%262" in seen["url"]

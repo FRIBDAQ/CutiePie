@@ -515,3 +515,71 @@ def test_first_timer_tick_always_draws(rig):
     rig.pc._updatePlotOnGui()
     assert draws == [1]
     assert rig.pc._last_tick_signature is not None
+
+
+def test_add_plot_2d_scans_y_window_from_ylim_not_xlim(pc_mod, monkeypatch):
+    # H8: the 2D branch of addPlot read `ymin, ymax = ax.get_xlim()`, so the
+    # initial z-autoscale scanned the wrong y-bin window on asymmetric spectra.
+    r = Rig(pc_mod, monkeypatch)
+    r.store.set("m2", dim=2, binx=10, minx=0.0, maxx=10.0,
+                biny=20, miny=0.0, maxy=100.0,
+                data=np.ones((20, 10)), parameters=[], type="2")
+    # pre-seed the axis (the Rig's set_info doesn't mirror spectrum->axis)
+    r.info[0] = {"axis": r.cp.figure.axes[0]}
+    calls = []
+
+    def fake_min_max(index, **limits):
+        calls.append(limits)
+        return (1.0, 2.0)
+
+    monkeypatch.setattr(r.pc, "getMinMaxInRange", fake_min_max)
+    r.pc.markGeometryApplied()
+    r.pc.addPlot("m2", tab_click_bound=True)
+
+    two_d = [c for c in calls if "ymin" in c][-1]   # the addPlot-branch call
+    assert two_d["xmin"] == pytest.approx(0.0)
+    assert two_d["xmax"] == pytest.approx(10.0)
+    assert two_d["ymin"] == pytest.approx(0.0)
+    assert two_d["ymax"] == pytest.approx(100.0)    # pre-fix: 10.0 (the xlim)
+
+
+def test_ok_cutoff_accepts_decimal_values(rig):
+    # M12: cutoff fields were gated by isdigit(), silently dropping "10.5".
+    rig.store.set("m2", dim=2, binx=4, minx=0.0, maxx=4.0,
+                  biny=4, miny=0.0, maxy=4.0,
+                  data=np.ones((4, 4)), parameters=[], type="2")
+    rig.geo[0] = "m2"
+    ax = rig.cp.figure.axes[0]
+    art = ax.imshow(np.ones((4, 4)))
+    rig.info[0] = {"axis": ax, "spectrum": art}
+    rig.cp.selected_plot_index = 0
+    rig.pc.okCutoff("0", "4", "0", "4", "10.5", "200.5")
+    assert rig.get_info("cutoff", index=0) == [10.5, 200.5]   # pre-fix: None
+
+
+def test_reset_all_continues_past_empty_pad(pc_mod, monkeypatch):
+    # M13: customHomeButtonCallback returned at the first pad without a
+    # spectrum artist, so "Reset all" never reached later pads.
+    r = Rig(pc_mod, monkeypatch, nrows=1, ncols=2)
+    r.geo[0] = "ghost"                       # pad with no spectrum artist
+    ax1 = r.add_1d(name="h1", index=1, binx=4, minx=0.0, maxx=4.0,
+                   data=np.arange(5, dtype=float))
+    line, = ax1.plot([], [], drawstyle="steps")
+    r.set_info(index=1, spectrum=line)
+    ax1.set_xlim(1.0, 2.0)                   # zoomed in; reset should restore
+    r.pc.customHomeButtonCallback()          # index=None -> all pads
+    assert 1 in r.draw_gate_calls            # pre-fix: [] (returned at pad 0)
+    assert ax1.get_xlim() == (0.0, 4.0)
+
+
+def test_set_cmap_norm_log_coerces_zero_zmin(rig):
+    # M14: `if zmin and zmin <= 0` let zmin == 0 through -> LogNorm(vmin=0),
+    # which matplotlib rejects at draw time.
+    ax = rig.cp.figure.axes[0]
+    art = ax.imshow(np.ones((4, 4)))
+    art.set_clim(0.0, 100.0)
+    rig.geo[0] = "m2"
+    rig.info[0] = {"axis": ax, "spectrum": art}
+    rig.pc.setCmapNorm("log", 0)
+    assert art.norm.vmin > 0                 # pre-fix: 0.0
+    assert art.norm.vmax == pytest.approx(100.0)

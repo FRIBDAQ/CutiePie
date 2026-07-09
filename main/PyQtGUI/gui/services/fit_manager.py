@@ -389,7 +389,7 @@ class FitManager(QObject):
                         bw = None
 
                     fitResultsText = QTextEdit()
-                    print(f"... Fitting {fit_funct} ...")
+                    self.logger.info('fit - fitting %s ...', fit_funct)
 
                     fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
 
@@ -397,10 +397,10 @@ class FitManager(QObject):
 
                     if fitln is None and self._abort_fit:
                         fitResultsText.append("[abort] Fit stopped by user.")
-                        print("Fit aborted by user.")
+                        self.logger.info('fit - aborted by user')
                         return
 
-                    print("Fitting is done.")
+                    self.logger.info('fit - fitting done')
 
                     if cal is not None:
                         fitResultsText.insertPlainText(
@@ -440,7 +440,6 @@ class FitManager(QObject):
                             pass
 
                     txt = fitResultsText.toPlainText()
-                    print("\n----- FIT RESULTS -----\n" + txt)
                     self.logger.info("Fit results for %s [%s]:\n%s", spectrumName, fit_funct, txt)
                     fitResultsText.setReadOnly(True)
                     fitResultsText.setWindowTitle(f"Fit results — {fit_funct} : {spectrumName}")
@@ -456,8 +455,7 @@ class FitManager(QObject):
             ax.figure.canvas.draw_idle()
 
         except NameError as err:
-            print(err)
-            pass
+            self.logger.exception('fit - NameError')
 
         finally:
             self.fitBusyChanged.emit(False)
@@ -901,7 +899,7 @@ class FitManager(QObject):
             for fitIdx in userFitIdxs:
                 fitLineIdentifier = "fit-_-" + fitIdx
                 for fitLine in ax.get_children():
-                    if type(fitLine) == matplotlib.lines.Line2D and fitLineIdentifier in fitLine.get_label():
+                    if type(fitLine) == matplotlib.lines.Line2D and fitLine.get_label() == fitLineIdentifier:
                         fitLine.remove()
                         self.logger.debug('deleteFit - removed fit line: %s', fitLineIdentifier)
 

@@ -177,13 +177,14 @@ class PlotController(QObject):
             else:
                 spectrum.set_norm(colors.Normalize(vmin=zmin, vmax=zmax))
         elif scale == validScales[1]:
-            if zmin and zmin <= 0:
+            if zmin is None or zmin <= 0:
                 zmin = 0.001
-                self.logger.warning('setCmapNorm - LogNorm with zmin<=0, may want to use CenteredNorm')
-            spectrum.set_norm(colors.LogNorm(vmin=zmin, vmax=zmax))
-            if zmin > zmax:
+                self.logger.warning('setCmapNorm - LogNorm with zmin<=0 coerced to 0.001, may want to use CenteredNorm')
+            if zmax is not None and zmin > zmax:
                 self.logger.warning('setCmapNorm - zmin > zmax')
                 spectrum.set_norm(colors.LogNorm(vmin=self.minZ, vmax=self.maxZ))
+            else:
+                spectrum.set_norm(colors.LogNorm(vmin=zmin, vmax=zmax))
         elif scale == validScales[2]:
             palette = copy(plt.cm.jet)
             palette.set_bad(color='white')
@@ -243,7 +244,7 @@ class PlotController(QObject):
                         self._draw_gate(index)
             cp.canvas.draw()
         except Exception:
-            pass
+            self.logger.debug('autoScaleAxisBox - exception', exc_info=True)
 
     # ------------------------------------------------------------------
     # Range / min-max helpers
@@ -386,7 +387,7 @@ class PlotController(QObject):
             ax       = None
             spectrum = self._get_spectrum_info("spectrum", index=idx)
             if spectrum is None:
-                return
+                continue
             ax   = spectrum.axes
             name = self._name_from_index(idx)
             dim  = self._spectra.get(name, "dim")
@@ -541,12 +542,18 @@ class PlotController(QObject):
             buff = rangeYmin; rangeYmin = rangeYmax; rangeYmax = buff
             self.logger.warning('okCutoff Range - new range Y values swapped because min > max')
         if dim == 2:
-            if cutoffMin != "" and cutoffMin.isdigit():
-                cutoffVal[0] = float(cutoffMin)
-                self._set_spectrum_info(cutoff=cutoffVal, index=index)
-            if cutoffMax != "" and cutoffMax.isdigit():
-                cutoffVal[1] = float(cutoffMax)
-                self._set_spectrum_info(cutoff=cutoffVal, index=index)
+            if cutoffMin != "":
+                try:
+                    cutoffVal[0] = float(cutoffMin)
+                    self._set_spectrum_info(cutoff=cutoffVal, index=index)
+                except (TypeError, ValueError):
+                    self.logger.warning('okCutoff - invalid Z-min cutoff %r ignored', cutoffMin)
+            if cutoffMax != "":
+                try:
+                    cutoffVal[1] = float(cutoffMax)
+                    self._set_spectrum_info(cutoff=cutoffVal, index=index)
+                except (TypeError, ValueError):
+                    self.logger.warning('okCutoff - invalid Z-max cutoff %r ignored', cutoffMax)
             if cutoffVal[0] is not None and cutoffVal[1] is not None and cutoffVal[1] < cutoffVal[0]:
                 cutoffVal = [cutoffVal[1], cutoffVal[0]]
                 self._set_spectrum_info(cutoff=cutoffVal, index=index)
@@ -764,7 +771,7 @@ class PlotController(QObject):
         current tab's click-binding state, both supplied by the adapter)."""
         self.logger.info('addPlot')
         if not self.geometry_applied:
-            print("addPlot: Apply Geometry first!, return")
+            self.logger.warning('addPlot - geometry not applied yet; press Apply first')
             return
 
         cp = self._get_current_plot()
@@ -806,7 +813,7 @@ class PlotController(QObject):
                     ymax = self.getMinMaxInRange(index, xmin=xmin, xmax=xmax)
                     ax.set_ylim(ymin, ymax)
                 else:
-                    ymin, ymax = ax.get_xlim()
+                    ymin, ymax = ax.get_ylim()
                     zmin, zmax = self.getMinMaxInRange(index, xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
                     self._set_spectrum_info(maxz=zmax, index=index)
                     self._set_spectrum_info(minz=zmin, index=index)
@@ -1030,17 +1037,25 @@ class PlotController(QObject):
 
                 bounds     = []
                 color_list = []
+                last = None
                 with open(filename) as f:
                     for line in f:
                         parts = line.split()
                         if not parts or len(parts) < 5:
                             continue
                         lo, hi = float(parts[0]), float(parts[1])
-                        r, g, b = map(float, parts[2:])
+                        r, g, b = map(float, parts[2:5])
                         bounds.append(lo)
                         color_list.append((r, g, b))
-                    bounds.append(hi)
-                    color_list.append((r, g, b))
+                        last = (hi, r, g, b)
+                if last is None:
+                    QMessageBox.warning(
+                        self._parent_widget, "Custom Colormap",
+                        "No valid '<low> <high> <r> <g> <b>' lines found in the file.")
+                    return
+                hi, r, g, b = last
+                bounds.append(hi)
+                color_list.append((r, g, b))
 
                 self.palette = colors.LinearSegmentedColormap.from_list(
                     "custom_cmap", list(zip(bounds, color_list)), N=256

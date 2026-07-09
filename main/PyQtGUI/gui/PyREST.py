@@ -44,6 +44,13 @@ class PyREST:
         base = f"http://{self.server}:{self.rest}/{endpoint}"
         return f"{base}?{query}" if query else base
 
+    @staticmethod
+    def _q(value) -> str:
+        """Percent-encode one query value. Spectrum/gate/parameter names may
+        contain spaces, '&', '+', '#' — appending them raw corrupts the URL
+        (M16; hostile-names class, see thread_workers.lookup_spectrum_info)."""
+        return urllib.parse.quote_plus(str(value))
+
     ########################################
     ## Parameter requests
     ########################################
@@ -262,27 +269,27 @@ class PyREST:
 
         url = self._build_url("spectcl/gate/edit", name=str(name), type=str(types))
         if str(types) == "s": # slice
-            url += "&parameter="+str(parameters[0])+"&low="+str(boundaries[0])+"&high="+str(boundaries[1])
+            url += "&parameter="+self._q(parameters[0])+"&low="+self._q(boundaries[0])+"&high="+self._q(boundaries[1])
         elif str(types) == "gs": # gamma slice
             for i in parameters:
-                url += "&parameter="+str(i)
-            url += "&low="+str(boundaries[0])+"&high="+str(boundaries[1])
+                url += "&parameter="+self._q(i)
+            url += "&low="+self._q(boundaries[0])+"&high="+self._q(boundaries[1])
         elif (str(types) == "c" or str(types) == "b"):  # contour or band
-            url += "&xparameter="+str(parameters[0])+"&yparameter="+str(parameters[1])
+            url += "&xparameter="+self._q(parameters[0])+"&yparameter="+self._q(parameters[1])
             for point in boundaries:
-                url += "&xcoord="+str(point["x"])+"&ycoord="+str(point["y"])
+                url += "&xcoord="+self._q(point["x"])+"&ycoord="+self._q(point["y"])
         elif (str(types) == "gc" or str(types) == "gb"):  # gamma contour or band
             for i in parameters:
-                url +="&parameter="+str(i)
+                url +="&parameter="+self._q(i)
             for point in boundaries:
-                url += "&xcoord="+str(point["x"])+"&ycoord="+str(point["y"])
+                url += "&xcoord="+self._q(point["x"])+"&ycoord="+self._q(point["y"])
         elif (str(types) == "em" or str(types) == "am" or str(types) == "nm"):  # bit mask
-            url += "&parameter="+str(parameters)+"&value="+str(maskval)
+            url += "&parameter="+self._q(parameters)+"&value="+self._q(maskval)
         #want + gate here for c and b gates on m2 spectrum (for cutiepie)
         elif str(types) == "+":
             url = self._build_url("spectcl/gate/edit", name=str(name), type="%2B")
             for i in parameters:
-                url +="&gate="+str(i)
+                url +="&gate="+self._q(i)
         elif str(types) == "vs+":
             self.createVectorOrSlice(name, parameters[0], boundaries[0], boundaries[1])
             return
@@ -292,28 +299,9 @@ class PyREST:
         self.sendRequest(url)
 
 
-    # Creates a simple 1d gate. This must be of type s or gs. It can have one or more parameters. The query parameters are:
-    # name - gate name; if the gate already exists this gate definition will replace it
-    # gatetype - type of gate; it must be s or gs or an error will be raised
-    # parameters - list of gate parameters (only one if type is s)
-    # low, high - low and high limit of the gate
-    def create1DGate(self, name, types, parameters, low, high):
-        url = self._build_url("spectcl/gate/edit", name=str(name), type=str(types))
-        if str(types) == "s": # slice
-            url += "&parameter="+str(parameters)+"&low="+str(boundaries[0])+"&high="+str(boundaries[1])
-        elif str(types) == "gs": # gamma slice
-            for i in parameters:
-                url += "&parameter="+str(i)
-            url += "&low="+str(boundaries[0])+"&high="+str(boundaries[1])
-        elif str(types) == 'vs+':
-            self.createVectorOrSlice(name, parameters[0], low, high)
-            return
-        elif str(types) == 'vs*':
-            self.createVectorAndSlice(name, parameters[0], low, high)
-        else:
-            raise Exception("Only s and gs types are allowed")
-
-        self.sendRequest(url)
+    # (create1DGate / createMaskGate / listSource / unbindById removed 2026-07-08
+    #  — dead code that referenced undefined names; see AUDIT M15. Recreate from
+    #  createGate/create2DGate patterns if ever needed.)
 
     def createVectorSlice(self, name, type, vector, low, high):
         '''
@@ -345,30 +333,19 @@ class PyREST:
     def create2DGate(self, name, types, parameters, boundaries):
         url = self._build_url("spectcl/gate/edit", name=str(name), type=str(types))
         if (str(types) == "c" or str(types) == "b"):  # contour or band
-            url += "&xparameter="+str(parameters[0])+"&yparameter="+str(parameters[1])
+            url += "&xparameter="+self._q(parameters[0])+"&yparameter="+self._q(parameters[1])
             for point in boundaries:
-                url += "&xcoord="+str(point[0])+"&ycoord="+str(point[1])
+                url += "&xcoord="+self._q(point[0])+"&ycoord="+self._q(point[1])
         elif (str(types) == "gc" or str(types) == "gb"):  # gamma contour or band
             for i in parameters:
-                url +="&parameter="+str(i)
+                url +="&parameter="+self._q(i)
             for point in boundaries:
-                url += "&xcoord="+str(point[0])+"&ycoord="+str(point[1])
+                url += "&xcoord="+self._q(point[0])+"&ycoord="+self._q(point[1])
         else:
             raise Exception("Only c/b and gc/gb types are allowed")
         self.sendRequest(url)
 
 
-    # Create mask gate. The query parameters are:
-    # name - gate name; if the gate already exists this gate definition will replace it
-    # gatetype - type of gate; it must be s or gs or an error will be raised
-    # parameters - list of gate parameters
-    # mask - mask value
-    def createMaskGate(self, name, types, parameters, mask):
-        if (str(types) == "em" or str(types) == "am" or str(types) == "nm"):  # bit mask
-            url += "&parameter="+str(parameters)+"&value="+str(maskval)
-        else:
-            raise Exception("Only em, am, nm types are allowed")
-        self.sendRequest(url)
 
 
     # list the gates applied to a spectrum. The result is an object with attributes status and detail.
@@ -412,10 +389,6 @@ class PyREST:
         self.sendRequest(url)
 
 
-    # information on attached sources
-    def listSource(url):
-        url = self._build_url("spectcl/attach/list")
-        self.sendRequest(url)
 
 
     ############################################################
@@ -433,7 +406,7 @@ class PyREST:
     def sbindSpectrum(self, spectra):
         url = self._build_url("spectcl/sbind/sbind")
         for spectrum in spectra:
-            url += "&spectrum=" + str(spectrum)
+            url += "&spectrum=" + self._q(spectrum)
         self.sendRequest(url)
 
 
@@ -526,7 +499,7 @@ class PyREST:
     def applyFold(self, gate, spectra):
         url = self._build_url("spectcl/fold/apply", gate=str(gate))
         for spectrum in spectra:
-            url += "&spectrum=" + str(spectrum)
+            url += "&spectrum=" + self._q(spectrum)
         self.sendRequest(url)
 
 
@@ -548,7 +521,7 @@ class PyREST:
     def getChannelContent(self, name, **kwargs):
         url = self._build_url("spectcl/channel/get", spectrum=str(name))
         for key, value in kwargs.items():
-            url += "&" + key + "=" + str(value)
+            url += "&" + key + "=" + self._q(value)
         response = self.sendRequest(url)
         if response is None :
             return {}
@@ -568,7 +541,7 @@ class PyREST:
         for key, value in kwargs.items():
             if (key == "xvalue" or key == "yvalue"):
                 key = "value"
-            url += "&" + key + "=" + value
+            url += "&" + key + "=" + self._q(value)
         self.sendRequest(url)
 
 
@@ -681,7 +654,7 @@ class PyREST:
     def createFilter(self, name, gate, parameters):
         url = self._build_url("spectcl/filter/new", name=str(name), gate=str(gate))
         for i in parameters:
-            url += "&parameter=" + str(i)
+            url += "&parameter=" + self._q(i)
         self.sendRequest(url)
 
 
@@ -780,14 +753,14 @@ class PyREST:
     def createRawParameter(self, name, number, **kwargs):
         url = self._build_url("spectcl/rawparameter/new", name=str(name), number=str(number))
         for key, value in kwargs.items():
-            url += "&" + key + "=" + value
+            url += "&" + key + "=" + self._q(value)
         self.sendRequest(url)
 
 
     # delete a parameter by name or id
     def deleteRawParameter(self, par):
         url = self._build_url("spectcl/rawparameter/delete")
-        if isinstance(type(par),str):
+        if isinstance(par, str):
             url += "?name="+str(par)
         else:
             url += "?id="+str(par)
@@ -805,7 +778,7 @@ class PyREST:
     # units - (optional)
     def listRawParameter(self, par="*"):
         url = self._build_url("spectcl/rawparameter/list")
-        if isinstance(type(par),str):
+        if isinstance(par, str):
             url += "?pattern="+str(par)
         else:
             url += "?id="+str(par)
@@ -828,7 +801,7 @@ class PyREST:
     def createPseudo(self, name, body, parameters):
         url = self._build_url("spectcl/pseudo/create", name=str(name), body=str(body))
         for i in parameters:
-            url += "&parameter=" + str(i)
+            url += "&parameter=" + self._q(i)
         self.sendRequest(url)
 
 
@@ -860,7 +833,7 @@ class PyREST:
     def sread(self, name, **kwargs):
         url = self._build_url("spectcl/sread", filename=str(name))
         for key, value in kwargs.items():
-            url += "&" + key + "=" + value
+            url += "&" + key + "=" + self._q(value)
         self.sendRequest(url)
 
 
@@ -882,15 +855,10 @@ class PyREST:
     def unbindByName(self, names):
         url = self._build_url("spectcl/unbind/byname")
         for name in names:
-            url += "&name=" + str(name)
+            url += "&name=" + self._q(name)
         self.sendRequest(url)
 
 
-    def unbindById(self, sids):
-        url = self._build_url("spectcl/unbind/byid")
-        for sid  in sids:
-            url += "&name=" + str(name)
-        self.sendRequest(url)
 
 
     def unbindAll(self):
@@ -906,7 +874,7 @@ class PyREST:
     def ungateSpectum(self, names):
         url = self._build_url("spectcl/ungate")
         for name in names:
-            url += "&name=" + str(name)
+            url += "&name=" + self._q(name)
         self.sendRequest(url)
 
 
@@ -921,7 +889,7 @@ class PyREST:
     def swrite(self, name, spectra, formats="ascii"):
         url = self._build_url("spectcl/swrite", file=str(name))
         for spectrum in spectra:
-            url += "&spectrum=" + spectrum
+            url += "&spectrum=" + self._q(spectrum)
         url += "&format=" + str(formats)
         self.sendRequest(url)
 
@@ -958,8 +926,8 @@ class PyREST:
     def createROOTtree(self, name, parameters, gate=""):
         url = self._build_url("roottree/create", tree=str(name))
         for i in parameters:
-            url += "&parameter=" + str(i)
-        url += "&gate=" + str(gate)
+            url += "&parameter=" + self._q(i)
+        url += "&gate=" + self._q(gate)
         self.sendRequest(url)
 
 

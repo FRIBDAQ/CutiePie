@@ -122,7 +122,7 @@ from PlotGUI import Plot # area defined for the histograms
 from PlotGUI import Tabs # area defined for the Tabs
 from PyREST import PyREST # class interface for SpecTcl REST plugin
 from services.spectrum_store import SpectrumStore
-from services.display_slot import DisplaySlot
+from services.display_slot import DisplaySlot, SLOT_KEYS
 from services import geometry_io
 from services.dataframe_export import export_spectrum_csv
 from services.peak_finder import find_peaks_in_range, format_peak_output
@@ -210,7 +210,8 @@ class MainWindow(QMainWindow):
         #when='h', interval=1, backupCount=0 means overwrite log file every 1h
         # 1 backup log file created, 0 gives infinite backup
         self.fileHandler = logging.handlers.TimedRotatingFileHandler(
-            filename="debugCutiePie.log", when='m', interval=10, backupCount=1)
+            filename="debugCutiePie.log", when='m', interval=10, backupCount=1,
+            delay=True)
         self.fileHandler.setLevel(logging.DEBUG)
         self.fileHandler.setFormatter(formatterFileHandler)
 
@@ -628,45 +629,17 @@ class MainWindow(QMainWindow):
         self.cutoffp.cancelButton.clicked.connect(self.cancelCutoff)
         self.cutoffp.resetButton.clicked.connect(lambda: self.resetCutoff(True))
 
-        # zoom callback
-        self.wTab.wPlot[self.wTab.currentIndex()].zoom_action.triggered.connect(self.zoomCallback)
-        
-        # copy properties
-        self.wTab.wPlot[self.wTab.currentIndex()].copyButton.clicked.connect(self.copyPopup)
-        # autoscale
-        self.wTab.wPlot[self.wTab.currentIndex()].histo_autoscale.clicked.connect(lambda: self.autoScaleAxisBox(None))
-        # Custom Zoom button
-        self.wTab.wPlot[self.wTab.currentIndex()].customZoomButton.clicked.connect(self.customZoomButtonCallback)
-        self.wTab.wPlot[self.wTab.currentIndex()].customZoomButton.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        self.wTab.wPlot[self.wTab.currentIndex()].customZoomButton.customContextMenuRequested.connect(self.zoom_handle_right_click)
-        # plus button
-        self.wTab.wPlot[self.wTab.currentIndex()].plusButton.clicked.connect(lambda: self.zoomInOut("in"))
-        # minus button
-        self.wTab.wPlot[self.wTab.currentIndex()].minusButton.clicked.connect(lambda: self.zoomInOut("out"))
         #### Bashir added for zooming hotkeys ####
         QShortcut(QKeySequence("+"), self.wTab.wPlot[self.wTab.currentIndex()]).activated.connect(lambda: self.zoomInOut("in"))
         QShortcut(QKeySequence("-"), self.wTab.wPlot[self.wTab.currentIndex()]).activated.connect(lambda: self.zoomInOut("out"))
         ###############################################
 
-        # cutoff button
-        self.wTab.wPlot[self.wTab.currentIndex()].cutoffButton.clicked.connect(self.cutoffButtonCallback)
-        self.wTab.wPlot[self.wTab.currentIndex()].cutoffButton.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         # copy attributes
         self.copyAttr.histoAll.clicked.connect(lambda: self.histAllAttr(self.copyAttr.histoAll))
         self.copyAttr.okAttr.clicked.connect(self.okCopy)
         self.copyAttr.applyAttr.clicked.connect(self.applyCopy)
         self.copyAttr.cancelAttr.clicked.connect(self.closeCopy)
         self.copyAttr.selectAll.clicked.connect(self.selectAll)
-        # Custom Home button
-        self.wTab.wPlot[self.wTab.currentIndex()].customHomeButton.clicked.connect(lambda: self.customHomeButtonCallback(self.currentPlot.selected_plot_index))
-        self.wTab.wPlot[self.wTab.currentIndex()].customHomeButton.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        self.wTab.wPlot[self.wTab.currentIndex()].customHomeButton.customContextMenuRequested.connect(self.handle_right_click)
-        #log button
-        self.wTab.wPlot[self.wTab.currentIndex()].logButton.clicked.connect(lambda: self.logButtonCallback(self.currentPlot.selected_plot_index))
-        self.wTab.wPlot[self.wTab.currentIndex()].logButton.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        self.wTab.wPlot[self.wTab.currentIndex()].logButton.customContextMenuRequested.connect(self.log_handle_right_click)
-
-        self.wTab.countClickTab[self.wTab.currentIndex()] = True
 
         # extra popup — wired to fit_manager; popup field reads happen HERE
         # (H2: the service takes plain arguments, never widget references)
@@ -711,15 +684,9 @@ class MainWindow(QMainWindow):
         self.wTab.wPlot[self.wTab.currentIndex()].canvas.setFocusPolicy( QtCore.Qt.ClickFocus )
         self.wTab.wPlot[self.wTab.currentIndex()].canvas.setFocus()
 
-        # other signals
-        self.resizeID = self.wTab.wPlot[self.wTab.currentIndex()].canvas.mpl_connect("resize_event", self.on_resize)
-        self.pressID = self.wTab.wPlot[self.wTab.currentIndex()].canvas.mpl_connect("button_press_event", self.on_press)
-        self.wTab.wPlot[self.wTab.currentIndex()].canvas.mpl_connect("button_release_event", self.on_release)
-
-        self.wTab.wPlot[self.wTab.currentIndex()].canvas.mpl_connect("motion_notify_event", self.histoHover)
-
         # create helpers
         self.wConf.histo_list.installEventFilter(self)
+        self.gatePopup.gateNameList.installEventFilter(self)
 
         # Hotkeys
         # zoom (click-drag)
@@ -729,6 +696,10 @@ class MainWindow(QMainWindow):
 
 
         self.currentPlot = self.wTab.wPlot[self.wTab.currentIndex()] # definition of current plot
+
+        # per-tab button/canvas wiring — single source of truth (M21):
+        # the same routine that rebinds on tab switch does the initial bind
+        self.bindDynamicSignal()
 
     ################################
     # 3) Implementation of Signals
@@ -785,7 +756,7 @@ class MainWindow(QMainWindow):
 
     #Event filter for search in histo_list widget, and restrict position of moved tab
     def eventFilter(self, obj, event):
-        if (obj == self.wConf.histo_list or self.gatePopup.gateNameList) and event.type() == QtCore.QEvent.HoverEnter:
+        if obj in (self.wConf.histo_list, self.gatePopup.gateNameList) and event.type() == QtCore.QEvent.HoverEnter:
             self.onHovered(obj)
         return super(MainWindow, self).eventFilter(obj, event)
 
@@ -870,10 +841,16 @@ class MainWindow(QMainWindow):
             x, y = ax.transData.inverted().transform([event.x, event.y])
             stepx = (float(maxx)-float(minx))/float(binx)
             binminx = int((x-minx)/stepx)
+            # clamp: just outside the axis (or a sliver left of minx) must not
+            # produce a negative index, which silently wraps to the array end
+            binminx = max(0, min(binminx, int(binx) - 1))
             if dim == 1:
                 if "coordinates" == info:
+                    # +1 is the shm underflow-bin convention: 1D data keeps the
+                    # underflow channel at index 0 (connection_manager slices
+                    # [0:-1] and zeroes data[0]); 2D data is sliced [1:-1,1:-1]
+                    # so it needs no shift.
                     count = data[binminx+1:binminx+2]
-                    # y = data[binminx:binminx+1]
                     result = [x,y,count[0]]
                 elif "bins" == info:
                     result = [binminx,'','']
@@ -884,6 +861,7 @@ class MainWindow(QMainWindow):
                     biny = self.getSpectrumStoreInfo("biny", index=index)
                     stepy = (float(maxy)-float(miny))/float(biny)
                     binminy = int((y-miny)/stepy)
+                    binminy = max(0, min(binminy, int(biny) - 1))
                     #ndarray [row][column]
                     z = data[binminy:binminy+1, binminx:binminx+1]
                     result = [x,y,z[0][0]]
@@ -937,7 +915,7 @@ class MainWindow(QMainWindow):
 
         withinLimits = True if (event.x() in range(leftLimit,rightLimit)) and (event.y() in range(topLimit,bottomLimit)) else False
 
-        if not withinLimits or event.button == 3:
+        if not withinLimits or event.button() == Qt.RightButton:
             self.currentPlot.zoom_action.triggered.emit()
             self.currentPlot.zoom_action.setChecked(False)
             self.currentPlot.customZoomButton.setDown(False)
@@ -1530,7 +1508,7 @@ class MainWindow(QMainWindow):
             return
         # print("Simon - setSpectrumViewInfo - ", index,name,info["index"])
         for key, value in info.items():
-            if key in ("name", "dim", "binx", "minx", "maxx", "biny", "miny", "maxy", "data", "parameters", "type", "log", "minz", "maxz", "spectrum", "axis", "cutoff") and index is not None:
+            if key in SLOT_KEYS and index is not None:
                 if index not in self.wTab.spectrum_dict[self.wTab.currentIndex()]:
                     # print("setSpectrumViewInfo -",name,"not in spectrum_dict")
                     self.logger.debug('setSpectrumViewInfo - %s not in spectrum_dict', name)
@@ -1564,7 +1542,7 @@ class MainWindow(QMainWindow):
             self.logger.debug('getSpectrumViewInfo - wrong identifier - expects index=histo_index or shoud be in zoomed mode')
             # print("getSpectrumViewInfo - wrong identifier - expects index=histo_index or shoud be in zoomed mode")
             return
-        if index is not None and index in self.wTab.spectrum_dict[self.wTab.currentIndex()] and info[0] in ("name", "dim", "binx", "minx", "maxx", "biny", "miny", "maxy", "data", "parameters", "type", "log", "minz", "maxz", "spectrum", "axis", "cutoff"):
+        if index is not None and index in self.wTab.spectrum_dict[self.wTab.currentIndex()] and info[0] in SLOT_KEYS:
         # if index is not None and info[0] in ("name", "dim", "binx", "minx", "maxx", "biny", "miny", "maxy", "data", "parameters", "type", "log", "minz", "maxz"):
             #print("Giordano - in getSpectrumViewInfo - ",self.wTab.currentIndex(), index, info[0])
             return getattr(self.wTab.spectrum_dict[self.wTab.currentIndex()][index], info[0])   # M3 C3: typed access (info[0] whitelisted above)
@@ -1975,9 +1953,8 @@ class MainWindow(QMainWindow):
     def setEnlargedSpectrum(self, index, name):
         self.logger.info('setEnlargedSpectrum')
         self.wTab.zoomPlotInfo[self.wTab.currentIndex()] = None 
-        if index is not None and name is not None: 
+        if index is not None and name is not None:
             self.wTab.zoomPlotInfo[self.wTab.currentIndex()] = [index, name]
-            print(index, name)
 
     def getEnlargedSpectrum(self):
         # self.logger.info('getEnlargedSpectrum')
@@ -2072,33 +2049,36 @@ class MainWindow(QMainWindow):
 
     def saveGeo(self):
         fileName = self.saveFileDialog()
-        self.logger.info('saveGeo - fileName: %s',fileName)
+        self.logger.info('saveGeo - fileName: %s', fileName)
+        if not fileName:
+            return
         try:
-            f = open(fileName,"w")
             properties = {}
             geo = self.getGeo()
             for index in range(len(geo)):
-                try :
+                try:
                     h_name = geo[index]
                     x_range, y_range = self.getAxisProperties(index)
                     scale = True if self.getSpectrumViewInfo("log", index=index) else False
                     properties[index] = {"name": h_name, "x": x_range, "y": y_range, "scale": scale}
                 except Exception:
+                    self.logger.debug('saveGeo - pad %s skipped', index, exc_info=True)
                     properties[index] = {"name": '', "x": None, "y": None, "scale": None}
-                    pass
             ##### Bashir changed to examine the apply button
             tmp_text = geometry_io.serialize_geometry(
                 self.wConf.histo_geo_row.currentText(),
                 self.wConf.histo_geo_col.currentText(),
                 properties)
             #######################################################################
-
-            QMessageBox.about(self, "Saving...", "Window configuration saved!")
-            f.write(tmp_text)
-            f.close()
-        except :
-            self.logger.debug('saveGeo - exception', exc_info=True)
-            pass
+            with open(fileName, "w") as f:
+                f.write(tmp_text)
+        except Exception:
+            # M17: was a bare `except:` that logged at debug and still showed
+            # the success dialog (shown before the write, at that)
+            self.logger.exception('saveGeo - failed to save %s', fileName)
+            QMessageBox.warning(self, "Saving...", "Could not save the window configuration — see the log.")
+            return
+        QMessageBox.about(self, "Saving...", "Window configuration saved!")
 
 
     def _resolveSpectrumName(self, name):
@@ -2124,8 +2104,6 @@ class MainWindow(QMainWindow):
             col = infoGeo["col"] - 1
             # change index in combobox to the actual loaded values
             #### Bashir changed to examine the apply button
-            index_row = self.wConf.histo_geo_row.findText(str(row), QtCore.Qt.MatchFixedString)
-            index_col = self.wConf.histo_geo_col.findText(str(col), QtCore.Qt.MatchFixedString)
             # self.wConf.histo_geo_row.setValue(row)
             # self.wConf.histo_geo_col.setValue(col)
             index_row = row
@@ -2514,8 +2492,7 @@ class MainWindow(QMainWindow):
                     self.setSpectrumViewInfo(maxz=zlim_src[1], index=index)
             self.updatePlot()
         except Exception:
-            self.logger.debug('applyCopy - exception occured', exc_info=True)
-            pass
+            self.logger.exception('applyCopy - copy properties failed')
 
 
     #callback for copyAttr.cancelAttr
@@ -2565,7 +2542,7 @@ class MainWindow(QMainWindow):
 
         try:
             for idx, nameTarget in self.getGeo().items():
-                if dim == self.getSpectrumStoreInfo("dim", index=idx) and idx is not index:
+                if dim == self.getSpectrumStoreInfo("dim", index=idx) and idx != index:
                     instance = QPushButton(nameTarget, self)
                     instance.setCheckable(True)
                     instance.setStyleSheet('QPushButton {color: red;}')
@@ -2771,7 +2748,7 @@ class MainWindow(QMainWindow):
                     self.removePeak(i)
                     self.isChecked[i] = False
                 except Exception:
-                    pass
+                    self.logger.debug('peakState - peak artist cleanup failed', exc_info=True)
             else:
                 if self.isChecked[i] == False:
                     self.drawSinglePeaks(self.peaks, self.properties, self.datay, i)
@@ -2787,7 +2764,7 @@ class MainWindow(QMainWindow):
                 self.extraPopup.peak.peak_cbox[i].stateChanged.connect(self.peakState)
                 self.extraPopup.peak.peak_cbox[i].setChecked(True)
         except Exception:
-            pass
+            self.logger.debug('create_peak_signals - peak artist cleanup failed', exc_info=True)
 
     def peakAnalClear(self):
         self.logger.info('peakAnalClear')
@@ -2820,7 +2797,7 @@ class MainWindow(QMainWindow):
                 self.extraPopup.peak.peak_cbox[i].setChecked(False)
                 self.isChecked[i] = False
         except Exception:
-            pass
+            self.logger.debug('removeAllPeaks - peak artist cleanup failed', exc_info=True)
 
         self.currentPlot.canvas.draw()
 
@@ -2886,13 +2863,12 @@ class MainWindow(QMainWindow):
     def loadFigure(self):
         self.logger.info('loadFigure')
         fileName = self.openFigureDialog()
+        if not fileName:
+            return
         self.extraPopup.imaging.loadLISE_name.setText(fileName)
-        if (DEBUG):
-            print(fileName)
         try:
             if os.path.isfile(fileName):
                 self.LISEpic = cv2.imread(fileName, 0)
-                cv2.resize(self.LISEpic, (200, 100))
         except Exception:
             # Best-effort image load — a bad path / unreadable file must not
             # crash the GUI, but must not be silent either.
@@ -2945,7 +2921,8 @@ class MainWindow(QMainWindow):
         self.zoomX = self.extraPopup.imaging.zoomX_slider.value()/10
         self.zoomY = self.extraPopup.imaging.zoomY_slider.value()/10
 
-        ax = plt.axes([self.xstart, self.ystart, self.zoomX, self.zoomY], frameon=True)
+        ax = self.currentPlot.figure.add_axes(
+            [self.xstart, self.ystart, self.zoomX, self.zoomY], frameon=True)
         ax.axis('off')
         self.imgplot = ax.imshow(self.LISEpic,
                                  aspect='auto',
@@ -2966,7 +2943,7 @@ class MainWindow(QMainWindow):
             self.deleteFigure()
             self.drawFigure()
         except Exception:
-            pass
+            self.logger.debug('transFigure - no overlay to redraw', exc_info=True)
 
     def zoomFigureX(self):
         self.logger.info('zoomFigureX')
@@ -2975,7 +2952,7 @@ class MainWindow(QMainWindow):
             self.deleteFigure()
             self.drawFigure()
         except Exception:
-            pass
+            self.logger.debug('zoomFigureX - no overlay to redraw', exc_info=True)
 
     def zoomFigureY(self):
         self.logger.info('zoomFigureY')
@@ -2984,7 +2961,7 @@ class MainWindow(QMainWindow):
             self.deleteFigure()
             self.drawFigure()
         except Exception:
-            pass
+            self.logger.debug('zoomFigureY - no overlay to redraw', exc_info=True)
 
     def addFigure(self):
         self.logger.info('addFigure')
@@ -3041,17 +3018,19 @@ class MainWindow(QMainWindow):
                                         "find the executable 'jupyter-notebook'", QMessageBox.Ok)
                 if testnotebook(execname):
                     break
-                execname = QFileDialog.getOpenFileName(None, "Find jupyter-notebook executable", QDir.homePath())
-                if not execname:
-                    # user hit cancel
-                    sys.exit(0)
-                else:
-                    execname = execname[0]
-                    if testnotebook(execname):
-                        log("Jupyter found at %s" % execname)
-                        #save setting
-                        s.setValue(SETTING_EXECUTABLE, execname)
-                        break
+                path, _ = QFileDialog.getOpenFileName(None, "Find jupyter-notebook executable", QDir.homePath())
+                if not path:
+                    # user cancelled: abort starting Jupyter, keep the GUI alive
+                    # (H6: the old tuple-truthiness check made Cancel unreachable,
+                    # and the cancel path called sys.exit(0) — killing the GUI)
+                    self.logger.warning('jupyterStart - jupyter-notebook not located; start aborted by user')
+                    return
+                execname = path
+                if testnotebook(execname):
+                    log("Jupyter found at %s" % execname)
+                    #save setting
+                    s.setValue(SETTING_EXECUTABLE, execname)
+                    break
 
         # setup logging
         # try to write to a log file, or redirect to stdout if debugging

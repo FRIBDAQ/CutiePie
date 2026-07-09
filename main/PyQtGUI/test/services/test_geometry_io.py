@@ -119,3 +119,18 @@ def test_sniff_is_case_insensitive_and_comment_tolerant(tmp_path):
     text = '# header\nGEOMETRY 1 1\nWindow "c"\nEndWindow\n'
     got = geometry_io.read_geometry(_write(tmp_path, "ci.win", text))
     assert got["row"] == 1 and got["geo"][0]["name"] == "c"
+
+
+def test_read_geometry_rejects_code_execution(tmp_path):
+    # H10: eval() executed arbitrary code from a hostile .win file.
+    p = tmp_path / "evil.win"
+    p.write_text('{"row": __import__("os").getpid()}')
+    assert geometry_io.read_geometry(str(p)) is None
+
+
+def test_read_geometry_native_roundtrip_survives_literal_eval(tmp_path):
+    props = {0: {"name": "h1", "x": [0.0, 1.0], "y": None, "scale": False}}
+    p = tmp_path / "geo.win"
+    p.write_text(geometry_io.serialize_geometry(2, 2, props))
+    got = geometry_io.read_geometry(str(p))
+    assert got == {"row": 2, "col": 2, "geo": props}
