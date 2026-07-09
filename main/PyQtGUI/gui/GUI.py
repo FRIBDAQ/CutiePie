@@ -2474,6 +2474,11 @@ class MainWindow(QMainWindow):
 
             self.logger.debug('applyCopy - xlim_src, ylim_src, scale_src, zlim_src : %s, %s, %s, %s', xlim_src, ylim_src, scale_src, zlim_src)
 
+            # autoscale off, or the trailing updatePlot recomputes y/z from the
+            # data and discards the copied values (E19; same pattern as
+            # zoomInOut / cutoffButtonCallback)
+            self.currentPlot.histo_autoscale.setChecked(False)
+
             # copy to destination
             for index in indexes:
                 # set the limits for x,y
@@ -2490,6 +2495,22 @@ class MainWindow(QMainWindow):
                 if dim == 2 and (flags[3] or flags[4]):
                     self.setSpectrumViewInfo(minz=zlim_src[0], index=index)
                     self.setSpectrumViewInfo(maxz=zlim_src[1], index=index)
+                # apply to the target axes directly: updatePlot's only
+                # limits-application path is autoscale-gated, so view-tier
+                # writes alone never reach the screen (E19; okCutoff precedent)
+                ax = self.getSpectrumViewInfo("axis", index=index)
+                if ax is None:
+                    continue
+                if flags[0]:
+                    ax.set_xlim(xlim_src[0], xlim_src[1])
+                if flags[1]:
+                    ax.set_ylim(ylim_src[0], ylim_src[1])
+                if dim == 2 and (flags[3] or flags[4]):
+                    spectrum = self.getSpectrumViewInfo("spectrum", index=index)
+                    if spectrum is not None:
+                        spectrum.set_clim(zlim_src[0], zlim_src[1])
+                if flags[2]:
+                    self.setAxisScale(ax, index, "log")
             self.updatePlot()
         except Exception:
             self.logger.exception('applyCopy - copy properties failed')
