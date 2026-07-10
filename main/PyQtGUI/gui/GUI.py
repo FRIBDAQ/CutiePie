@@ -666,6 +666,8 @@ class MainWindow(QMainWindow):
 
         self.extraPopup.peak.jup_start.clicked.connect(self.jupyterStart)
         self.extraPopup.peak.jup_stop.clicked.connect(self.jupyterStop)
+        # E17 precedent: lambda shields the slot from clicked(bool)'s checked arg
+        self.extraPopup.peak.jup_save.clicked.connect(lambda: self.createDf())
 
         self.extraPopup.options.gateAnnotation.clicked.connect(self.gate_manager.gateAnnotationCallBack)
         self.extraPopup.options.gateHide.clicked.connect(self.updatePlot)

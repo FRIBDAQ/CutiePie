@@ -75,6 +75,7 @@ class Fncts1D(QDialog):
         self.jup_start = QPushButton("Start", self)
         self.jup_start.setStyleSheet("background-color:#bcee68;")
         self.jup_stop = QPushButton("Stop", self)
+        self.jup_save = QPushButton("Save", self)
         self.jup_df_filename = QLineEdit()
         filename = "df-"+time.strftime("%Y%m%d-%H%M%S")+".gzip"
         self.jup_df_filename.setText(filename)
@@ -84,6 +85,7 @@ class Fncts1D(QDialog):
         layout = QHBoxLayout()
         layout.addWidget(self.jup_start)
         layout.addWidget(self.jup_stop)
+        layout.addWidget(self.jup_save)
 
         layoutC = QVBoxLayout()
         layoutC.addLayout(layout)
