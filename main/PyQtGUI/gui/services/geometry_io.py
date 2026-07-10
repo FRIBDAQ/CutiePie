@@ -138,3 +138,75 @@ def serialize_geometry(row, col, properties):
     lives with its parser.
     """
     return str({"row": int(row), "col": int(col), "geo": properties})
+
+
+def serialize_session(tabs):
+    """Serialize a multi-tab session to the native v2 dict-literal string.
+
+    `tabs` is a list of {"name": str, "row": int, "col": int, "geo": {...}} in
+    screen order; each per-tab "geo" uses exactly the single-tab property
+    shape serialize_geometry writes. Round-trips through read_geometry_any.
+    """
+    return str({"version": 2, "kind": "cutiepie-session",
+                "tabs": [{"name": str(t["name"]), "row": int(t["row"]),
+                          "col": int(t["col"]), "geo": t["geo"]} for t in tabs]})
+
+
+def validate_session(obj):
+    """Return a list of human-readable problems with a parsed v2 session
+    object; empty list = valid. Never raises."""
+    if not isinstance(obj, dict):
+        return ["session file is not a dict literal"]
+    tabs = obj.get("tabs")
+    if not isinstance(tabs, list) or not tabs:
+        return ["session has no tabs (or the tabs list is empty)"]
+    errors = []
+    for i, tab in enumerate(tabs):
+        if not isinstance(tab, dict):
+            errors.append(f"tab {i}: not a dict")
+            continue
+        if not isinstance(tab.get("name"), str):
+            errors.append(f"tab {i}: missing/invalid name")
+        row, col = tab.get("row"), tab.get("col")
+        if not (isinstance(row, int) and row >= 1 and isinstance(col, int) and col >= 1):
+            errors.append(f"tab {i}: row/col must be integers >= 1")
+        if not isinstance(tab.get("geo"), dict):
+            errors.append(f"tab {i}: missing/invalid geo dict")
+    return errors
+
+
+def read_geometry_any(filename, logger=None):
+    """Read any geometry vintage. Returns ("session", payload) for a v2
+    multi-tab file, ("single", payload) for a v1/native or legacy .win file
+    (payload exactly as read_geometry returns it), or None for
+    unreadable/invalid files. Sessions are validated here so callers can
+    replace the workspace only after a fully-good parse."""
+    log = logger or _module_logger
+    if os.stat(filename).st_size == 0:
+        log.warning('read_geometry_any - empty geometry file: %s', filename)
+        return None
+    firstMeaningful = ""
+    with open(filename) as f:
+        for line in f:
+            stripped = line.strip()
+            if stripped and not stripped.startswith('#'):
+                firstMeaningful = stripped
+                break
+    if firstMeaningful.startswith("{"):
+        with open(filename, "r") as fh:
+            text = fh.read()
+        try:
+            obj = ast.literal_eval(text)
+        except (ValueError, SyntaxError, TypeError, RecursionError):
+            log.warning('read_geometry_any - invalid geometry dict literal in %s', filename)
+            return None
+        if isinstance(obj, dict) and "tabs" in obj:
+            errors = validate_session(obj)
+            if errors:
+                log.warning('read_geometry_any - invalid session file %s: %s',
+                            filename, "; ".join(errors))
+                return None
+            return ("session", obj)
+        return ("single", obj)
+    result = read_geometry(filename, log)
+    return ("single", result) if result is not None else None

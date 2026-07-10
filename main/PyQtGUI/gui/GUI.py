@@ -479,13 +479,19 @@ class MainWindow(QMainWindow):
             QMenu::item { background-color: #ffd700; }
             QMenu::item:selected { background-color: #e6c200; }
         """)
-        menu.setFixedWidth(120)
+        menu.setFixedWidth(150)
 
         actSave = menu.addAction("Save Geometry")
         actSave.triggered.connect(self.saveGeo)
 
         actLoad = menu.addAction("Load Geometry")
         actLoad.triggered.connect(self.loadGeo)
+
+        actSaveAll = menu.addAction("Save All Tabs")
+        actSaveAll.triggered.connect(self.saveGeoAll)
+
+        actLoadAll = menu.addAction("Load All Tabs")
+        actLoadAll.triggered.connect(self.loadGeoAll)
 
         self.wConf.geometryButton.setMenu(menu)
         # self.wConf.saveButton.clicked.connect(self.saveGeo)
@@ -2081,6 +2087,55 @@ class MainWindow(QMainWindow):
         QMessageBox.about(self, "Saving...", "Window configuration saved!")
 
 
+    def saveGeoAll(self):
+        """Save EVERY tab's geometry as one v2 session file (design
+        2026-07-10). Reads the per-tab VIEW tier (slots), not live axes —
+        background tabs' axes aren't reliably current, and the view tier is
+        exactly what load consumes. (Single-tab saveGeo keeps its live-axes
+        read — deliberate asymmetry.) Enlarged state is transient: never saved."""
+        fileName = self.saveFileDialog()
+        self.logger.info('saveGeoAll - fileName: %s', fileName)
+        if not fileName:
+            return
+        try:
+            tabs = []
+            for tabIdx in sorted(self.wTab.wPlot.keys()):
+                nRow, nCol = self.wTab.layout[tabIdx]
+                plotW = self.wTab.wPlot[tabIdx]
+                slots = self.wTab.spectrum_dict.get(tabIdx, {})
+                properties = {}
+                for index in range(nRow * nCol):
+                    try:
+                        h_name = plotW.h_dict_geo.get(index, "")
+                        slot = slots.get(index)
+                        x_range = y_range = None
+                        scale = False
+                        if slot is not None:
+                            # slot fields default to [] (DisplaySlot); 0.0 is a
+                            # legitimate limit, so test emptiness, not truthiness
+                            if slot.minx not in ("", [], None) and slot.maxx not in ("", [], None):
+                                x_range = [float(slot.minx), float(slot.maxx)]
+                            if slot.miny not in ("", [], None) and slot.maxy not in ("", [], None):
+                                y_range = [float(slot.miny), float(slot.maxy)]
+                            scale = bool(slot.log) if slot.log not in ([], None) else False
+                        properties[index] = {"name": h_name if h_name != "empty" else "",
+                                             "x": x_range, "y": y_range, "scale": scale}
+                    except Exception:
+                        self.logger.debug('saveGeoAll - tab %s pad %s skipped',
+                                          tabIdx, index, exc_info=True)
+                        properties[index] = {"name": '', "x": None, "y": None, "scale": None}
+                tabs.append({"name": self.wTab.tabText(tabIdx), "row": nRow,
+                             "col": nCol, "geo": properties})
+            tmp_text = geometry_io.serialize_session(tabs)
+            with open(fileName, "w") as f:
+                f.write(tmp_text)
+        except Exception:
+            self.logger.exception('saveGeoAll - failed to save %s', fileName)
+            QMessageBox.warning(self, "Saving...", "Could not save the session — see the log.")
+            return
+        QMessageBox.about(self, "Saving...", "All tabs saved!")
+
+
     def _resolveSpectrumName(self, name):
         """Return a spectrum name present in the store that matches `name`, tolerating
         case differences (legacy .win files often store names upper-cased). Returns the
@@ -2091,6 +2146,66 @@ class MainWindow(QMainWindow):
         matches = [n for n in self.spectra.all_names() if n.lower() == lowered]
         return matches[0] if len(matches) == 1 else None
 
+    def _applyGeometryToCurrentTab(self, infoGeo):
+        """Apply one tab's geometry payload ({"row","col","geo"}) to the
+        CURRENT tab. Extracted verbatim from loadGeo so the single-tab load
+        and the session load (loadGeoAll) run the same code. Returns the
+        list of spectrum names that could not be resolved."""
+        ### Bashir added -1
+        row = infoGeo["row"] - 1
+        col = infoGeo["col"] - 1
+        # change index in combobox to the actual loaded values
+        #### Bashir changed to examine the apply button
+        # self.wConf.histo_geo_row.setValue(row)
+        # self.wConf.histo_geo_col.setValue(col)
+        index_row = row
+        index_col = col
+        #####################################################
+
+# Later usage of index_row / index_col continues to work
+
+        notFound = []
+        if index_row >= 0 and index_col >= 0:
+            #### Bashir changed to examine the apply button
+            self.wConf.histo_geo_row.setCurrentIndex(index_row)
+            self.wConf.histo_geo_col.setCurrentIndex(index_col)
+            # self.wConf.histo_geo_row.setValue(index_row)
+            # self.wConf.histo_geo_col.setValue(index_col)
+            #####################################################
+            self.setCanvasLayout()
+            for index, val_dict in infoGeo["geo"].items():
+                if not val_dict["name"]:
+                    continue
+                resolved = self._resolveSpectrumName(val_dict["name"])
+                if resolved is None:
+                    notFound.append(val_dict["name"])
+                    continue
+
+                self.setGeo(index, resolved)
+                self.setSpectrumViewInfo(log=val_dict["scale"], index=index)
+                # Old .win files may omit the view range (no "Expanded"); when it
+                # is absent the spectrum keeps its natural full range from the store.
+                if val_dict.get("x") is not None:
+                    self.setSpectrumViewInfo(minx=val_dict["x"][0], index=index)
+                    self.setSpectrumViewInfo(maxx=val_dict["x"][1], index=index)
+                if val_dict.get("y") is not None:
+                    self.setSpectrumViewInfo(miny=val_dict["y"][0], index=index)
+                    self.setSpectrumViewInfo(maxy=val_dict["y"][1], index=index)
+
+            if len(notFound) > 0:
+                self.logger.warning('loadGeo - definition not found for: %s', notFound)
+
+            self.currentPlot.isLoaded = True
+            self.wTab.selected_plot_index_bak[self.wTab.currentIndex()] = None
+            self.currentPlot.selected_plot_index = None
+            self.currentPlot.next_plot_index = -1
+
+        self.addPlot()
+        self.updatePlot()
+        self.currentPlot.isLoaded = False
+        return notFound
+
+
     def loadGeo(self):
         fileName = self.openFileNameDialog()
         self.logger.info('loadGeo - fileName: %s', fileName)
@@ -2098,62 +2213,77 @@ class MainWindow(QMainWindow):
             infoGeo = self.openGeo(fileName)
             if infoGeo is None:
                 return
-            
-            ### Bashir added -1
-            row = infoGeo["row"] - 1
-            col = infoGeo["col"] - 1
-            # change index in combobox to the actual loaded values
-            #### Bashir changed to examine the apply button
-            # self.wConf.histo_geo_row.setValue(row)
-            # self.wConf.histo_geo_col.setValue(col)
-            index_row = row
-            index_col = col
-            #####################################################
-
-# Later usage of index_row / index_col continues to work
-
-            notFound = []
-            if index_row >= 0 and index_col >= 0:
-                #### Bashir changed to examine the apply button
-                self.wConf.histo_geo_row.setCurrentIndex(index_row)
-                self.wConf.histo_geo_col.setCurrentIndex(index_col)
-                # self.wConf.histo_geo_row.setValue(index_row)
-                # self.wConf.histo_geo_col.setValue(index_col)
-                #####################################################
-                self.setCanvasLayout()
-                for index, val_dict in infoGeo["geo"].items():
-                    if not val_dict["name"]:
-                        continue
-                    resolved = self._resolveSpectrumName(val_dict["name"])
-                    if resolved is None:
-                        notFound.append(val_dict["name"])
-                        continue
-
-                    self.setGeo(index, resolved)
-                    self.setSpectrumViewInfo(log=val_dict["scale"], index=index)
-                    # Old .win files may omit the view range (no "Expanded"); when it
-                    # is absent the spectrum keeps its natural full range from the store.
-                    if val_dict.get("x") is not None:
-                        self.setSpectrumViewInfo(minx=val_dict["x"][0], index=index)
-                        self.setSpectrumViewInfo(maxx=val_dict["x"][1], index=index)
-                    if val_dict.get("y") is not None:
-                        self.setSpectrumViewInfo(miny=val_dict["y"][0], index=index)
-                        self.setSpectrumViewInfo(maxy=val_dict["y"][1], index=index)
-
-                if len(notFound) > 0:
-                    self.logger.warning('loadGeo - definition not found for: %s', notFound)
-
-                self.currentPlot.isLoaded = True
-                self.wTab.selected_plot_index_bak[self.wTab.currentIndex()] = None
-                self.currentPlot.selected_plot_index = None
-                self.currentPlot.next_plot_index = -1
-
-            self.addPlot()
-            self.updatePlot()
-            self.currentPlot.isLoaded = False
+            self._applyGeometryToCurrentTab(infoGeo)
         except TypeError:
             self.logger.debug('loadGeo - TypeError exception', exc_info=True)
-            pass
+
+
+    def loadGeoAll(self):
+        """Load a session file, REPLACING all tabs (user-approved semantics,
+        design 2026-07-10). The file is parsed and validated COMPLETELY before
+        any tab is touched, so a bad file can never half-destroy the
+        workspace. A v1 single-tab file here loads as a one-tab session."""
+        fileName = self.openFileNameDialog()
+        self.logger.info('loadGeoAll - fileName: %s', fileName)
+        if not fileName:
+            return
+        tagged = geometry_io.read_geometry_any(fileName, self.logger)
+        if tagged is None:
+            QMessageBox.warning(self, "Load All Tabs",
+                                "Not a readable geometry/session file — nothing was changed.")
+            return
+        kind, payload = tagged
+        try:
+            if kind == "single":
+                tabsInfo = [{"name": "Tab 1", "row": int(payload["row"]),
+                             "col": int(payload["col"]), "geo": payload["geo"]}]
+            else:
+                tabsInfo = payload["tabs"]
+        except (KeyError, TypeError, ValueError):
+            QMessageBox.warning(self, "Load All Tabs",
+                                "Geometry file is missing required fields — nothing was changed.")
+            return
+
+        # quiesce: same guards clickedTab uses, then stop the auto-update tick
+        if self.currentPlot.toCreateGate or self.currentPlot.toEditGate or self.gatePopup.isVisible():
+            self.cancelGate()
+        if self.currentPlot.toCreateSumRegion or self.sumRegionPopup.isVisible():
+            self.cancelSumRegion()
+        self._stop_auto_thread()
+
+        # rebuild the tab set with existing primitives only (ARCH_2 danger
+        # zone: deleteTab reindexes the parallel dicts and plt.closes figures)
+        self.wTab.setCurrentIndex(0)
+        self.currentPlot = self.wTab.wPlot[0]
+        while len(self.wTab.wPlot) > 1:
+            self.wTab.deleteTab(len(self.wTab.wPlot) - 1)
+        for k in range(1, len(tabsInfo)):
+            self.wTab.addTab(k)
+
+        notFoundByTab = {}
+        for k, tabInfo in enumerate(tabsInfo):
+            self.wTab.setCurrentIndex(k)
+            self.tabGeoWidgetAndFlags(k)
+            infoGeo = {"row": tabInfo["row"], "col": tabInfo["col"], "geo": tabInfo["geo"]}
+            try:
+                notFound = self._applyGeometryToCurrentTab(infoGeo)
+            except TypeError:
+                self.logger.debug('loadGeoAll - TypeError applying tab %s', k, exc_info=True)
+                notFound = []
+            if notFound:
+                notFoundByTab[str(tabInfo.get("name") or f"Tab {k+1}")] = notFound
+            self.wTab.setTabText(k, str(tabInfo.get("name") or f"Tab {k+1}"))
+
+        self.wTab.setCurrentIndex(0)
+        self.tabGeoWidgetAndFlags(0)
+        self.bindDynamicSignal()
+        if notFoundByTab:
+            lines = "\n".join(f"{tab}: {', '.join(names)}"
+                              for tab, names in notFoundByTab.items())
+            QMessageBox.warning(self, "Load All Tabs",
+                                "Some spectra were not found on the connected SpecTcl; "
+                                "their pads were left empty:\n\n" + lines)
+        self.autoUpdateStart()
 
 
     def openFileNameDialog(self):

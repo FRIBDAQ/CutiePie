@@ -134,3 +134,72 @@ def test_read_geometry_native_roundtrip_survives_literal_eval(tmp_path):
     p.write_text(geometry_io.serialize_geometry(2, 2, props))
     got = geometry_io.read_geometry(str(p))
     assert got == {"row": 2, "col": 2, "geo": props}
+
+
+# --------------------------------------------------- multi-tab session format
+
+def _session_tabs():
+    return [
+        {"name": "alpha run 42", "row": 2, "col": 2,
+         "geo": {0: {"name": "specA", "x": [0.0, 512.0], "y": [0.0, 1000.0], "scale": False},
+                 1: {"name": "spec B", "x": None, "y": None, "scale": True}}},
+        {"name": "Tab 2", "row": 1, "col": 1,
+         "geo": {0: {"name": "", "x": None, "y": None, "scale": False}}},
+    ]
+
+
+def test_session_roundtrip_preserves_tabs_names_order(tmp_path):
+    p = tmp_path / "s.win"
+    p.write_text(geometry_io.serialize_session(_session_tabs()))
+    kind, payload = geometry_io.read_geometry_any(str(p))
+    assert kind == "session"
+    assert [t["name"] for t in payload["tabs"]] == ["alpha run 42", "Tab 2"]
+    assert payload["tabs"][0]["geo"][0]["x"] == [0.0, 512.0]
+    assert payload["tabs"][0]["geo"][1]["scale"] is True
+
+
+def test_read_any_tags_v1_single_and_matches_read_geometry(tmp_path):
+    props = {0: {"name": "h1", "x": [0.0, 1.0], "y": None, "scale": False}}
+    p = tmp_path / "v1.win"
+    p.write_text(geometry_io.serialize_geometry(2, 2, props))
+    kind, payload = geometry_io.read_geometry_any(str(p))
+    assert kind == "single"
+    assert payload == geometry_io.read_geometry(str(p))
+
+
+def test_read_any_tags_legacy_as_single(tmp_path):
+    p = tmp_path / "old.win"
+    p.write_text('Geometry 1,2\nWindow "spec one"\nEndwindow\n')
+    kind, payload = geometry_io.read_geometry_any(str(p))
+    assert kind == "single"
+    assert payload["row"] == 1 and payload["col"] == 2
+    assert payload["geo"][0]["name"] == "spec one"
+
+
+def test_read_any_rejects_session_missing_name(tmp_path):
+    p = tmp_path / "bad.win"
+    p.write_text(str({"version": 2, "tabs": [{"row": 1, "col": 1, "geo": {}}]}))
+    assert geometry_io.read_geometry_any(str(p)) is None
+
+
+def test_read_any_rejects_empty_tabs(tmp_path):
+    p = tmp_path / "bad.win"
+    p.write_text(str({"version": 2, "tabs": []}))
+    assert geometry_io.read_geometry_any(str(p)) is None
+
+
+def test_read_any_rejects_bad_rowcol(tmp_path):
+    p = tmp_path / "bad.win"
+    p.write_text(str({"version": 2, "tabs": [{"name": "t", "row": 0, "col": 1, "geo": {}}]}))
+    assert geometry_io.read_geometry_any(str(p)) is None
+
+
+def test_read_any_rejects_code_execution(tmp_path):
+    p = tmp_path / "evil.win"
+    p.write_text('{"tabs": __import__("os").getpid()}')
+    assert geometry_io.read_geometry_any(str(p)) is None
+
+
+def test_validate_session_happy_path():
+    obj = {"version": 2, "kind": "cutiepie-session", "tabs": _session_tabs()}
+    assert geometry_io.validate_session(obj) == []
