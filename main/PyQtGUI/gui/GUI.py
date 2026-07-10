@@ -3134,7 +3134,8 @@ class MainWindow(QMainWindow):
         self.logger.info('createDf')
         try:
             export_spectrum_csv(self.getSpectrumStoreDict(),
-                                self.extraPopup.peak.jup_df_filename.text())
+                                self.extraPopup.peak.jup_df_filename.text(),
+                                statistics_fetcher=self.connection_manager.getSpectrumStatistics().get)
         except Exception:
             # Export is best-effort: a failure here must not crash the GUI or
             # block jupyterStart (the notebook can still open). But it must not

@@ -383,6 +383,39 @@ class ConnectionManager(QtCore.QObject):
             self.logger.debug('applylistgate - REST call failed', exc_info=True)
             return []
 
+    def getSpectrumStatistics(self, pattern="*"):
+        """Return {name: {xunderflow, xoverflow, yunderflow, yoverflow}} via the owned REST client.
+
+        One /spectcl/specstats call covers every spectrum matching the pattern
+        (much lighter than per-spectrum /spectcl/spectrum/contents, which ships
+        the full channel data). Each reply object carries per-axis
+        "underflows"/"overflows" arrays — index 0 is x, index 1 (2-D only) is y;
+        axes the server doesn't report are simply absent from that spectrum's
+        dict. Returns {} when REST is unavailable or the call fails, so callers
+        (the Jupyter df export) degrade to NaN statistics instead of aborting."""
+        if self._rest is None:
+            self.logger.debug('getSpectrumStatistics - no REST client')
+            return {}
+        try:
+            entries = self._rest.getSpectrumStats(pattern)
+            out = {}
+            if isinstance(entries, list):
+                for entry in entries:
+                    if not isinstance(entry, dict) or "name" not in entry:
+                        continue
+                    stats = {}
+                    for key, cols in (("underflows", ("xunderflow", "yunderflow")),
+                                      ("overflows", ("xoverflow", "yoverflow"))):
+                        vals = entry.get(key)
+                        if isinstance(vals, (list, tuple)):
+                            stats.update(zip(cols, vals))
+                    out[entry["name"]] = stats
+            return out
+        except Exception:
+            self.logger.debug('getSpectrumStatistics - REST call failed',
+                              exc_info=True)
+            return {}
+
     def updateSpectrumList(self, init=False):
         self.logger.debug('updateSpectrumList')
         self.spectrumListUpdated.emit(self._spectra.all_names(), init)

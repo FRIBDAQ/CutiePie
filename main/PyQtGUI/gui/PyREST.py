@@ -582,10 +582,10 @@ class PyREST:
     # Returns the underflow and overflow statistics for the spectra whose names match the optional pattern query.
     # Each object has the attributes:
     # name
-    # underflows
-    # overflows
-    def getSpectrumStats(self, name, pattern="*"):
-        url = self._build_url("spectcl/specstats", name=str(name), filter=str(pattern))
+    # underflows - array of per-axis underflow counts (x, then y for 2-d spectra)
+    # overflows - array of per-axis overflow counts (x, then y for 2-d spectra)
+    def getSpectrumStats(self, pattern="*"):
+        url = self._build_url("spectcl/specstats", filter=str(pattern))
         response = self.sendRequest(url)
         if response is None :
             return {}

@@ -456,6 +456,43 @@ def test_applylistgate_shields_callers(env):
     assert env.cm.applylistgate("h1") == [{"gate": "g1"}]
 
 
+class _FakeStatsRest:
+    """Just enough of PyREST for getSpectrumStatistics: getSpectrumStats
+    returns the (already-unwrapped) detail list, or raises."""
+    def __init__(self, detail=None, error=False):
+        self.detail, self.error = detail, error
+
+    def getSpectrumStats(self, pattern="*"):
+        if self.error:
+            raise RuntimeError("boom")
+        return self.detail
+
+
+def test_get_spectrum_statistics_shields_callers(env):
+    assert env.cm.getSpectrumStatistics() == {}       # no client yet
+    env.cm._rest = _FakeStatsRest(error=True)
+    assert env.cm.getSpectrumStatistics() == {}       # REST failure swallowed
+    env.cm._rest = _FakeStatsRest(detail="not-a-list")
+    assert env.cm.getSpectrumStatistics() == {}       # malformed reply
+
+
+def test_get_spectrum_statistics_maps_axis_arrays_to_xy_keys(env):
+    env.cm._rest = _FakeStatsRest(detail=[
+        {"name": "h1", "underflows": [3], "overflows": [1]},            # 1-D
+        {"name": "h2", "underflows": [4, 5], "overflows": [6, 7]},      # 2-D
+        {"name": "h3"},                                                 # no arrays
+        {"underflows": [9], "overflows": [9]},                          # nameless: dropped
+        "garbage",                                                      # non-dict: dropped
+    ])
+    out = env.cm.getSpectrumStatistics()
+    assert out == {
+        "h1": {"xunderflow": 3, "xoverflow": 1},
+        "h2": {"xunderflow": 4, "yunderflow": 5,
+               "xoverflow": 6, "yoverflow": 7},
+        "h3": {},
+    }
+
+
 # ---------------------------------------------------------------- auto-update
 
 def test_auto_update_start_uses_selected_interval(env, monkeypatch):
