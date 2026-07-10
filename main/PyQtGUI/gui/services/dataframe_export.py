@@ -30,9 +30,11 @@ _STAT_COLUMNS = ['xunderflow', 'xoverflow', 'yunderflow', 'yoverflow']
 
 # Column order of the exported table. Every spectrum contributes one row; the
 # first column is the spectrum name, the rest come from the per-spectrum info
-# dict returned by SpectrumStore.as_dict(), then the statistics columns.
-_COLUMNS = ['name', 'dim', 'binx', 'minx', 'maxx',
-            'biny', 'miny', 'maxy', 'data', 'parameters', 'type'] + _STAT_COLUMNS
+# dict returned by SpectrumStore.as_dict(), with the statistics columns
+# bracketing ``data``: underflows before it, overflows after it.
+_COLUMNS = ['name', 'dim', 'binx', 'minx', 'maxx', 'biny', 'miny', 'maxy',
+            'xunderflow', 'yunderflow', 'data', 'xoverflow', 'yoverflow',
+            'parameters', 'type']
 
 
 def build_spectrum_dataframe(spectrum_dict, statistics_fetcher=None):

@@ -33,10 +33,10 @@ def test_columns_and_one_row_per_spectrum():
          'h2': _spectrum(1, np.array([4, 5]))}
     df = build_spectrum_dataframe(d)
     assert list(df.columns) == ['name', 'dim', 'binx', 'minx', 'maxx',
-                                'biny', 'miny', 'maxy', 'data',
-                                'parameters', 'type',
-                                'xunderflow', 'xoverflow',
-                                'yunderflow', 'yoverflow']
+                                'biny', 'miny', 'maxy',
+                                'xunderflow', 'yunderflow', 'data',
+                                'xoverflow', 'yoverflow',
+                                'parameters', 'type']
     assert len(df) == 2
     assert list(df['name']) == ['h1', 'h2']
 
