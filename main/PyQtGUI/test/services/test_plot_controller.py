@@ -18,7 +18,7 @@ def test_plot_controller_constructor_params():
     params = list(sig.parameters)
     for p in ('spectra', 'parent_widget', 'logger'):
         assert p in params, f"Missing: {p}"
-    # H2: the service must not receive widgets (tab bundle, main-window
+    # the service must not receive widgets (tab bundle, main-window
     # widget bundle, or the cutoff popup)
     assert 'wTab' not in params
     assert 'wConf' not in params

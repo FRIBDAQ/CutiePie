@@ -6,7 +6,7 @@ import math
 import fit_alpha_base as base
 
 
-# M9: _as_float was hoisted from fit_alpha{12,22,32}_creator into
+# _as_float was hoisted from fit_alpha{12,22,32}_creator into
 # fit_alpha_base (the three copies were AST-identical). fit_alpha_base is
 # Qt-free and importable headless, so this net locks the single-source
 # behavior — the creators now import it and add no coverage here (they pull

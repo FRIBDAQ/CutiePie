@@ -1,7 +1,7 @@
-"""Characterization tests for FitManager (H2 step 0).
+"""Characterization tests for FitManager.
 
 These pin FitManager's CURRENT observable behavior — popup-widget effects,
-dialog calls, fit-input preparation, artist labeling/tagging — before the H2
+dialog calls, fit-input preparation, artist labeling/tagging — before the
 step-1 inversion (widget writes -> signals, widget reads -> method arguments).
 
 Headless strategy: qt_stubs.install_missing_runtime_stubs() provides the
@@ -110,7 +110,7 @@ class Env:
             parent_widget=None,
             logger=logging.getLogger("test.fit_manager"),
         )
-        # H2 output signals, recorded from construction on
+        # output signals, recorded from construction on
         self.busy = qt_stubs.record_signal(self.fm.fitBusyChanged)
         self.abort_en = qt_stubs.record_signal(self.fm.abortEnabledChanged)
         self.results = qt_stubs.record_signal(self.fm.fitResultsAppended)
@@ -319,7 +319,7 @@ def test_fit_emg12_injects_bin_width_and_wmode(fm_mod, monkeypatch):
 
 
 def test_fit_without_context_never_goes_busy(fm_mod, monkeypatch):
-    # B6 (fixed 2026-07-04): the missing-context early return used to fire
+    # (fixed 2026-07-04): the missing-context early return used to fire
     # AFTER busy(True) and outside the try/finally, leaving the fit button
     # disabled. The context check now precedes the busy toggle entirely.
     env = fit_env(fm_mod, monkeypatch)
@@ -376,7 +376,7 @@ def test_alpha_filter_popup_closed_for_other_models(env):
 
 
 def test_delete_fit_index_is_exact_not_a_prefix(fm_mod):
-    # H7: "fit-_-1" is a substring of "fit-_-10"; deleting fit 1 must not
+    # "fit-_-1" is a substring of "fit-_-10"; deleting fit 1 must not
     # delete fit 10.
     fm = fm_mod.FitManager(fit_factory=FakeFitFactory(), spectra=None,
                            parent_widget=None,

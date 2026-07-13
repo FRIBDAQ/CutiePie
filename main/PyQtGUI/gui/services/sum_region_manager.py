@@ -10,7 +10,7 @@ from PyQt5.QtCore import Qt, QObject, pyqtSignal
 class SumRegionManager(QObject):
     """Owns sum-region CRUD, integration calculations, and result display.
 
-    H2: this service no longer holds the histogram combo or the integrate popup.
+    this service no longer holds the histogram combo or the integrate popup.
     Widget writes leave as signals (region readout, name-combo population, popup
     show/close, integration result rows); widget reads arrive as method
     arguments gathered by the MainWindow adapter. The ONE injected widget that
@@ -28,7 +28,7 @@ class SumRegionManager(QObject):
     sumRegionEnded               = pyqtSignal()      # sets currentPlot.toCreateSumRegion = False
     gateSignalsDisconnectRequested = pyqtSignal()
 
-    # H2 output signals (MainWindow renders the widgets)
+    # output signals (MainWindow renders the widgets)
     regionReadoutChanged         = pyqtSignal(str)    # the region-point text box content
     sumRegionCreatePrepared      = pyqtSignal(list)   # region names -> populate name combo + show popup
     sumRegionSelectionChanged    = pyqtSignal(str)    # set the name combo's current text

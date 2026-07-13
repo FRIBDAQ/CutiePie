@@ -55,7 +55,7 @@ def read_geometry(filename, logger=None):
     if firstMeaningful.startswith("{"):
         # ast.literal_eval replaces the historical eval(): equivalent for every
         # legitimate dict-literal geometry, inert for hostile file contents
-        # (H10 — decision taken 2026-07-08, was deferred).
+        # (decision taken 2026-07-08, was deferred).
         with open(filename, "r") as fh:
             text = fh.read()
         try:

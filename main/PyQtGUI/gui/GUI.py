@@ -186,7 +186,7 @@ class MainWindow(QMainWindow):
         # ensure GUI dies when SpecTcl dies (was an import-time call in the class body)
         tie_lifetime_to_parent()
 
-        # Single source of truth for root-logger config (AUDIT L2). Runs before
+        # Single source of truth for root-logger config. Runs before
         # any setup_logging() call, so THIS is the config that takes effect:
         # default stderr handler at WARNING. (datefmt is inert here — the
         # default format carries no %(asctime)s.) setup_logging() only swaps the
@@ -552,7 +552,7 @@ class MainWindow(QMainWindow):
         self.wConf.createGate.setEnabled(False)
         self.gatePopup.ok.clicked.connect(
             lambda: self.gate_manager.okGate(self.gatePopup.gateNameList.currentText()))
-        # Same clicked(bool)->doClose quirk as the sum-region Cancel (E17):
+        # Same clicked(bool)->doClose quirk as the sum-region Cancel:
         # call with the default so gate Cancel discards + closes the popup.
         self.gatePopup.cancel.clicked.connect(
             lambda: self.gate_manager.cancelGate())
@@ -581,7 +581,7 @@ class MainWindow(QMainWindow):
         self.gate_manager.gateActionCreateChecked.connect(self.gatePopup.gateActionCreate.setChecked)
         self.gate_manager.gateActionEditChecked.connect(self.gatePopup.gateActionEdit.setChecked)
         self.gate_manager.gateActionEditEnabled.connect(self.gatePopup.gateActionEdit.setEnabled)
-        # M5: gate popup combo signals are wired to the service slots ONCE here
+        # gate popup combo signals are wired to the service slots ONCE here
         # (was connect/disconnect bookkeeping inside the service). The slots
         # self-gate on _creating_gate/_editing_gate.
         self.gatePopup.listGateType.currentIndexChanged.connect(self.gate_manager.gateTypeListChanged)
@@ -595,7 +595,7 @@ class MainWindow(QMainWindow):
                 self.sumRegionPopup.sumRegionNameList.currentText()))
         # clicked(bool) would pass checked=False into doClose, so the bare
         # connection made Cancel run with doClose=False and never close the
-        # popup (E17). Call with the intended default so Cancel discards the
+        # popup. Call with the intended default so Cancel discards the
         # in-progress region AND closes (closeEvent -> clearInfo + resume).
         self.sumRegionPopup.cancel.clicked.connect(
             lambda: self.sum_region_manager.cancelSumRegion())
@@ -611,7 +611,7 @@ class MainWindow(QMainWindow):
         self.sum_region_manager.sumRegionStarted.connect(self._on_sum_region_started)
         self.sum_region_manager.sumRegionEnded.connect(self._on_sum_region_ended)
         self.sum_region_manager.gateSignalsDisconnectRequested.connect(self.disconnectGateSignals)
-        # H2 adapters: only this window touches the sum-region popup / integrate table
+        # adapters: only this window touches the sum-region popup / integrate table
         self.sum_region_manager.regionReadoutChanged.connect(self._on_region_readout_changed)
         self.sum_region_manager.sumRegionCreatePrepared.connect(self._on_sum_region_create_prepared)
         self.sum_region_manager.sumRegionSelectionChanged.connect(self._on_sum_region_selection_changed)
@@ -648,7 +648,7 @@ class MainWindow(QMainWindow):
         self.copyAttr.selectAll.clicked.connect(self.selectAll)
 
         # extra popup — wired to fit_manager; popup field reads happen HERE
-        # (H2: the service takes plain arguments, never widget references)
+        # (the service takes plain arguments, never widget references)
         self.extraPopup.fit_button.clicked.connect(
             lambda: self.fit_manager.fit(*self._current_plot_ctx(), *self._fit_inputs()))
         self.extraPopup.plot_csv_button.clicked.connect(self.fit_manager.on_plot_csv_clicked)
@@ -666,7 +666,7 @@ class MainWindow(QMainWindow):
 
         self.extraPopup.peak.jup_start.clicked.connect(self.jupyterStart)
         self.extraPopup.peak.jup_stop.clicked.connect(self.jupyterStop)
-        # E17 precedent: lambda shields the slot from clicked(bool)'s checked arg
+        # precedent: lambda shields the slot from clicked(bool)'s checked arg
         self.extraPopup.peak.jup_save.clicked.connect(lambda: self.createDf())
 
         self.extraPopup.options.gateAnnotation.clicked.connect(self.gate_manager.gateAnnotationCallBack)
@@ -705,7 +705,7 @@ class MainWindow(QMainWindow):
 
         self.currentPlot = self.wTab.wPlot[self.wTab.currentIndex()] # definition of current plot
 
-        # per-tab button/canvas wiring — single source of truth (M21):
+        # per-tab button/canvas wiring — single source of truth:
         # the same routine that rebinds on tab switch does the initial bind
         self.bindDynamicSignal()
 
@@ -1441,7 +1441,7 @@ class MainWindow(QMainWindow):
 
     #set geometry of the canvas
     def setCanvasLayout(self):
-        # H2: the geometry combos and tab widget live here; the service only
+        # the geometry combos and tab widget live here; the service only
         # keeps the geometry_applied flag (markGeometryApplied).
         self.logger.info('setCanvasLayout')
         indexTab = self.wTab.currentIndex()
@@ -1469,7 +1469,7 @@ class MainWindow(QMainWindow):
     #Set spectrum info from ReST in self.spectra (identified by histo name and can update multiple info at once)
     #self.spectra is used to keep track of the treegui definition (fixed)
     def setSpectrumStoreInfo(self, name, **info):
-        # log keys only — info can carry the full counts array (P5)
+        # log keys only — info can carry the full counts array
         self.logger.info('setSpectrumStoreInfo - name: %s, keys: %s', name, list(info))
         self.spectra.set(name, **info)
 
@@ -1523,7 +1523,7 @@ class MainWindow(QMainWindow):
                     return
                     # self.wTab.spectrum_dict[self.wTab.currentIndex()][name] = {"dim":[],"binx":[],"minx":[],"maxx":[],"biny":[],"miny":[],"maxy":[],"data":[],"parameters":[],"type":[],"log":[],"minz":[],"maxz":[]}
                 slot = self.wTab.spectrum_dict[self.wTab.currentIndex()][index]
-                setattr(slot, key, value)          # M3 C3: typed DisplaySlot field (key is whitelisted above)
+                setattr(slot, key, value)          # typed DisplaySlot field (key is whitelisted above)
                 #set axes info at the same time than spectrum
                 if key == "spectrum":
                     slot.axis = value.axes
@@ -1553,7 +1553,7 @@ class MainWindow(QMainWindow):
         if index is not None and index in self.wTab.spectrum_dict[self.wTab.currentIndex()] and info[0] in SLOT_KEYS:
         # if index is not None and info[0] in ("name", "dim", "binx", "minx", "maxx", "biny", "miny", "maxy", "data", "parameters", "type", "log", "minz", "maxz"):
             #print("Giordano - in getSpectrumViewInfo - ",self.wTab.currentIndex(), index, info[0])
-            return getattr(self.wTab.spectrum_dict[self.wTab.currentIndex()][index], info[0])   # M3 C3: typed access (info[0] whitelisted above)
+            return getattr(self.wTab.spectrum_dict[self.wTab.currentIndex()][index], info[0])   # typed access (info[0] whitelisted above)
 
 
     #Remove spectrum from self.wTab.spectrum_dict:
@@ -1590,14 +1590,14 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(str)
     def _on_region_readout_changed(self, text):
-        """H2 adapter: SumRegionManager reports the region-point readout via
+        """adapter: SumRegionManager reports the region-point readout via
         signal; only this window writes the popup text box."""
         self.sumRegionPopup.regionPoint.clear()
         self.sumRegionPopup.regionPoint.insertPlainText(text)
 
     @pyqtSlot(list)
     def _on_sum_region_create_prepared(self, names):
-        """H2 adapter: populate the sum-region name combo from the names the
+        """adapter: populate the sum-region name combo from the names the
         service resolved, then show the popup."""
         combo = self.sumRegionPopup.sumRegionNameList
         self.sumRegionPopup.clearInfo()
@@ -1620,7 +1620,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(list)
     def _on_integration_results(self, rows):
-        """H2 adapter: SumRegionManager computes integration result rows; only
+        """adapter: SumRegionManager computes integration result rows; only
         this window builds the integrate table. Empty rows -> 'Nothing to
         integrate'."""
         table = self.integratePopup.resultsText
@@ -1715,7 +1715,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_shm_views_invalidated(self):
-        """A re-connect completed a fresh mirror transfer (PERFORMANCE.md P7).
+        """A re-connect completed a fresh mirror transfer.
 
         Every matplotlib artist and cached per-tab "spectrum"/"axis" entry still
         references arrays from the previous transfer; drop them all before the
@@ -1742,12 +1742,12 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(str)
     def _on_connection_refused(self, msg):
-        """P7 guard tripped in ConnectionManager: surface it, since the connect
+        """guard tripped in ConnectionManager: surface it, since the connect
         attempt was dropped without changing the running session."""
         QMessageBox.warning(self, "Connection refused", msg)
 
     def _on_connect_failed_dialog(self, msg):
-        """H5: the mirror transfer failed (CPyConverter::Update now raises a
+        """the mirror transfer failed (CPyConverter::Update now raises a
         Python exception instead of segfaulting when getSpecTclMemory returns
         nullptr). Surface the reason so the user can fix the endpoint and retry;
         the button has already reverted to disconnected."""
@@ -1755,7 +1755,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(str)
     def _render_connect_state(self, state):
-        """H2 adapter: ConnectionManager reports connection state via signal;
+        """adapter: ConnectionManager reports connection state via signal;
         only this window touches the connect button."""
         button = self.wConf.connectButton
         if state == "connected":
@@ -1770,12 +1770,12 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(bool)
     def _on_connect_attempt_busy(self, busy):
-        """H2 adapter: the connect button is disabled while the mirror transfer runs."""
+        """adapter: the connect button is disabled while the mirror transfer runs."""
         self.wConf.connectButton.setEnabled(not busy)
 
     @pyqtSlot(list, bool)
     def _render_spectrum_list(self, names, init):
-        """H2 adapter: ConnectionManager publishes the bound-spectrum names;
+        """adapter: ConnectionManager publishes the bound-spectrum names;
         only this window touches the histo_list combo."""
         self.wConf.histo_list.blockSignals(True)
         self.wConf.histo_list.clear()
@@ -1789,28 +1789,28 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(bool)
     def _on_fit_busy(self, busy):
-        """H2 adapter: while a fit runs, the fit button is off and abort is on."""
+        """adapter: while a fit runs, the fit button is off and abort is on."""
         self.extraPopup.fit_button.setEnabled(not busy)
         self.extraPopup.abort_button.setEnabled(busy)
 
     @pyqtSlot(bool)
     def _on_abort_enabled(self, enabled):
-        """H2 adapter: FitManager acknowledges an abort request."""
+        """adapter: FitManager acknowledges an abort request."""
         self.extraPopup.abort_button.setEnabled(enabled)
 
     @pyqtSlot(str)
     def _append_fit_results(self, text):
-        """H2 adapter: FitManager publishes fit-result lines for the popup box."""
+        """adapter: FitManager publishes fit-result lines for the popup box."""
         self.extraPopup.fit_results.append(text)
 
     @pyqtSlot(str)
     def _set_fit_labels_text(self, text):
-        """H2 adapter: FitManager publishes the current fit-line label list."""
+        """adapter: FitManager publishes the current fit-line label list."""
         self.extraPopup.delete_fitIdx_list.setText(text)
 
     @pyqtSlot(dict)
     def _show_cutoff_popup(self, info):
-        """H2 adapter: PlotController prepared the cutoff/zoom popup payload;
+        """adapter: PlotController prepared the cutoff/zoom popup payload;
         only this window touches the popup widget."""
         name = info.get("name")
         self.cutoffp.setWindowTitle("Set zoom range for: " + (name if name is not None else "???"))
@@ -1836,7 +1836,7 @@ class MainWindow(QMainWindow):
             to_delete = [key for key, value in plotVal.h_dict_geo.items() if name in value]
             for key in to_delete:
                 if key in self.wTab.spectrum_dict[tabIdx]:
-                    spectrum = self.wTab.spectrum_dict[tabIdx][key].spectrum   # M3 C3: typed access
+                    spectrum = self.wTab.spectrum_dict[tabIdx][key].spectrum   # typed access
                     if hasattr(spectrum, 'axes'):
                         ax = spectrum.axes
                         self.removeCb(ax)
@@ -1868,7 +1868,7 @@ class MainWindow(QMainWindow):
             to_delete = [key for key, value in plotVal.h_dict_geo.items() if name in value]
             for key in to_delete:
                 if key in self.wTab.spectrum_dict[tabIdx]:
-                    spectrum = self.wTab.spectrum_dict[tabIdx][key].spectrum   # M3 C3: typed access
+                    spectrum = self.wTab.spectrum_dict[tabIdx][key].spectrum   # typed access
                     #clear axis, remove colorbar and update in the geometry if mode="definitive"
                     if mode == "definitive":
                         ax = spectrum.axes
@@ -1919,7 +1919,7 @@ class MainWindow(QMainWindow):
         self.currentPlot.h_dict_geo[index] = name
         #Set also here the spectrum_dict with only the spectra defined in the geo
         if index not in self.wTab.spectrum_dict[self.wTab.currentIndex()]:
-            # M3: typed per-pad display state (drop-in for the old 17-key dict).
+            # typed per-pad display state (drop-in for the old 17-key dict).
             self.wTab.spectrum_dict[self.wTab.currentIndex()][index] = DisplaySlot()
         slot = self.wTab.spectrum_dict[self.wTab.currentIndex()][index]
         slot.name = name
@@ -1935,7 +1935,7 @@ class MainWindow(QMainWindow):
         for key, value in record.items():
             if key == "data":
                 continue
-            setattr(slot, key, value)          # M3 C3: typed DisplaySlot field
+            setattr(slot, key, value)          # typed DisplaySlot field
 
 
     #returns h_dict_geo {key=index, value=histoName}
@@ -2081,7 +2081,7 @@ class MainWindow(QMainWindow):
             with open(fileName, "w") as f:
                 f.write(tmp_text)
         except Exception:
-            # M17: was a bare `except:` that logged at debug and still showed
+            # was a bare `except:` that logged at debug and still showed
             # the success dialog (shown before the write, at that)
             self.logger.exception('saveGeo - failed to save %s', fileName)
             QMessageBox.warning(self, "Saving...", "Could not save the window configuration — see the log.")
@@ -2253,7 +2253,7 @@ class MainWindow(QMainWindow):
             self.cancelSumRegion()
         self._stop_auto_thread()
 
-        # rebuild the tab set with existing primitives only (ARCH_2 danger
+        # rebuild the tab set with existing primitives only (danger
         # zone: deleteTab reindexes the parallel dicts and plt.closes figures)
         self.wTab.setCurrentIndex(0)
         self.currentPlot = self.wTab.wPlot[0]
@@ -2489,7 +2489,7 @@ class MainWindow(QMainWindow):
         return idx, self.nameFromIndex(idx), self.getSpectrumViewInfo("axis", index=idx)
 
     def _fit_inputs(self):
-        """Gather the fit popup fields FitManager needs as plain values (H2):
+        """Gather the fit popup fields FitManager needs as plain values:
         (fit_funct, [20 parameter texts], range_min_text, range_max_text)."""
         p = self.extraPopup
         texts = [getattr(p, f"fit_p{i}").text() for i in range(20)]
@@ -2607,7 +2607,7 @@ class MainWindow(QMainWindow):
             self.logger.debug('applyCopy - xlim_src, ylim_src, scale_src, zlim_src : %s, %s, %s, %s', xlim_src, ylim_src, scale_src, zlim_src)
 
             # autoscale off, or the trailing updatePlot recomputes y/z from the
-            # data and discards the copied values (E19; same pattern as
+            # data and discards the copied values (same pattern as
             # zoomInOut / cutoffButtonCallback)
             self.currentPlot.histo_autoscale.setChecked(False)
 
@@ -2629,7 +2629,7 @@ class MainWindow(QMainWindow):
                     self.setSpectrumViewInfo(maxz=zlim_src[1], index=index)
                 # apply to the target axes directly: updatePlot's only
                 # limits-application path is autoscale-gated, so view-tier
-                # writes alone never reach the screen (E19; okCutoff precedent)
+                # writes alone never reach the screen (okCutoff precedent)
                 ax = self.getSpectrumViewInfo("axis", index=index)
                 if ax is None:
                     continue
@@ -2843,7 +2843,7 @@ class MainWindow(QMainWindow):
     def integrate(self):                         return self.sum_region_manager.integrate(*self._current_plot_ctx())
     def okIntegrate(self):                       return self.sum_region_manager.okIntegrate()
     def copySelectionIntegrateTable(self):
-        # H2: the integrate table lives here now; this reads it + writes clipboard.
+        # the integrate table lives here now; this reads it + writes clipboard.
         resultTable = self.integratePopup.resultsText
         if not resultTable.selectedItems():
             return
@@ -2861,7 +2861,7 @@ class MainWindow(QMainWindow):
         name = self.nameFromIndex(idx)
         return self.sum_region_manager.integrateGateLocal(idx, name, lines)
 
-    # -- ConnectionManager shims + popup adapters (H2: the popup widget and
+    # -- ConnectionManager shims + popup adapters (the popup widget and
     #    its field reads live here; the service takes plain arguments) --
     def connectShMem(self):
         return self.connection_manager.connectShMem(
@@ -3175,7 +3175,7 @@ class MainWindow(QMainWindow):
                 path, _ = QFileDialog.getOpenFileName(None, "Find jupyter-notebook executable", QDir.homePath())
                 if not path:
                     # user cancelled: abort starting Jupyter, keep the GUI alive
-                    # (H6: the old tuple-truthiness check made Cancel unreachable,
+                    # (the old tuple-truthiness check made Cancel unreachable,
                     # and the cancel path called sys.exit(0) — killing the GUI)
                     self.logger.warning('jupyterStart - jupyter-notebook not located; start aborted by user')
                     return
@@ -3267,7 +3267,7 @@ class MainWindow(QMainWindow):
 
     def debugModeCallBack(self):
         if self.extraPopup.options.debugMode.isChecked():
-            # record creation only while the file handler can consume it (P5)
+            # record creation only while the file handler can consume it
             self.logger.setLevel(logging.DEBUG)
             # allows to add only one instance of file handler
             if len(self.logger.handlers) > 0:

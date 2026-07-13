@@ -7,7 +7,7 @@ import logger as logger_mod
 
 
 def test_setup_logging_does_not_configure_root(monkeypatch):
-    # L2: root-logger config is single-sourced at startup; setup_logging must
+    # root-logger config is single-sourced at startup; setup_logging must
     # NOT call basicConfig (its call was a dead no-op and is now removed).
     calls = []
     monkeypatch.setattr(logging, "basicConfig",

@@ -115,7 +115,7 @@ class Tabs(QTabWidget):
             # Remove the tab from the QTabWidget
             self.removeTab(index)
             # release the pyplot-managed figure or it lives (with all its
-            # artists and shm-view refs) in pyplot's registry forever (H9)
+            # artists and shm-view refs) in pyplot's registry forever
             plt.close(self.wPlot[index].figure)
             # Update related data structures
             self.wPlot = self.deleteDictEntry(self.wPlot, index)

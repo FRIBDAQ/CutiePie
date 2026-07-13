@@ -77,15 +77,15 @@ class GateManager(QObject):
         self._editing_gate  = False
 
         # Gate scratch state (was on the popup; pure service state, never read
-        # by the widget — MenuGate only default-initialized these). H2 step 1.
+        # by the widget — MenuGate only default-initialized these).
         self._active_gate_index = 0     # was self._popup.gateSpectrumIndex
         self._gate_edit_option  = None  # was self._popup.gateEditOption
         # Names the service populated into gateNameList (combo is NoInsert, so
-        # its items are exactly these). Mirrors findText()/count() reads. H2 step 1.
+        # its items are exactly these). Mirrors findText()/count() reads.
         self._gate_names        = []
 
         # Leak-proof registry for canvas mpl callbacks + the edit QShortcut
-        # (AUDIT M5). role -> (canvas, cid); connecting a role disconnects any
+        # role -> (canvas, cid); connecting a role disconnects any
         # prior connection first, so re-entering an edit flow (or an unclean
         # teardown) can't strand a live callback on the canvas.
         self._mpl_cids     = {}
@@ -262,7 +262,7 @@ class GateManager(QObject):
                         labelBuff = gateName + "_high"
 
                     # match on gid, not text: the annotation's text is the
-                    # position string (e.g. "10"), never labelBuff (B5)
+                    # position string (e.g. "10"), never labelBuff
                     toRemove = [an for an in ax.get_children()
                                 if type(an) == matplotlib.text.Annotation
                                 and an.get_gid() == labelBuff]
@@ -529,7 +529,7 @@ class GateManager(QObject):
         self.updatePlotRequested.emit()
 
     # ------------------------------------------------------------------
-    # Canvas-callback + shortcut registry (AUDIT M5) — leak-proof connect/clean
+    # Canvas-callback + shortcut registry — leak-proof connect/clean
     # ------------------------------------------------------------------
 
     def _mpl_connect(self, role, event, handler):
@@ -586,7 +586,7 @@ class GateManager(QObject):
         self.logger.info('disconnectGateSignals')
         self._mpl_disconnect_all()
         # gateNameList/listGateType widget signals are wired permanently in
-        # MainWindow now (M5); gateNameListChanged/gateTypeListChanged self-gate
+        # MainWindow now; gateNameListChanged/gateTypeListChanged self-gate
         # on _editing_gate/_creating_gate, so no per-mode disconnect here.
         self._dispose_edit_shortcut()
         conn = self._get_integrate_copy()
@@ -653,7 +653,7 @@ class GateManager(QObject):
         self.gateCreationStarted.emit(index)
 
         # listGateType.currentIndexChanged -> gateTypeListChanged is wired
-        # permanently in MainWindow (M5); gateTypeListChanged self-gates on
+        # permanently in MainWindow; gateTypeListChanged self-gates on
         # _creating_gate, which is now True.
 
         self._active_gate_index = index
@@ -780,7 +780,7 @@ class GateManager(QObject):
         self.gateNamesPrepared.emit(names, "-- select a gate --")
         self.gateNameCompleterConfigured.emit()
         # gateNameList.currentTextChanged -> gateNameListChanged is wired
-        # permanently in MainWindow (M5); the slot self-gates on _editing_gate.
+        # permanently in MainWindow; the slot self-gates on _editing_gate.
 
         self._creating_gate = False
         self._editing_gate  = True
@@ -789,7 +789,7 @@ class GateManager(QObject):
         self.gateReadoutEditable.emit(True)
 
     def gateTypeListChanged(self):
-        if not self._creating_gate:   # permanently wired in MainWindow (M5); act only in create mode
+        if not self._creating_gate:   # permanently wired in MainWindow; act only in create mode
             return
         self.logger.info('gateTypeListChanged')
         self._gate_names = []
@@ -803,7 +803,7 @@ class GateManager(QObject):
         self._gate_edit_option     = None
 
     def gateNameListChanged(self):
-        if not self._editing_gate:   # permanently wired in MainWindow (M5); act only in edit mode
+        if not self._editing_gate:   # permanently wired in MainWindow; act only in edit mode
             return
         self.logger.info('gateNameListChanged')
         ax = self._get_spectrum_info("axis", index=self._active_gate_index)

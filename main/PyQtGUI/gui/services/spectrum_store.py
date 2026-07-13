@@ -20,7 +20,7 @@ class SpectrumStore:
     def set(self, name: str, allow_data_replacement: bool = False, **info) -> None:
         """Upsert valid-key fields for the named spectrum. Invalid keys are silently ignored.
 
-        `data` arrays are live shared-memory views (BUGS.md B4): replacing one
+        `data` arrays are live shared-memory views: replacing one
         with an array that does not alias it silently freezes the spectrum
         (the C1 regression class), so such writes are refused and logged.
         Callers installing views from a NEW mirror — connect/reconnect and
@@ -40,7 +40,7 @@ class SpectrumStore:
                     isinstance(new, np.ndarray) and np.shares_memory(old, new)):
                 logger.error(
                     "SpectrumStore.set(%r): refusing to replace the live shm "
-                    "data view with a non-aliasing array (B4/C1 regression "
+                    "data view with a non-aliasing array (regression "
                     "class — derive on demand instead; pass "
                     "allow_data_replacement=True only for new-mirror views)",
                     name)

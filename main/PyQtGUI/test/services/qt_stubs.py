@@ -1,4 +1,4 @@
-"""Headless test doubles for the service layer (H2 step 0).
+"""Headless test doubles for the service layer.
 
 Two things live here:
 
@@ -14,7 +14,7 @@ Two things live here:
    widgets, sockets, or OS threads.
 
 This is the "stub-based behavior tests (fake-PyQt5 ``sys.modules``
-injection)" pattern from ARCHITECTURE.md §5, promoted from the P2/P7
+injection)" pattern, promoted from the earlier
 standalone harnesses into the suite.
 """
 

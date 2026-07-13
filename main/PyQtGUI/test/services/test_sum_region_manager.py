@@ -14,7 +14,7 @@ def test_sum_region_manager_constructor_params():
     import inspect
     sig = inspect.signature(SumRegionManager.__init__)
     params = list(sig.parameters)
-    # H2: histogram combo and integrate popup are gone; the sum popup stays only
+    # histogram combo and integrate popup are gone; the sum popup stays only
     # for the co-owned listRegionLine/prevPoint buffer, reads arrive via seams.
     for p in ('get_histo_names', 'sum_popup', 'parent_widget', 'logger'):
         assert p in params, f"Missing param: {p}"

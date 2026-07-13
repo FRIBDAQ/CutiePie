@@ -1,4 +1,4 @@
-"""Fresh-audit regression tests for GateManager (M19, M20)."""
+"""Fresh-audit regression tests for GateManager."""
 
 import importlib
 import logging
@@ -87,7 +87,7 @@ def _ax():
 
 
 def test_gate_name_changed_gate_missing_in_rest_does_not_raise(gm_mod):
-    # M19: the selected gate exists as an artist/name but was deleted
+    # the selected gate exists as an artist/name but was deleted
     # server-side -> rest.listGate() has no entry -> gate[0] raised IndexError.
     ax = _ax()
     gm = make_gm(gm_mod, ax, gates=[])
@@ -113,7 +113,7 @@ def test_click_on_gate_line_gate_missing_in_rest_does_not_raise(gm_mod):
 
 
 def test_annotation_offsets_stack_per_gate(gm_mod):
-    # M20: getXYAnnotation iterated dict KEYS with a substring test and
+    # getXYAnnotation iterated dict KEYS with a substring test and
     # returned in the first iteration — the third gate never got a deeper
     # offset (always -0.05).
     ax = _ax()

@@ -18,7 +18,7 @@ def test_connection_manager_constructor_params():
               'update_intervals', 'update_intervals_user',
               'stop_rest', 'stop_auto', 'skip_auto'):
         assert p in params, f"Missing: {p}"
-    # H2: the service must not receive widgets (main-window bundle or popup)
+    # the service must not receive widgets (main-window bundle or popup)
     assert 'wConf' not in params
     assert 'connect_config' not in params
 

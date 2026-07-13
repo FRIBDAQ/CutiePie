@@ -1,11 +1,11 @@
-"""Characterization tests for GateManager (H2 step 0).
+"""Characterization tests for GateManager.
 
 GateManager is the largest, most widget-entangled service (~154 sites, ~18
 collaborators) and its drawing runs in the render-tick / hover hot paths. These
-pin its CURRENT observable behavior BEFORE the H2 step-1 inversion — with
+pin its CURRENT observable behavior BEFORE the step-1 inversion — with
 special attention to the three regression fixes it carries:
   * E9  — gate annotations are gid-keyed and do NOT accumulate on redraw.
-  * E10 — off-axes mouse motion (xdata/ydata None) is a no-op, never poisons
+  * off-axes mouse motion (xdata/ydata None) is a no-op, never poisons
           the line data.
   * P2  — gate artists persist across redraws (reuse Line2D via set_data, not
           remove+recreate every tick).
@@ -102,7 +102,7 @@ class FakeButton:
 class FakeGatePopup:
     # Residual drawing buffer only (listRegionLine/prevPoint/regionPoint) plus
     # the widgets the service used to touch, kept so tests can seed reads via
-    # the seams. After H2 step 1 the service reaches none of these directly
+    # the seams. After step 1 the service reaches none of these directly
     # except listRegionLine/prevPoint.
     def __init__(self):
         self.gateNameList = FakeCombo()
@@ -296,7 +296,7 @@ def test_format_gate_point_text_malformed_returns_none(rig):
     assert rig.gm.formatGatePopupPointText(1) is None
 
 
-# --------------------------------------------------------------- E9: annotations don't accumulate
+# --------------------------------------------------------------- annotations don't accumulate
 
 def test_set_gate_annotation_is_gid_keyed_and_idempotent(rig):
     rig.add_1d("h1")
@@ -316,7 +316,7 @@ def test_set_gate_annotation_is_gid_keyed_and_idempotent(rig):
     assert n_annotations() == 0
 
 
-# --------------------------------------------------------------- P2: persistent gate artists
+# --------------------------------------------------------------- persistent gate artists
 
 def test_draw_gate_reuses_line_across_redraws(rig):
     rig.add_1d("h1", type_="1", params=("p1",))
@@ -336,7 +336,7 @@ def test_draw_gate_reuses_line_across_redraws(rig):
     rig.gm.drawGate(0)
     lines0b = [l for l in ax.lines if l.get_label() == "gate_-_G1_-_0"]
     assert len(lines0b) == 1
-    assert lines0b[0] is the_line                       # same object reused (P2)
+    assert lines0b[0] is the_line                       # same object reused
     assert list(the_line.get_xdata()) == [3.0, 3.0]     # updated in place
 
 
@@ -354,7 +354,7 @@ def test_draw_gate_hidden_removes_lines(rig):
     assert not any(l.get_label().startswith("gate_-_G1") for l in ax.lines)
 
 
-# --------------------------------------------------------------- E10: off-axes drag guard
+# --------------------------------------------------------------- off-axes drag guard
 
 def test_followmouse_off_axes_is_noop(rig):
     line = mlines.Line2D([4.0, 4.0], [0, 100])
@@ -419,7 +419,7 @@ def test_push_gate_to_rest_1d_sorts_boundaries(rig):
 
 
 # ---------------------------------------------------------------
-# M5: leak-proof canvas-callback + shortcut registry
+# leak-proof canvas-callback + shortcut registry
 # ---------------------------------------------------------------
 
 def test_mpl_connect_replaces_prior_role_cid(rig):
@@ -482,7 +482,7 @@ def test_disconnect_gate_signals_disposes_shortcut_and_cids(rig, gm_mod, monkeyp
 
 
 # ---------------------------------------------------------------
-# H2 step-1 inversion — signal contracts (widget effects now travel as signals)
+# step-1 inversion — signal contracts (widget effects now travel as signals)
 # ---------------------------------------------------------------
 
 def test_create_gate_valid_emits_lifecycle(rig):

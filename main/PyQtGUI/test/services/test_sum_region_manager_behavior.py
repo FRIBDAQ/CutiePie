@@ -1,6 +1,6 @@
-"""Behavior tests for SumRegionManager (H2 steps 0+2).
+"""Behavior tests for SumRegionManager.
 
-After the H2 inversion the service holds no histogram combo and no integrate
+After the inversion the service holds no histogram combo and no integrate
 popup: widget writes leave as signals (`regionReadoutChanged`,
 `sumRegionCreatePrepared`, `sumRegionSelectionChanged`, popup-close requests,
 `integrationResultsReady`) and widget reads arrive as method arguments. The ONE
@@ -72,7 +72,7 @@ class FakeIntegrateRest:
 
 
 class Rig:
-    """Composition-root double: wires SumRegionManager as MainWindow does (H2)."""
+    """Composition-root double: wires SumRegionManager as MainWindow does."""
     def __init__(self, module, monkeypatch):
         from services.spectrum_store import SpectrumStore
         self.mod = module

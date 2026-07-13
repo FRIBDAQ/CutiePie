@@ -134,7 +134,7 @@ CPyConverter::Update(char* hostname, char* port, char* mirror, char* user)
       if (debug) {
           std::cout << " got " << std::hex << p << std::dec << std::endl;
       }
-      // H5: getSpecTclMemory returns nullptr when the mirror cannot be set up
+      // getSpecTclMemory returns nullptr when the mirror cannot be set up
       // (wrong port, dead mirror service, ...). Storing then dereferencing it
       // below (p->GetSpectrumList) segfaults the whole GUI with no Python
       // traceback and bypasses the ConnectWorker.failed dialog built for exactly
@@ -153,7 +153,7 @@ CPyConverter::Update(char* hostname, char* port, char* mirror, char* user)
   }
 
   spec_shared* p = d->GetShMem();
-  if (p == nullptr) {                     // H5: defensive — singleton unexpectedly empty
+  if (p == nullptr) {                     // defensive — singleton unexpectedly empty
       PyErr_SetString(PyExc_RuntimeError,
                       "SpecTcl shared memory unavailable (mirror not attached)");
       return NULL;
@@ -201,11 +201,11 @@ for (int i = 0; i < lsize; i++){
 }
 
 
-// P7-durable: base object shared by every zero-copy view onto the mirror.
+// base object shared by every zero-copy view onto the mirror.
 // PyArray_SimpleNewFromData builds arrays that alias the shared-memory mirror
 // but leaves their base object NULL, so numpy regards the buffer as owned by
 // no one — a lifetime hazard if the mapping were ever torn down while views are
-// live (PERFORMANCE.md P7). We attach a single process-lifetime capsule as the
+// live. We attach a single process-lifetime capsule as the
 // base of every view. The mirror client owns the mmap for the life of the
 // process (attach-once singleton in dataRetriever, never unmapped — "doing this
 // twice on windows is fatal"), so the capsule destructor is a no-op: there is
@@ -253,7 +253,7 @@ CPyConverter::ShMemToNpArray(void* addr, int dim, int nbinx, int nbiny, int type
     }
   }
 
-  // P7-durable: tie this view's lifetime to the process-lifetime mirror capsule.
+  // tie this view's lifetime to the process-lifetime mirror capsule.
   // PyArray_SetBaseObject steals a reference on success, so INCREF first and
   // DECREF back if it fails. Guard on data (a type that matched none of the
   // branches above leaves it NULL — previously that returned an uninitialized

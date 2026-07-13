@@ -71,7 +71,7 @@ def test_raises_when_server_exits_before_publishing(monkeypatch):
         notebook_process.startnotebook("jupyter-notebook", directory="/tmp")
 
 
-# --------------------------------------------------------------- M10: deadline
+# --------------------------------------------------------------- deadline
 
 def test_deadline_fires_when_alive_but_never_publishes(monkeypatch):
     # alive server that keeps printing non-http lines forever (gap 1)

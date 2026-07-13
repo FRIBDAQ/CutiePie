@@ -1,8 +1,8 @@
-"""Characterization tests for PlotController (H2 step 0).
+"""Characterization tests for PlotController.
 
 These pin PlotController's CURRENT observable behavior — rendering data flow,
 axis scaling, cutoff masking, the wConf/wTab/cutoff-popup widget effects —
-before the H2 step-1 inversion. The ~50 widget touches that go through the
+before the step-1 inversion. The ~50 widget touches that go through the
 injected `_get_current_plot()` seam are exercised via a fake plot widget
 carrying a REAL matplotlib figure (Agg), so line/imshow/axis behavior is real.
 
@@ -127,7 +127,7 @@ class Rig:
             parent_widget=None,
             logger=logging.getLogger("test.plot_controller"),
         )
-        # H2 output signals, recorded from construction on
+        # output signals, recorded from construction on
         self.prepared = qt_stubs.record_signal(self.pc.cutoffPopupPrepared)
         self.close_req = qt_stubs.record_signal(self.pc.cutoffPopupCloseRequested)
 
@@ -156,7 +156,7 @@ def rig(pc_mod, monkeypatch):
 # ---------------------------------------------------------------- pure logic
 
 def test_custom_min_max_semantics(rig):
-    # P1 pin: min/max over strictly positive values only
+    # pin: min/max over strictly positive values only
     assert rig.pc.customMinMax(np.array([0, 3, 1, 7])) == (1, 7)
     assert rig.pc.customMinMax(np.zeros(4)) == (None, None)
     masked = np.ma.masked_where(np.array([5, 1, 9]) > 6, np.array([5, 1, 9]))
@@ -173,7 +173,7 @@ def test_cutoff_masked_data(rig):
     rig.set_info(index=0, cutoff=[3.0, 8.0])
     w = rig.pc._cutoff_masked_data(0)
     assert list(w.compressed()) == [5.0]
-    # canonical store data untouched (B4)
+    # canonical store data untouched
     assert list(rig.store.get("h1", "data")) == [0.0, 2.0, 5.0, 9.0]
 
 
@@ -252,7 +252,7 @@ def test_plot_plot_1d_sets_bin_edges_from_store(rig):
 
 
 def test_setup_plot_1d_uses_rest_tier_bin_edges(rig):
-    # E7 pin: view tier (per-tab minx/maxx) holds a ZOOM range; bin edges must
+    # pin: view tier (per-tab minx/maxx) holds a ZOOM range; bin edges must
     # come from the store tier or the spectrum compresses into the zoom window.
     ax = rig.add_1d(binx=10, minx=0.0, maxx=10.0)
     rig.set_info(index=0, minx=4.0, maxx=6.0)      # zoomed view range
@@ -290,7 +290,7 @@ def test_update_plot_grid_flow(rig):
 
 
 def test_update_plot_no_axis_never_pops_modal(rig):
-    # SMOKE-A7 regression: an auto-update tick that finds a geometry slot with
+    # regression: an auto-update tick that finds a geometry slot with
     # no built axis (polling started before Add/geometry, or a config change)
     # must NOT raise a modal dialog — the timer keeps firing, so a modal here
     # stacks a new blocking dialog every tick and freezes the GUI.
@@ -439,7 +439,7 @@ def test_reset_cutoff_clears_and_requests_close(rig):
     assert rig.close_req == [()]
 
 
-# ------------------------------------------------ P6: change-driven redraw skip
+# ------------------------------------------------ change-driven redraw skip
 
 def _spy_draw_idle(rig):
     """Replace the real Agg draw_idle with a call counter."""
@@ -449,7 +449,7 @@ def _spy_draw_idle(rig):
 
 
 def test_timer_tick_skips_redraw_when_data_unchanged(rig):
-    # P6: the auto-update timer tick (_updatePlotOnGui -> updatePlot(force=False))
+    # the auto-update timer tick (_updatePlotOnGui -> updatePlot(force=False))
     # must NOT redraw when no pad's counts changed since the previous tick.
     ax = rig.add_1d()
     line = make_line(ax)
@@ -487,7 +487,7 @@ def test_timer_tick_redraws_when_counts_change(rig):
 def test_forced_updateplot_always_redraws_even_if_unchanged(rig):
     # The hide-gates toggle / gate / sum-region / geometry paths call updatePlot()
     # with force=True (default) and must ALWAYS render, even with static data —
-    # otherwise a toggle would not take effect until counts next changed (SMOKE GX10).
+    # otherwise a toggle would not take effect until counts next changed.
     ax = rig.add_1d()
     line = make_line(ax)
     rig.set_info(index=0, spectrum=line)
@@ -518,7 +518,7 @@ def test_first_timer_tick_always_draws(rig):
 
 
 def test_add_plot_2d_scans_y_window_from_ylim_not_xlim(pc_mod, monkeypatch):
-    # H8: the 2D branch of addPlot read `ymin, ymax = ax.get_xlim()`, so the
+    # the 2D branch of addPlot read `ymin, ymax = ax.get_xlim()`, so the
     # initial z-autoscale scanned the wrong y-bin window on asymmetric spectra.
     r = Rig(pc_mod, monkeypatch)
     r.store.set("m2", dim=2, binx=10, minx=0.0, maxx=10.0,
@@ -544,7 +544,7 @@ def test_add_plot_2d_scans_y_window_from_ylim_not_xlim(pc_mod, monkeypatch):
 
 
 def test_ok_cutoff_accepts_decimal_values(rig):
-    # M12: cutoff fields were gated by isdigit(), silently dropping "10.5".
+    # cutoff fields were gated by isdigit(), silently dropping "10.5".
     rig.store.set("m2", dim=2, binx=4, minx=0.0, maxx=4.0,
                   biny=4, miny=0.0, maxy=4.0,
                   data=np.ones((4, 4)), parameters=[], type="2")
@@ -558,7 +558,7 @@ def test_ok_cutoff_accepts_decimal_values(rig):
 
 
 def test_reset_all_continues_past_empty_pad(pc_mod, monkeypatch):
-    # M13: customHomeButtonCallback returned at the first pad without a
+    # customHomeButtonCallback returned at the first pad without a
     # spectrum artist, so "Reset all" never reached later pads.
     r = Rig(pc_mod, monkeypatch, nrows=1, ncols=2)
     r.geo[0] = "ghost"                       # pad with no spectrum artist
@@ -573,7 +573,7 @@ def test_reset_all_continues_past_empty_pad(pc_mod, monkeypatch):
 
 
 def test_set_cmap_norm_log_coerces_zero_zmin(rig):
-    # M14: `if zmin and zmin <= 0` let zmin == 0 through -> LogNorm(vmin=0),
+    # `if zmin and zmin <= 0` let zmin == 0 through -> LogNorm(vmin=0),
     # which matplotlib rejects at draw time.
     ax = rig.cp.figure.axes[0]
     art = ax.imshow(np.ones((4, 4)))

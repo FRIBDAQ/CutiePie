@@ -48,7 +48,7 @@ class PyREST:
     def _q(value) -> str:
         """Percent-encode one query value. Spectrum/gate/parameter names may
         contain spaces, '&', '+', '#' — appending them raw corrupts the URL
-        (M16; hostile-names class, see thread_workers.lookup_spectrum_info)."""
+        (hostile-names class, see thread_workers.lookup_spectrum_info)."""
         return urllib.parse.quote_plus(str(value))
 
     ########################################
@@ -300,7 +300,7 @@ class PyREST:
 
 
     # (create1DGate / createMaskGate / listSource / unbindById removed 2026-07-08
-    #  — dead code that referenced undefined names; see AUDIT M15. Recreate from
+    #  — dead code that referenced undefined names. Recreate from
     #  createGate/create2DGate patterns if ever needed.)
 
     def createVectorSlice(self, name, type, vector, low, high):

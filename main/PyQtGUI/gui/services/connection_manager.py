@@ -17,18 +17,18 @@ class ConnectionManager(QtCore.QObject):
     spectrumRemoved       = pyqtSignal(str)
     spectrumListChanged   = pyqtSignal()
     updatePlotRequested   = pyqtSignal()
-    # P7: a re-connect finished a fresh mirror transfer — the GUI must drop every
+    # a re-connect finished a fresh mirror transfer — the GUI must drop every
     # matplotlib artist / cached axis still bound to arrays from the previous
     # transfer before the store is repopulated with new views.
     shmViewsInvalidated   = pyqtSignal()
-    # P7: connect attempt refused (shm mapping cannot change within a process);
+    # connect attempt refused (shm mapping cannot change within a process);
     # payload is the user-facing message.
     connectionRefused     = pyqtSignal(str)
-    # H5: the mirror transfer raised (e.g. getSpecTclMemory returned nullptr —
+    # the mirror transfer raised (e.g. getSpecTclMemory returned nullptr —
     # wrong port / dead mirror service). The C++ side now raises instead of
     # segfaulting (CPyConverter::Update null-check); MainWindow shows the message.
     connectFailed         = pyqtSignal(str)
-    # H2: connect-button rendering inverted into signals — MainWindow owns the
+    # connect-button rendering inverted into signals — MainWindow owns the
     # widget (adapters _render_connect_state / _on_connect_attempt_busy).
     connectionStateChanged = pyqtSignal(str)   # "connected" | "connecting" | "disconnected"
     connectAttemptBusy     = pyqtSignal(bool)  # True while the mirror transfer runs
@@ -54,7 +54,7 @@ class ConnectionManager(QtCore.QObject):
         self._connect_worker = None
         self._pending_adds: list   = []
         self._flush_scheduled: bool = False
-        # P7 guard state: CPyConverter attaches the shm mirror once per process and
+        # guard state: CPyConverter attaches the shm mirror once per process and
         # can never remap it, so the endpoint and segment size are fixed at the
         # first successful mirror transfer. _pending_* hold the values of the
         # in-flight connect attempt; they are committed on success.
@@ -62,7 +62,7 @@ class ConnectionManager(QtCore.QObject):
         self._mapped_shmem_size  = None   # bytes, REST-reported at mapping time
         self._pending_endpoint   = None
         self._pending_shmem_size = None
-        # H2: connect parameters of the last attempt that passed the P7 guards;
+        # connect parameters of the last attempt that passed the guards;
         # flush-time CPyConverter calls reuse these instead of re-reading the
         # popup fields (which now live in MainWindow). Order matches
         # CPyConverter.Update: (hostname, port, mirror, user).
@@ -74,13 +74,13 @@ class ConnectionManager(QtCore.QObject):
 
     def connectShMem(self, hostname, port, user, mirror):
         """Connect to SpecTcl REST + the shm mirror. The four parameters are
-        supplied by the MainWindow adapter from the connection popup (H2)."""
+        supplied by the MainWindow adapter from the connection popup."""
         self.logger.info('connectShMem')
         try:
             self.logger.debug('connectShMem - host: %s -- user: %s -- RESTPort: %s -- MirrorPort: %s',
                                hostname, user, port, mirror)
 
-            # P7: the C++ layer maps the mirror only when no mapping exists, so a
+            # the C++ layer maps the mirror only when no mapping exists, so a
             # connect to a different host/mirror/user would silently keep serving
             # views of the OLD SpecTcl's mirror. Refuse it and leave the current
             # session untouched (note: self._rest is not reconfigured either).
@@ -111,7 +111,7 @@ class ConnectionManager(QtCore.QObject):
                 self.logger.debug('connectShMem - invalid URL for SpecTclREST')
                 return
 
-            # P7: same endpoint, but SpecTcl may have restarted with a resized
+            # same endpoint, but SpecTcl may have restarted with a resized
             # display memory — the process-lifetime mapping would then be the
             # wrong size and stale views could read past the recreated segment.
             # Deterministic mismatch -> refuse; size unavailable -> fail open.
@@ -172,13 +172,13 @@ class ConnectionManager(QtCore.QObject):
         self.logger.debug('connectShMem - mirror transfer done, fetching spectrum list from REST')
         if self._mapped_endpoint is None:
             # first successful mirror transfer: the mapping identity is now fixed
-            # for the lifetime of the process (P7 guards compare against these)
+            # for the lifetime of the process (guards compare against these)
             self._mapped_endpoint   = self._pending_endpoint
             self._mapped_shmem_size = self._pending_shmem_size
         else:
             # re-connect over the existing mapping: artists still hold views from
             # the previous transfer — have the GUI drop them before the store is
-            # repointed below (P7). Synchronous: handler runs before we continue.
+            # repointed below. Synchronous: handler runs before we continue.
             self.shmViewsInvalidated.emit()
         try:
             otherInfo = self.getSpectrumInfoFromREST()
@@ -220,7 +220,7 @@ class ConnectionManager(QtCore.QObject):
     @pyqtSlot(str)
     def _on_connect_failed(self, msg):
         self.logger.error('connectShMem - mirror transfer failed: %s', msg)
-        self.connectFailed.emit(msg)                  # H5: surface the reason to the user
+        self.connectFailed.emit(msg)                  # surface the reason to the user
         self.connectionStateChanged.emit("disconnected")
         self.connectAttemptBusy.emit(False)
         self._connect_thread.quit()
@@ -364,7 +364,7 @@ class ConnectionManager(QtCore.QObject):
                     "type":       el["type"],
                     "binding":    bindings[el["name"]],
                 }
-        # log the count only — the full registry dict is large (P5)
+        # log the count only — the full registry dict is large
         self.logger.info('getSpectrumInfoFromREST - %d bound spectra', len(outDict))
         return outDict
 
@@ -448,7 +448,7 @@ class ConnectionManager(QtCore.QObject):
         # thread on the GUI thread — which hangs the GUI, because the fresh
         # thread's run loop never stops (its stop event was just cleared).
         # Severing the connections first makes the superseded worker's late
-        # signals no-ops (BUGS.md E16 / SMOKE-A4).
+        # signals no-ops.
         if self._rest_worker is not None:
             for sig in ("disconnected", "connected", "tracesReady", "spectrumAdded"):
                 try:
@@ -497,7 +497,7 @@ class ConnectionManager(QtCore.QObject):
 
     def autoUpdateStart(self, interval_index):
         """Start the auto-update worker. `interval_index` selects from the
-        configured interval tables (H2: the combo read lives in MainWindow)."""
+        configured interval tables (the combo read lives in MainWindow)."""
         self.logger.info('autoUpdateStart')
         updateInterval     = self._update_intervals[interval_index]
         updateIntervalUser = self._update_intervals_user[interval_index]

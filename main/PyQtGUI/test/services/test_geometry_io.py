@@ -122,7 +122,7 @@ def test_sniff_is_case_insensitive_and_comment_tolerant(tmp_path):
 
 
 def test_read_geometry_rejects_code_execution(tmp_path):
-    # H10: eval() executed arbitrary code from a hostile .win file.
+    # eval() executed arbitrary code from a hostile .win file.
     p = tmp_path / "evil.win"
     p.write_text('{"row": __import__("os").getpid()}')
     assert geometry_io.read_geometry(str(p)) is None

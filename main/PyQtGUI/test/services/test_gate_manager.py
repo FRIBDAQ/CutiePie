@@ -20,7 +20,7 @@ def test_gate_manager_constructor_params():
     assert 'sum_region_popup' in params    # residual: shared draw buffer
     assert 'parent_widget' in params
     assert 'logger' in params
-    # H2 step-1 seams (widget reads pulled through callables)
+    # step-1 seams (widget reads pulled through callables)
     for seam in ('get_hide', 'get_annotate', 'get_edit_disable',
                  'get_readout', 'get_gate_type', 'get_gate_name'):
         assert seam in params

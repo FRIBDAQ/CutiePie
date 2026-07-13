@@ -1,7 +1,7 @@
-"""Characterization tests for ConnectionManager (H2 step 0).
+"""Characterization tests for ConnectionManager.
 
 These pin ConnectionManager's CURRENT observable behavior — signal emissions,
-widget effects, store mutations, P7 guard decisions — before the H2 step-1
+widget effects, store mutations, guard decisions — before the step-1
 inversion (widget writes -> signals, widget reads -> method arguments).
 
 They run headless via qt_stubs.install_missing_runtime_stubs(); on a machine
@@ -55,7 +55,7 @@ def conn_mod():
 
 
 # connectShMem arguments in signature order (hostname, port, user, mirror),
-# and the (hostname, mirror, user) P7 mapping-identity tuple they produce.
+# and the (hostname, mirror, user) mapping-identity tuple they produce.
 CONNECT_ARGS = ("spechost", "8080", "physicist", "8081")
 ENDPOINT = ("spechost", "8081", "physicist")
 
@@ -74,7 +74,7 @@ class Env:
             self.stop_rest, self.stop_auto, self.skip_auto,
             logger=logging.getLogger("test.connection_manager"),
         )
-        # H2 output signals, recorded from construction on
+        # output signals, recorded from construction on
         self.states = record_signal(self.cm.connectionStateChanged)
         self.busy = record_signal(self.cm.connectAttemptBusy)
         self.lists = record_signal(self.cm.spectrumListUpdated)
@@ -121,7 +121,7 @@ def test_get_last_digit_param(conn_mod):
     assert f("7.raw") is None          # digit present but last part not numeric
 
 
-# ----------------------------------------------------------------- P7 guards
+# ----------------------------------------------------------------- guards
 
 def test_connect_refused_on_endpoint_switch(env):
     env.cm._mapped_endpoint = ("otherhost", "9999", "someoneelse")
@@ -250,7 +250,7 @@ def test_reconnect_emits_invalidation_before_repopulating(env, monkeypatch):
 
 def test_failed_mirror_transfer_restores_button(env, monkeypatch):
     patched_connect(env, monkeypatch, qt_stubs.FakeRest(check=True, shmem_size=4096))
-    failed = record_signal(env.cm.connectFailed)      # H5: reason surfaced to the user
+    failed = record_signal(env.cm.connectFailed)      # reason surfaced to the user
     env.cm._connect_worker.failed.emit("boom")
     assert failed[-1] == ("boom",)                    # dialog gets the message
     assert env.states[-1] == ("disconnected",)
@@ -259,8 +259,8 @@ def test_failed_mirror_transfer_restores_button(env, monkeypatch):
     assert env.cm._mapped_endpoint is None            # nothing committed
 
 
-def test_h5_mirror_failure_message_reaches_dialog_signal(env, monkeypatch):
-    # H5: CPyConverter::Update now raises (PyErr) instead of segfaulting when the
+def test_mirror_failure_message_reaches_dialog_signal(env, monkeypatch):
+    # CPyConverter::Update now raises (PyErr) instead of segfaulting when the
     # mirror can't be set up; ConnectWorker.run catches it -> failed.emit(str),
     # and _on_connect_failed re-emits connectFailed so MainWindow pops a dialog.
     patched_connect(env, monkeypatch, qt_stubs.FakeRest(check=True, shmem_size=4096))
@@ -274,7 +274,7 @@ def test_h5_mirror_failure_message_reaches_dialog_signal(env, monkeypatch):
 # --------------------------------------------------------- REST worker wiring
 
 def test_reconnect_ignores_stale_disconnect_from_old_worker(env, monkeypatch):
-    # SMOKE-A4 regression: reconnecting (same endpoint) tears down the old
+    # regression: reconnecting (same endpoint) tears down the old
     # RestWorker, whose run() emits disconnected() from its finally-block as it
     # exits. That signal is delivered AFTER the reconnect has installed a fresh
     # worker/thread; if _on_rest_disconnected acts on it, it quit()+wait()s the
@@ -326,7 +326,7 @@ def test_trace_remove_updates_store_and_signals(env):
     changed = record_signal(env.cm.spectrumListChanged)
     env.cm.updateFromTraces(
         {"binding": ["remove alpha 3", "remove {my spec} 5"]})
-    assert removed == [("alpha",), ("my spec",)]      # braced Tcl names (E3)
+    assert removed == [("alpha",), ("my spec",)]      # braced Tcl names
     assert len(changed) == 2
     assert env.store.all_names() == []
     assert env.lists[-1] == ([], False)
@@ -371,7 +371,7 @@ def test_spectrum_adds_batch_into_one_flush(env, monkeypatch):
     msec, flush = timer.scheduled[0]
     flush()
     assert len(update_calls) == 1                          # single shm fetch
-    # flush reuses the last ACCEPTED connect parameters (H2), not live popup text
+    # flush reuses the last ACCEPTED connect parameters, not live popup text
     assert update_calls[0] == (b"spechost", b"8080", b"8081", b"physicist")
     assert env.store.contains("n1") and env.store.contains("n2")
     assert env.store.get("n1", "data").shape == (5,)

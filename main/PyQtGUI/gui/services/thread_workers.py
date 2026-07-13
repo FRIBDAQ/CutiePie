@@ -36,7 +36,7 @@ def lookup_spectrum_info(rest, name):
     ``listSpectrum(name)`` sends the name as the REST ``filter`` field, which
     SpecTcl matches as a Tcl glob pattern — a name containing ``*``/``?``/``[``
     can match a *different* spectrum, and blindly taking ``info[0]`` would
-    record the wrong axes/type under this name (BUGS.md B1). Never trust the
+    record the wrong axes/type under this name. Never trust the
     pattern match: select by exact name, and when the pattern lookup yields no
     exact hit for a metacharacter-bearing name, fall back to listing all
     spectra and matching literally. Plain names keep today's single-request

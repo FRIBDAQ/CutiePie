@@ -22,7 +22,7 @@ class centeredNorm(colors.Normalize):
 class PlotController(QObject):
     """Owns all plot rendering, axis control, zoom, and canvas management."""
 
-    # H2: cutoff-popup rendering inverted into signals — MainWindow owns the
+    # cutoff-popup rendering inverted into signals — MainWindow owns the
     # popup (adapters _show_cutoff_popup / cutoffp.close). Payload keys:
     # name, dim, xmin, xmax, ymin, ymax, zmin, zmax (z entries None for 1D).
     cutoffPopupPrepared      = pyqtSignal(dict)
@@ -65,7 +65,7 @@ class PlotController(QObject):
         self.old_cmap         = None
         self.geometry_applied = False
         self._layout_dirty    = False
-        # P6 (change-driven redraw): fingerprint of the last frame the auto-update
+        # (change-driven redraw): fingerprint of the last frame the auto-update
         # tick rendered. When an unforced (timer) tick produces an identical
         # fingerprint, the redundant full-figure redraw is skipped. None = always
         # draw the next tick.
@@ -77,7 +77,7 @@ class PlotController(QObject):
 
     def markGeometryApplied(self):
         """Called by MainWindow.setCanvasLayout after the canvas grid is
-        (re)initialized (H2: the geometry combos and tab widget live there)."""
+        (re)initialized (the geometry combos and tab widget live there)."""
         self.logger.info('markGeometryApplied')
         self.geometry_applied = True
 
@@ -500,7 +500,7 @@ class PlotController(QObject):
     def okCutoff(self, xmin_text="", xmax_text="", ymin_text="", ymax_text="",
                  zmin_text="", zmax_text=""):
         """Apply the cutoff/zoom popup values, supplied as text by the
-        MainWindow adapter (H2)."""
+        MainWindow adapter."""
         self.logger.info('okCutoff')
         cp    = self._get_current_plot()
         index = cp.selected_plot_index
@@ -607,7 +607,7 @@ class PlotController(QObject):
             if dim == 2:
                 spectrum = self._get_spectrum_info("spectrum", index=index)
                 zmin, zmax = spectrum.get_clim()
-            # H2: MainWindow renders the popup from this payload
+            # MainWindow renders the popup from this payload
             self.cutoffPopupPrepared.emit({
                 "name": name, "dim": dim,
                 "xmin": xmin, "xmax": xmax, "ymin": ymin, "ymax": ymax,
@@ -666,7 +666,7 @@ class PlotController(QObject):
 
     def plotPosition(self, index, canvas_layout):
         """Map a flat slot index to (row, col) in `canvas_layout` — the
-        current tab's [nRow, nCol], supplied by the MainWindow adapter (H2)."""
+        current tab's [nRow, nCol], supplied by the MainWindow adapter."""
         self.logger.info('plotPosition - index: %s', index)
         cntr = 0
         canvasLayout = canvas_layout
@@ -766,7 +766,7 @@ class PlotController(QObject):
         self.setupPlot(a, index)
 
     def addPlot(self, selected_name=None, tab_click_bound=True):
-        """Place the selected spectrum (H2: `selected_name` is the histo_list
+        """Place the selected spectrum (`selected_name` is the histo_list
         selection — None when the list is empty — and `tab_click_bound` is the
         current tab's click-binding state, both supplied by the adapter)."""
         self.logger.info('addPlot')
@@ -903,14 +903,14 @@ class PlotController(QObject):
 
     @pyqtSlot()
     def _updatePlotOnGui(self):
-        # The auto-update timer's tick — the only unforced path, so the P6
+        # The auto-update timer's tick — the only unforced path, so the
         # change-driven skip applies here (all other callers force a redraw).
         self.updatePlot(force=False)
 
     def _tick_signature(self, cp, auto_scale_status):
         """Cheap fingerprint of everything the auto-update tick would render, so a
         redundant redraw can be skipped when nothing changed since the previous
-        tick (P6, change-driven redraw). SpecTcl spectra are cumulative counters,
+        tick (change-driven redraw). SpecTcl spectra are cumulative counters,
         so a per-pad data sum is a reliable change signal — any increment moves it,
         and a clear resets it to 0 (also a change). Interactions (zoom/log/gate/
         colormap/hide) either self-draw or route through the forced `updatePlot`
@@ -943,7 +943,7 @@ class PlotController(QObject):
         cp.histo_autoscale.setChecked(auto_scale_status)
         self.logger.debug('updatePlot')
 
-        # P6: on an unforced (auto-update timer) tick, skip the whole redraw when
+        # on an unforced (auto-update timer) tick, skip the whole redraw when
         # the frame is byte-identical to the last one we drew. Forced calls (the
         # hide-gates toggle, gate/sum-region/geometry updates) always render.
         signature = self._tick_signature(cp, auto_scale_status)
@@ -969,7 +969,7 @@ class PlotController(QObject):
                     # before Add/geometry, or the geo file drifted). Skip the
                     # tick quietly — never a modal here: this path is driven by
                     # the auto-update timer, so a blocking dialog stacks a new
-                    # one every tick and freezes the GUI (SMOKE-A7).
+                    # one every tick and freezes the GUI.
                     self.logger.debug('updatePlot - ax is None (enlarged); skipping tick')
                     return
                 self.plotPlot(index)
@@ -988,8 +988,7 @@ class PlotController(QObject):
                         # This geometry slot has no built axis yet — skip it and
                         # keep refreshing the valid pads. Never a modal here (see
                         # the enlarged branch above): the auto-update timer drives
-                        # this loop, so a per-tick blocking dialog freezes the GUI
-                        # (SMOKE-A7).
+                        # this loop, so a per-tick blocking dialog freezes the GUI.
                         self.logger.debug('updatePlot - ax is None for index %s; skipping slot', index)
                         continue
                     self.plotPlot(index)

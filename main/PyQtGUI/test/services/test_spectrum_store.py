@@ -88,25 +88,25 @@ def test_upsert_merges_fields():
 
 
 # ---------------------------------------------------------------------------
-# B4 guard: `data` arrays are live shm views — replacing one with a
-# non-aliasing array silently freezes the spectrum (C1 regression class).
+# guard: `data` arrays are live shm views — replacing one with a
+# non-aliasing array silently freezes the spectrum (regression class).
 # ---------------------------------------------------------------------------
 
 import numpy as np
 
 
-def test_b4_replacing_live_view_with_copy_is_refused():
+def test_replacing_live_view_with_copy_is_refused():
     store = SpectrumStore()
     mirror = np.arange(12)
     store.set("h1", dim=1, data=mirror[0:-1])
-    derived = (mirror[0:-1] * 2).copy()          # the C1 mistake
+    derived = (mirror[0:-1] * 2).copy()          # the mistake
     store.set("h1", data=derived)
     kept = store.get("h1", "data")
     assert kept is not derived
     assert np.shares_memory(kept, mirror)        # live view survived
 
 
-def test_b4_refused_data_write_still_updates_other_fields():
+def test_refused_data_write_still_updates_other_fields():
     store = SpectrumStore()
     mirror = np.arange(12)
     store.set("h1", dim=1, binx=10, data=mirror[0:-1])
@@ -115,7 +115,7 @@ def test_b4_refused_data_write_still_updates_other_fields():
     assert np.shares_memory(store.get("h1", "data"), mirror)
 
 
-def test_b4_new_mirror_view_allowed_with_flag():
+def test_new_mirror_view_allowed_with_flag():
     store = SpectrumStore()
     old_mirror, new_mirror = np.arange(12), np.arange(24)
     store.set("h1", dim=1, data=old_mirror[0:-1])
@@ -123,7 +123,7 @@ def test_b4_new_mirror_view_allowed_with_flag():
     assert np.shares_memory(store.get("h1", "data"), new_mirror)
 
 
-def test_b4_reslice_of_same_buffer_allowed_without_flag():
+def test_reslice_of_same_buffer_allowed_without_flag():
     store = SpectrumStore()
     mirror = np.arange(12)
     store.set("h1", dim=1, data=mirror[0:-1])
@@ -132,7 +132,7 @@ def test_b4_reslice_of_same_buffer_allowed_without_flag():
     assert len(store.get("h1", "data")) == 10
 
 
-def test_b4_first_data_set_never_guarded():
+def test_first_data_set_never_guarded():
     store = SpectrumStore()
     store.set("h1", dim=1)                       # record exists, no data yet
     view = np.arange(5)
@@ -140,7 +140,7 @@ def test_b4_first_data_set_never_guarded():
     assert store.get("h1", "data") is view
 
 
-def test_b4_non_ndarray_data_not_guarded():
+def test_non_ndarray_data_not_guarded():
     store = SpectrumStore()
     store.set("h1", dim=1, data=[])              # legacy list payloads
     store.set("h1", data=[1, 2, 3])

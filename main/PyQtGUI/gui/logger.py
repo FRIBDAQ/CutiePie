@@ -13,7 +13,7 @@ def set_logger(logger):
     _logger = logger
 
 def setup_logging(logfile=None):
-    # Sink management only (AUDIT L2). Root-logger configuration is
+    # Sink management only. Root-logger configuration is
     # single-sourced at MainWindow startup (GUI.py, one logging.basicConfig).
     # This function used to call basicConfig again (filename/DEBUG/asctime),
     # but root already has a handler by the time it runs, so that call was

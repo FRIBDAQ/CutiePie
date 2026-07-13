@@ -24,7 +24,7 @@ class FitManager(QObject):
 
     FIT_PREFIX = FIT_PREFIX
 
-    # H2: extraPopup widget writes inverted into signals — MainWindow owns the
+    # extraPopup widget writes inverted into signals — MainWindow owns the
     # widgets (adapters _on_fit_busy / _on_abort_enabled / _append_fit_results
     # / _set_fit_labels_text).
     fitBusyChanged      = pyqtSignal(bool)  # True: fit running (fit off, abort on)
@@ -59,7 +59,7 @@ class FitManager(QObject):
 
     def axisLimitsForFit(self, ax, range_min_text="", range_max_text=""):
         """Fit x-range from the popup's Min/Max X fields, supplied as text by
-        the MainWindow adapter (H2); empty/invalid fields fall back to xlim."""
+        the MainWindow adapter; empty/invalid fields fall back to xlim."""
         left, right = ax.get_xlim()
         self.logger.info('axisLimitsForFit - left, right: %s, %s', left, right)
         range_min_text = range_min_text or ""
@@ -160,7 +160,7 @@ class FitManager(QObject):
             fitpar_texts=None, range_min_text="", range_max_text=""):
         """Run a fit. All popup-field values (model name, the 20 parameter
         fields, the Min/Max X range) arrive as arguments gathered by the
-        MainWindow adapter (H2)."""
+        MainWindow adapter."""
         self.logger.info('fit')
 
         fit_funct = (fit_funct or "").strip()
@@ -176,7 +176,7 @@ class FitManager(QObject):
             QMessageBox.warning(self._parent_widget, "Fit cancelled", str(e))
             return
 
-        # B6 fix: resolve the fit context BEFORE going busy — the early return
+        # resolve the fit context BEFORE going busy — the early return
         # below sits outside the try/finally, so a busy state entered first
         # would never be cleared and the fit button stayed disabled.
         use_csv = getattr(self, "_use_csv_fit", False)
@@ -882,7 +882,7 @@ class FitManager(QObject):
 
     def deleteFit(self, index=None, name=None, ax=None, fit_idx_text=""):
         """Delete the fit lines whose indices appear in `fit_idx_text`, the
-        popup field contents supplied by the MainWindow adapter (H2)."""
+        popup field contents supplied by the MainWindow adapter."""
         self.logger.info('deleteFit')
 
         self._close_alpha_filter_popup()

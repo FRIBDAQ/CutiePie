@@ -60,7 +60,7 @@ def test_parse_binding_entry_malformed_raises():
 
 
 # ---------------------------------------------------------------------------
-# B1: listSpectrum's filter is a glob pattern — lookup must be exact-name.
+# listSpectrum's filter is a glob pattern — lookup must be exact-name.
 # ---------------------------------------------------------------------------
 
 def test_lookup_spectrum_info_plain_name_single_request():

@@ -1,4 +1,4 @@
-"""Per-pad display state (AUDIT M3).
+"""Per-pad display state.
 
 A ``DisplaySlot`` owns the *display-tier* state for one pad in one tab: the
 matplotlib axis/artist, log flag, cutoff, and a cached copy of the spectrum's
@@ -11,12 +11,12 @@ Two invariants carried over from the dict it replaces:
 
 * **No counts.** ``data`` is a permanent empty placeholder — the canonical
   counts array lives ONLY in ``SpectrumStore`` and is derived on demand
-  (BUGS.md B4 / AUDIT C1). Nothing may store counts here.
+  Nothing may store counts here.
 * **Empty-list default.** Every field defaults to ``[]`` to match the old dict
   template byte-for-byte: callers test truthiness (an un-set ``log`` reads as
   ``[]`` = falsy = linear), so the default must stay falsy-and-equal-to-``[]``.
 
-Strangler migration (M3 Phase C):
+Strangler migration:
 
 * **C1** introduced this class with the mapping protocol (``__getitem__`` /
   ``__setitem__`` / ``__contains__``) so it could drop into the existing

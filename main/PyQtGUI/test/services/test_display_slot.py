@@ -5,7 +5,7 @@ import pytest
 from services.display_slot import DisplaySlot, SLOT_KEYS
 
 
-# The exact per-pad template GUI.setGeo builds today (GUI.py:1924). C1's
+# The exact per-pad template GUI.setGeo builds today (GUI.py:1924). The
 # DisplaySlot must be a drop-in for this dict, so a fresh slot must equal it
 # key-for-key — this test is the behavior-preservation anchor for the strangler.
 SETGEO_TEMPLATE = {
@@ -77,7 +77,7 @@ def test_keys_values_items_cover_all_17_in_order():
 
 
 def test_data_is_an_empty_placeholder_by_default():
-    # counts live ONLY in SpectrumStore (B4/C1) — the slot's data stays empty.
+    # counts live ONLY in SpectrumStore — the slot's data stays empty.
     assert DisplaySlot()["data"] == []
 
 
@@ -101,7 +101,7 @@ def test_setattr_then_item_read_agree_after_setgeo_style_populate():
     for k, v in {"dim": 1, "binx": 512, "minx": 0.0, "maxx": 1024.0}.items():
         setattr(slot, k, v)
     assert (slot["name"], slot["dim"], slot["binx"]) == ("h1", 1, 512)
-    assert slot["data"] == []                      # never populated (B4)
+    assert slot["data"] == []                      # never populated
 
 
 def test_slot_carries_opaque_artist_refs_without_touching_them():
