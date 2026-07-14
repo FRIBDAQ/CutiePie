@@ -71,16 +71,21 @@ def _emg_one_tail_stable(x, A, mu, sigma, tau):
     u = _INV_SQRT2 * ((sigma / tau) + ((x - mu) * inv_sigma))
     out = np.empty_like(x)
     m = (u >= 0.0)
-    if np.any(m):
-        g = np.exp(-0.5 * ((x[m] - mu) * inv_sigma)**2)
-        out[m] = pref * g * erfcx(u[m])
-    if np.any(~m):
-        expfac = np.exp(0.5 * (sigma / tau)**2 + (x[~m] - mu) / tau)
-        out[~m] = pref * expfac * erfc(u[~m])
+    nm = ~m
+    # Boolean-indexed assignment is a safe no-op when a mask is empty, so the
+    # np.any() guards only added per-call reduction overhead (the fit's hot
+    # loop calls this thousands of times) — dropped. Results are bit-identical.
+    g = np.exp(-0.5 * ((x[m] - mu) * inv_sigma)**2)
+    out[m] = pref * g * erfcx(u[m])
+    expfac = np.exp(0.5 * (sigma / tau)**2 + (x[nm] - mu) / tau)
+    out[nm] = pref * expfac * erfc(u[nm])
     return np.where(np.isfinite(out), out, 0.0)
 
 def _emg_two_tail_stable(x, A, mu, sigma, tau_fast, tau_slow, eta):
-    eta = float(np.clip(eta, 0.0, 1.0))
+    # eta is a scalar; np.clip routes it through the array machinery, which is
+    # pure overhead in this hot path. Pure-Python clamp is identical for scalars.
+    eta = float(eta)
+    eta = 0.0 if eta < 0.0 else (1.0 if eta > 1.0 else eta)
     return ((1.0 - eta) * _emg_one_tail_stable(x, A, mu, sigma, tau_fast)
           + (      eta) * _emg_one_tail_stable(x, A, mu, sigma, tau_slow))
 
