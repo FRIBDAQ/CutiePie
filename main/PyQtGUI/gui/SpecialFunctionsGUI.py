@@ -29,7 +29,7 @@ class SpecialFunctions(QWidget):
 
         self.v = QVBoxLayout()
         self.v.addWidget(self.peak.create_peakBox())
-        self.v.addWidget(self.peak.create_peakChecks(12))
+        self.v.addWidget(self.peak.create_peakChecks())
         self.v.addWidget(self.peak.create_jupBox())
 
         self.layout.addLayout(self.v)

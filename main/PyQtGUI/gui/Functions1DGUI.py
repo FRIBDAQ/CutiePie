@@ -6,32 +6,35 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
 from PyQt5.QtWidgets import (
-    QCheckBox, QDialog, QGridLayout, QGroupBox, QHBoxLayout,
-    QLabel, QLineEdit, QPushButton, QTextEdit, QVBoxLayout,
+    QComboBox, QDialog, QGroupBox, QHBoxLayout,
+    QLabel, QLineEdit, QListWidget, QPushButton, QTextEdit, QVBoxLayout,
 )
+
+from services.peak_finder import PEAK_ALGORITHMS
 
 class Fncts1D(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
 
-    def create_peakChecks(self, npeaks):
+    def create_peakChecks(self):
+        # checkable list replaces the old fixed 12-QCheckBox grid: one row per
+        # found peak (no cap), rebuilt by MainWindow on every Scan; itemChanged
+        # is wired ONCE in GUI.py (the grid reconnected stateChanged per scan)
         pCheck = QGroupBox("Peak Selection")
-        row = 0
-        col = 0
-        counter = 0
-        self.peak_cbox = []
-        deflayout = QGridLayout()
-        for i in range(npeaks):
-            title = "Peak "+str(i+1)
-            self.peak_cbox.append(QCheckBox(title,self))
-            if (i%4 == 0) and i != 0:
-                row += 1
-                col = 0
-                counter += 1
-            else:
-                col = i-counter*4
-            deflayout.addWidget(self.peak_cbox[i], row, col)
+
+        self.peak_all = QPushButton("All", self)
+        self.peak_none = QPushButton("None", self)
+        self.peak_list = QListWidget(self)
+
+        buttons = QHBoxLayout()
+        buttons.addWidget(self.peak_all)
+        buttons.addWidget(self.peak_none)
+        buttons.addStretch(1)
+
+        deflayout = QVBoxLayout()
+        deflayout.addLayout(buttons)
+        deflayout.addWidget(self.peak_list)
 
         pCheck.setLayout(deflayout)
 
@@ -43,6 +46,11 @@ class Fncts1D(QDialog):
         self.peak_width_label = QLabel("Peak Width (in bins)")
         self.peak_width = QLineEdit()
         self.peak_width.setText("20")
+        self.peak_algo_label = QLabel("Algorithm")
+        self.peak_algo = QComboBox()
+        # names come from the service dispatch table so the combo and
+        # analyzePeak can never drift apart; index 0 ("original") is the default
+        self.peak_algo.addItems(list(PEAK_ALGORITHMS.keys()))
         self.peak_analysis = QPushButton("Scan", self)
         self.peak_analysis.setStyleSheet("background-color:#bcee68;")
         self.peak_analysis_clear = QPushButton("Clear", self)
@@ -55,12 +63,17 @@ class Fncts1D(QDialog):
         layy.addWidget(self.peak_width_label)
         layy.addWidget(self.peak_width)
 
+        layalgo = QHBoxLayout()
+        layalgo.addWidget(self.peak_algo_label)
+        layalgo.addWidget(self.peak_algo)
+
         lay = QHBoxLayout()
         lay.addWidget(self.peak_analysis)
         lay.addWidget(self.peak_analysis_clear)
 
         layout = QVBoxLayout()
         layout.addLayout(layy)
+        layout.addLayout(layalgo)
         layout.addLayout(lay)
         layout.addWidget(self.peak_results_label)
         layout.addWidget(self.peak_results)

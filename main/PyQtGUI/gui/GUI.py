@@ -57,8 +57,8 @@ from PyQt5.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QCompleter, QDialog,
     QFileDialog, QFormLayout, QGridLayout, QHBoxLayout, QInputDialog,
     QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox, QPushButton,
-    QShortcut, QSlider, QTabBar, QTableWidget, QTableWidgetItem,
-    QTabWidget, QTextEdit, QVBoxLayout, QWidget,
+    QListWidgetItem, QShortcut, QSlider, QTabBar, QTableWidget,
+    QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
 )
 from PyQt5.QtGui import QCursor, QKeySequence, QMouseEvent, QPalette
 from PyQt5.QtCore import (
@@ -125,7 +125,9 @@ from services.spectrum_store import SpectrumStore
 from services.display_slot import DisplaySlot, SLOT_KEYS
 from services import geometry_io
 from services.dataframe_export import export_spectrum_csv
-from services.peak_finder import find_peaks_in_range, format_peak_output
+from services.peak_finder import (
+    PEAK_ALGORITHMS, find_peaks_in_range, format_peak_labels, format_peak_output,
+)
 from services.figure_overlay import compute_overlay_position, apply_joystick_move, apply_fine_move
 from services.thread_workers import RestWorker, AutoUpdateWorker
 from services.fit_manager import FitManager
@@ -663,6 +665,13 @@ class MainWindow(QMainWindow):
 
         self.extraPopup.peak.peak_analysis.clicked.connect(self.analyzePeak)
         self.extraPopup.peak.peak_analysis_clear.clicked.connect(self.peakAnalClear)
+        # peak-selection list: wired ONCE here (the old per-scan
+        # stateChanged.connect on the fixed checkbox grid stacked a duplicate
+        # connection on every Scan); lambdas shield from clicked(bool)'s
+        # checked arg (the E17 trap — All would otherwise receive False)
+        self.extraPopup.peak.peak_list.itemChanged.connect(self.peakItemChanged)
+        self.extraPopup.peak.peak_all.clicked.connect(lambda: self.setAllPeaksChecked(True))
+        self.extraPopup.peak.peak_none.clicked.connect(lambda: self.setAllPeaksChecked(False))
 
         self.extraPopup.peak.jup_start.clicked.connect(self.jupyterStart)
         self.extraPopup.peak.jup_stop.clicked.connect(self.jupyterStop)
@@ -2893,36 +2902,74 @@ class MainWindow(QMainWindow):
     # 13) Peak Finding
     ############################
 
-    def peakState(self, state):
-        self.logger.info('peakState')
-        for i, btn in enumerate(self.extraPopup.peak.peak_cbox):
-            if btn.isChecked() == False:
-                try:
-                    self.removePeak(i)
-                    self.isChecked[i] = False
-                except Exception:
-                    self.logger.debug('peakState - peak artist cleanup failed', exc_info=True)
-            else:
-                if self.isChecked[i] == False:
-                    self.drawSinglePeaks(self.peaks, self.properties, self.datay, i)
-                    self.isChecked[i] = True
+    def _syncPeakMarker(self, row, checked):
+        """Draw or remove one peak's markers to match its list check state."""
+        if not checked and self.isChecked.get(row, False):
+            try:
+                self.removePeak(row)
+            except Exception:
+                self.logger.debug('_syncPeakMarker - peak artist cleanup failed', exc_info=True)
+            self.isChecked[row] = False
+        elif checked and not self.isChecked.get(row, False):
+            self.drawSinglePeaks(self.peaks, self.properties, self.datay, row)
+            self.isChecked[row] = True
 
+    def peakItemChanged(self, item):
+        self.logger.info('peakItemChanged')
+        row = self.extraPopup.peak.peak_list.row(item)
+        self._syncPeakMarker(row, item.checkState() == Qt.Checked)
         self.currentPlot.canvas.draw()
 
-    def create_peak_signals(self, peaks):
-        self.logger.info('create_peak_signals')
+    def setAllPeaksChecked(self, checked):
+        self.logger.info('setAllPeaksChecked - checked: %s', checked)
+        peak_list = self.extraPopup.peak.peak_list
+        state = Qt.Checked if checked else Qt.Unchecked
+        # block itemChanged while flipping the states, then sync the markers
+        # in one pass with a single canvas redraw
+        peak_list.blockSignals(True)
         try:
-            for i in range(len(peaks)):
+            for row in range(peak_list.count()):
+                peak_list.item(row).setCheckState(state)
+        finally:
+            peak_list.blockSignals(False)
+        for row in range(peak_list.count()):
+            self._syncPeakMarker(row, checked)
+        self.currentPlot.canvas.draw()
+
+    def populatePeakList(self):
+        """Rebuild the checkable peak list, one row per found peak (no cap —
+        replaces the fixed 12-checkbox grid), and draw every marker checked."""
+        self.logger.info('populatePeakList')
+        # drop markers left over from a previous Scan (the old grid redrew
+        # over its stale artist handles, leaking them onto the canvas)
+        self.setAllPeaksChecked(False)
+        peak_list = self.extraPopup.peak.peak_list
+        peak_list.blockSignals(True)
+        try:
+            peak_list.clear()
+            labels = format_peak_labels(self.peaks, self.properties, self.datax)
+            for i, label in enumerate(labels):
+                item = QListWidgetItem(label)
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                item.setCheckState(Qt.Checked)
+                peak_list.addItem(item)
                 self.isChecked[i] = False
-                self.extraPopup.peak.peak_cbox[i].stateChanged.connect(self.peakState)
-                self.extraPopup.peak.peak_cbox[i].setChecked(True)
-        except Exception:
-            self.logger.debug('create_peak_signals - peak artist cleanup failed', exc_info=True)
+        finally:
+            peak_list.blockSignals(False)
+        for i in range(len(self.peaks)):
+            self._syncPeakMarker(i, True)
+        self.currentPlot.canvas.draw()
 
     def peakAnalClear(self):
         self.logger.info('peakAnalClear')
         self.extraPopup.peak.peak_results.clear()
         self.removeAllPeaks()
+        peak_list = self.extraPopup.peak.peak_list
+        peak_list.blockSignals(True)
+        try:
+            peak_list.clear()
+        finally:
+            peak_list.blockSignals(False)
         self.resetPeakDict()
 
     def removePeak(self, i):
@@ -2945,14 +2992,7 @@ class MainWindow(QMainWindow):
 
     def removeAllPeaks(self):
         self.logger.info('removeAllPeaks')
-        try:
-            for i in range(len(self.peaks)):
-                self.extraPopup.peak.peak_cbox[i].setChecked(False)
-                self.isChecked[i] = False
-        except Exception:
-            self.logger.debug('removeAllPeaks - peak artist cleanup failed', exc_info=True)
-
-        self.currentPlot.canvas.draw()
+        self.setAllPeaksChecked(False)
 
 
     def drawSinglePeaks(self, peaks, properties, data, index):
@@ -2985,13 +3025,16 @@ class MainWindow(QMainWindow):
             ytmp = (self.getSpectrumStoreInfo("data", index=index)).tolist()
 
             xmin, xmax = ax.get_xlim()
-            self.logger.debug('analyzePeak - xmin, xmax: %s, %s', xmin, xmax)
+            algo_name = self.extraPopup.peak.peak_algo.currentText()
+            finder = PEAK_ALGORITHMS.get(algo_name, find_peaks_in_range)
+            self.logger.debug('analyzePeak - algo, xmin, xmax: %s, %s, %s',
+                              algo_name, xmin, xmax)
 
             self.datax, self.datay, self.peaks, self.properties = \
-                find_peaks_in_range(xtmp, ytmp, xmin, xmax, width)
+                finder(xtmp, ytmp, xmin, xmax, width)
 
             self.update_peak_output(self.peaks, self.properties)
-            self.create_peak_signals(self.peaks)
+            self.populatePeakList()
 
         except Exception:
             # Peak analysis is best-effort: a bad width entry, an empty view,
