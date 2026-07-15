@@ -232,11 +232,18 @@ def test_second_diff_tiny_window_yields_no_peaks_and_no_crash():
 # ------------------------------------------------------------ dispatch table
 
 def test_algorithm_dispatch_table():
-    assert list(PEAK_ALGORITHMS.keys()) == ["original", "vectorized", "smoothed", "second_diff"]
-    assert PEAK_ALGORITHMS["original"] is find_peaks_in_range
-    assert PEAK_ALGORITHMS["vectorized"] is find_peaks_in_range_vectorized
-    assert PEAK_ALGORITHMS["smoothed"] is find_peaks_in_range_smoothed
-    assert PEAK_ALGORITHMS["second_diff"] is find_peaks_in_range_second_diff
+    # dict order = combo order; index 0 is the combo default (Mariscotti,
+    # user-chosen 2026-07-15 — the legacy raw-counts search is NOT default)
+    assert list(PEAK_ALGORITHMS.keys()) == [
+        "Mariscotti (2nd difference)",
+        "Smoothed (Savitzky-Golay)",
+        "Raw counts (legacy)",
+        "Raw counts (legacy, fast)",
+    ]
+    assert PEAK_ALGORITHMS["Mariscotti (2nd difference)"] is find_peaks_in_range_second_diff
+    assert PEAK_ALGORITHMS["Smoothed (Savitzky-Golay)"] is find_peaks_in_range_smoothed
+    assert PEAK_ALGORITHMS["Raw counts (legacy)"] is find_peaks_in_range
+    assert PEAK_ALGORITHMS["Raw counts (legacy, fast)"] is find_peaks_in_range_vectorized
 
 
 def test_all_algorithms_share_the_return_contract():

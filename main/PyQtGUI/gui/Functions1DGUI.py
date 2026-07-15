@@ -49,7 +49,7 @@ class Fncts1D(QDialog):
         self.peak_algo_label = QLabel("Algorithm")
         self.peak_algo = QComboBox()
         # names come from the service dispatch table so the combo and
-        # analyzePeak can never drift apart; index 0 ("original") is the default
+        # analyzePeak can never drift apart; index 0 (Mariscotti) is the default
         self.peak_algo.addItems(list(PEAK_ALGORITHMS.keys()))
         self.peak_analysis = QPushButton("Scan", self)
         self.peak_analysis.setStyleSheet("background-color:#bcee68;")

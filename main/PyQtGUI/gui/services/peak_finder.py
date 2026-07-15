@@ -10,18 +10,21 @@ checkboxes).
 
 Four algorithms are offered via the ``PEAK_ALGORITHMS`` dispatch table (the
 popup's Algorithm combo shows exactly these names, MainWindow.analyzePeak
-dispatches on the selection):
+dispatches on the selection; the first entry is the combo default):
 
-- ``original``     — the historical behavior: pure-Python window clip, then
-  ``find_peaks(prominence=1, width=width)`` on the raw counts.
-- ``vectorized``   — bit-identical results to ``original`` (same find_peaks
-  call), but the clip is a numpy boolean mask (~12x faster on large spectra).
-- ``smoothed``     — Savitzky-Golay smoothing + noise-scaled prominence
-  (3 sigma of the Poisson level). Best on low statistics; ``width`` is read
-  as the *expected FWHM in bins* and peaks down to half of it are accepted.
-- ``second_diff``  — Mariscotti-style smoothed second difference (the classic
-  nuclear-spectroscopy search). The second difference cancels smooth
+- ``Mariscotti (2nd difference)`` — smoothed-second-difference search (the
+  classic nuclear-spectroscopy method). The second difference cancels smooth
   backgrounds, so it is the best choice on sloping/exponential background.
+  The default.
+- ``Smoothed (Savitzky-Golay)`` — Savitzky-Golay smoothing + noise-scaled
+  prominence (3 sigma of the Poisson level). Best on low statistics;
+  ``width`` is read as the *expected FWHM in bins* and peaks down to half of
+  it are accepted.
+- ``Raw counts (legacy)`` — the historical behavior: pure-Python window clip,
+  then ``find_peaks(prominence=1, width=width)`` on the raw counts.
+- ``Raw counts (legacy, fast)`` — bit-identical results to the legacy search
+  (same find_peaks call), but the clip is a numpy boolean mask (~12x faster
+  on large spectra).
 
 All four return the same ``(datax, datay, peaks, properties)`` contract:
 ``datay`` is always the RAW clipped counts (markers must sit on the real
@@ -182,13 +185,14 @@ def find_peaks_in_range_second_diff(x_axis, y_data, xmin, xmax, width):
     return datax, datay, peaks, properties
 
 
-# name -> finder, in the order the popup's Algorithm combo shows them;
-# "original" first so index 0 (the default) preserves historical behavior
+# display name -> finder, in the order the popup's Algorithm combo shows them;
+# index 0 is the combo default — Mariscotti, the accuracy-benchmark winner
+# (user-chosen 2026-07-15; the legacy raw-counts search is no longer default)
 PEAK_ALGORITHMS = {
-    "original": find_peaks_in_range,
-    "vectorized": find_peaks_in_range_vectorized,
-    "smoothed": find_peaks_in_range_smoothed,
-    "second_diff": find_peaks_in_range_second_diff,
+    "Mariscotti (2nd difference)": find_peaks_in_range_second_diff,
+    "Smoothed (Savitzky-Golay)": find_peaks_in_range_smoothed,
+    "Raw counts (legacy)": find_peaks_in_range,
+    "Raw counts (legacy, fast)": find_peaks_in_range_vectorized,
 }
 
 
