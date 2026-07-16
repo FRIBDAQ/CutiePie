@@ -573,6 +573,20 @@ class FitManager(QObject):
                     _add(d["name"], f"{d['isotope']} (sum)", 16)
         iv.addStretch(1)
 
+        # An isotope-sum checkbox is a parent: toggling it checks/unchecks all of
+        # that isotope's individual peak checkboxes at once.
+        for d in structure:
+            if d["kind"] != "isotope":
+                continue
+            sum_cb = checks.get(d["name"])
+            kids = [checks[p["name"]] for p in structure
+                    if p["kind"] == "peak"
+                    and p["chain"] == d["chain"] and p["isotope"] == d["isotope"]
+                    and p["name"] in checks]
+            if sum_cb is not None and kids:
+                sum_cb.toggled.connect(
+                    lambda on, kids=kids: [k.setChecked(on) for k in kids])
+
         area = QScrollArea()
         area.setWidget(inner)
         area.setWidgetResizable(True)
