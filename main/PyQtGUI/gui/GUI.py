@@ -657,6 +657,12 @@ class MainWindow(QMainWindow):
         self.extraPopup.fit_csv_button.clicked.connect(
             lambda: self.fit_manager.on_fit_csv_clicked(*self._fit_inputs()))
         self.extraPopup.abort_button.clicked.connect(self.fit_manager.on_abort_clicked)
+        # lambdas shield the slots from clicked(bool)'s checked arg (the E17 trap:
+        # a bare connect would pass False as the path/context)
+        self.extraPopup.save_fit_button.clicked.connect(
+            lambda: self.fit_manager.save_fit_curve())
+        self.extraPopup.load_fit_button.clicked.connect(
+            lambda: self.fit_manager.load_fit_curve(*self._current_plot_ctx()))
         self.extraPopup.all_fitIdx_button.clicked.connect(
             lambda: self.fit_manager.printFitLineLabels(*self._current_plot_ctx()))
         self.extraPopup.delete_button.clicked.connect(

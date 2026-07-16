@@ -108,6 +108,15 @@ class SpecialFunctions(QWidget):
         # Abort button
         self.abort_button = QPushButton("Abort", self)
         self.abort_button.setStyleSheet("background-color:#ff6b6b;")
+
+        # Save/load the last fit's total curve to reuse on other plots
+        self.save_fit_button = QPushButton("Save Fit", self)
+        self.save_fit_button.setStyleSheet("background-color:#c8a2c8;")
+        self.save_fit_button.setToolTip("Save the last drawn fit's total curve to a CSV")
+
+        self.load_fit_button = QPushButton("Load Fit", self)
+        self.load_fit_button.setStyleSheet("background-color:#a2c8c8;")
+        self.load_fit_button.setToolTip("Draw a saved fit curve onto the selected plot")
         ###############################################################
         self.fit_range_label = QLabel("Fitting Range")
         self.fit_range_label_min = QLabel("Min X")
@@ -256,6 +265,8 @@ class SpecialFunctions(QWidget):
         v2.addWidget(self.plot_csv_button)
         v2.addWidget(self.fit_csv_button)
         v2.addWidget(self.abort_button)
+        v2.addWidget(self.save_fit_button)
+        v2.addWidget(self.load_fit_button)
 
         v3 = QVBoxLayout()
         v3.addWidget(self.fit_results_label)

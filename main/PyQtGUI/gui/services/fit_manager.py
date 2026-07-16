@@ -2,6 +2,7 @@ import logging
 import os
 import re
 import json
+from datetime import datetime
 import matplotlib
 import matplotlib.lines
 import matplotlib.pyplot as plt
@@ -48,6 +49,7 @@ class FitManager(QObject):
         self._cal              = None
         self._alphaFilterDlg   = None
         self._lastFitResultsText = None
+        self._lastFitCurve     = None   # {'x','y','model','name'} of the last drawn fit total
 
     @staticmethod
     def _create_range(bins, vmin, vmax):
@@ -151,6 +153,118 @@ class FitManager(QObject):
         ax.autoscale_view()
         ax.figure.canvas.draw_idle()
         ax.figure.show()
+
+    # ------------------------------------------------------------------
+    # Save / load a fit's total curve (sampled (x, y_total) <-> CSV)
+    # ------------------------------------------------------------------
+
+    def _stash_fit_curve(self, fitln, fit_funct, spectrumName):
+        """Remember the last drawn fit's total curve so it can be saved.
+
+        Prefers the sampled total the AlphaEMG* creators stash on the artist
+        (``fitln.component_data``); falls back to the line's own x/y data."""
+        if fitln is None:
+            return
+        try:
+            cd = getattr(fitln, "component_data", None)
+            if cd is not None and "x" in cd and "ytot" in cd:
+                cx = np.asarray(cd["x"], dtype=float)
+                cy = np.asarray(cd["ytot"], dtype=float)
+            else:
+                cx = np.asarray(fitln.get_xdata(), dtype=float)
+                cy = np.asarray(fitln.get_ydata(), dtype=float)
+            self._lastFitCurve = {"x": cx, "y": cy,
+                                  "model": fit_funct, "name": spectrumName}
+        except Exception:
+            self.logger.debug('could not stash fit curve', exc_info=True)
+
+    def save_fit_curve(self, path=None):
+        """Write the last drawn fit's total curve to a two-column CSV.
+
+        `path` is supplied by tests; in the GUI it is chosen via QFileDialog."""
+        curve = getattr(self, "_lastFitCurve", None)
+        if not curve or curve.get("x") is None or len(curve["x"]) == 0:
+            QMessageBox.warning(self._parent_widget, "No fit to save",
+                                "Run a fit first, then Save Fit.")
+            return None
+
+        if path is None:
+            path, _ = QFileDialog.getSaveFileName(
+                self._parent_widget, "Save fit curve", "",
+                "CSV files (*.csv);;All files (*)")
+            if not path:
+                return None
+            if not path.lower().endswith(".csv"):
+                path += ".csv"
+
+        x = np.asarray(curve["x"], dtype=float)
+        y = np.asarray(curve["y"], dtype=float)
+        header = (
+            "CutiePie fit curve\n"
+            f"model = {curve.get('model', '')}\n"
+            f"spectrum = {curve.get('name', '')}\n"
+            f"saved = {datetime.now().isoformat(timespec='seconds')}\n"
+            f"npoints = {x.size}\n"
+            "x,y_total"
+        )
+        np.savetxt(path, np.column_stack([x, y]), delimiter=",",
+                   header=header, comments="# ")
+        self.logger.info('save_fit_curve - wrote %d points to %s', x.size, path)
+        return path
+
+    def load_fit_curve(self, index=None, name=None, ax=None, path=None):
+        """Draw a saved fit curve onto the currently selected pad's axis.
+
+        The loaded line is tagged as a normal fit artist (``fit-_-N`` label +
+        ``gid='fit'``) so Sel. All / Delete / clear-on-next-fit all see it."""
+        if ax is None:
+            self.logger.warning('load_fit_curve - called without ax context; cannot draw')
+            QMessageBox.warning(self._parent_widget, "No plot selected",
+                                "Select a plot pad first, then Load Fit.")
+            return None
+
+        if path is None:
+            path, _ = QFileDialog.getOpenFileName(
+                self._parent_widget, "Load fit curve", "",
+                "CSV files (*.csv *.txt);;All files (*)")
+            if not path:
+                return None
+
+        arr = np.genfromtxt(path, delimiter=",", comments="#")
+        if arr.ndim != 2 or arr.shape[1] < 2:
+            QMessageBox.warning(self._parent_widget, "Bad fit file",
+                                "Expected a two-column (x, y) CSV.")
+            return None
+
+        x = arr[:, 0].astype(float)
+        y = arr[:, 1].astype(float)
+        m = np.isfinite(x) & np.isfinite(y)
+        x, y = x[m], y[m]
+        if x.size == 0:
+            QMessageBox.warning(self._parent_widget, "Bad fit file",
+                                "No finite (x, y) rows in file.")
+            return None
+
+        (line,) = ax.plot(x, y, lw=2, color='tab:orange')
+        self._label_loaded_fit(ax, line, path)
+        try:
+            ax.figure.canvas.draw_idle()
+        except Exception:
+            self.logger.debug('load_fit_curve - could not draw', exc_info=True)
+        self.logger.info('load_fit_curve - drew %d points from %s', x.size, path)
+        return line
+
+    def _label_loaded_fit(self, ax, line, path):
+        """Give a loaded line the next free fit index + fit gid, and note it."""
+        idxs = [int(l) for l in self.listFitLineLabels(ax)]
+        i = 0
+        while i in idxs:
+            i += 1
+        line.set_label(f"{FIT_PREFIX}{i}")
+        if hasattr(line, "set_gid"):
+            line.set_gid("fit")
+        self.fitResultsAppended.emit(f"Loaded fit {i} from {os.path.basename(path)}")
+        return i
 
     # ------------------------------------------------------------------
     # Main fit entry point
@@ -446,6 +560,7 @@ class FitManager(QObject):
                     fitResultsText.resize(900, 700)
                     fitResultsText.show()
                     self._lastFitResultsText = fitResultsText
+                    self._stash_fit_curve(fitln, fit_funct, spectrumName)
 
                 else:
                     QMessageBox.about(self._parent_widget, "Warning", "Sorry 2D fitting is not implemented yet")

@@ -389,3 +389,78 @@ def test_delete_fit_index_is_exact_not_a_prefix(fm_mod):
     labels = [ln.get_label() for ln in ax.lines]
     assert "fit-_-1" not in labels
     assert "fit-_-10" in labels          # pre-fix: removed as collateral
+
+
+# ---------------------------------------------------- save / load fit curve
+
+def test_save_fit_curve_no_curve_warns(env, tmp_path):
+    env.fm._lastFitCurve = None
+    out = env.fm.save_fit_curve(path=str(tmp_path / "x.csv"))
+    assert out is None
+    assert any(c[0] == "warning" for c in env.msgbox.calls)
+
+
+def test_save_fit_curve_writes_header_and_columns(env, tmp_path):
+    x = np.linspace(0.0, 5.0, 6)
+    y = x ** 2
+    env.fm._lastFitCurve = {"x": x, "y": y, "model": "AlphaEMGMultiSigma", "name": "h1"}
+    p = tmp_path / "curve.csv"
+    out = env.fm.save_fit_curve(path=str(p))
+    assert out == str(p)
+    text = p.read_text()
+    assert "# CutiePie fit curve" in text
+    assert "model = AlphaEMGMultiSigma" in text
+    assert "npoints = 6" in text
+    # data round-trips via the same loader the GUI uses
+    arr = np.genfromtxt(str(p), delimiter=",", comments="#")
+    assert np.allclose(arr[:, 0], x)
+    assert np.allclose(arr[:, 1], y)
+
+
+def test_save_then_load_round_trips_onto_axis(env, tmp_path):
+    x = np.linspace(0.0, 10.0, 50)
+    y = np.sin(x)
+    env.fm._lastFitCurve = {"x": x, "y": y, "model": "AlphaEMGMultiSigma", "name": "h1"}
+    p = tmp_path / "curve.csv"
+    env.fm.save_fit_curve(path=str(p))
+
+    ax = make_ax()
+    line = env.fm.load_fit_curve(ax=ax, path=str(p))
+    assert line is not None
+    assert np.allclose(line.get_xdata(), x)
+    assert np.allclose(line.get_ydata(), y)
+
+
+def test_loaded_curve_is_a_deletable_fit_artist(env, tmp_path):
+    x = np.arange(5, dtype=float)
+    env.fm._lastFitCurve = {"x": x, "y": x, "model": "AlphaEMGMultiSigma", "name": "h1"}
+    p = tmp_path / "curve.csv"
+    env.fm.save_fit_curve(path=str(p))
+
+    ax = make_ax()
+    line = env.fm.load_fit_curve(ax=ax, path=str(p))
+    assert line.get_label() == "fit-_-0"
+    assert line.get_gid() == "fit"
+    # visible to the fit-line machinery
+    assert env.fm.listFitLineLabels(ax) == ["0"]
+    # and removable through the normal delete path
+    env.fm.deleteFit(index=0, name="h1", ax=ax, fit_idx_text="0")
+    assert env.fm.listFitLineLabels(ax) == []
+
+
+def test_load_takes_next_free_fit_index(env, tmp_path):
+    x = np.arange(4, dtype=float)
+    env.fm._lastFitCurve = {"x": x, "y": x, "model": "AlphaEMGMultiSigma", "name": "h1"}
+    p = tmp_path / "curve.csv"
+    env.fm.save_fit_curve(path=str(p))
+
+    ax = make_ax()
+    existing, = ax.plot([0, 1], [0, 1]); existing.set_label("fit-_-0")
+    line = env.fm.load_fit_curve(ax=ax, path=str(p))
+    assert line.get_label() == "fit-_-1"
+
+
+def test_load_without_axis_warns(env):
+    out = env.fm.load_fit_curve(ax=None, path="whatever.csv")
+    assert out is None
+    assert any(c[0] == "warning" for c in env.msgbox.calls)
