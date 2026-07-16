@@ -302,7 +302,7 @@ def test_fit_1d_happy_path(fm_mod, monkeypatch):
     assert env.busy == [(True,), (False,)]
     # fit line labeled and tagged; results routed to popup and result window
     line = [l for l in ax.lines if l.get_label().startswith("fit-_-")][0]
-    assert line.get_label() == "fit-_-0" and line.get_gid() == "fit"
+    assert line.get_label() == "fit-_-0" and line.get_gid() == "fit-0"
     assert env.results[0] == ("Fit 0 (h1) :",)
     result_win = env.text_edits[0]
     assert result_win.read_only is True and result_win.shown == 1
@@ -440,7 +440,7 @@ def test_loaded_curve_is_a_deletable_fit_artist(env, tmp_path):
     ax = make_ax()
     line = env.fm.load_fit_curve(ax=ax, path=str(p))
     assert line.get_label() == "fit-_-0"
-    assert line.get_gid() == "fit"
+    assert line.get_gid() == "fit-0"
     # visible to the fit-line machinery
     assert env.fm.listFitLineLabels(ax) == ["0"]
     # and removable through the normal delete path
@@ -464,3 +464,145 @@ def test_load_without_axis_warns(env):
     out = env.fm.load_fit_curve(ax=None, path="whatever.csv")
     assert out is None
     assert any(c[0] == "warning" for c in env.msgbox.calls)
+
+
+# ------------------------------------- delete removes ALL of a fit's artists
+
+class MultiArtistFit(FakeFit):
+    """Mimics AlphaEMGMultiSigma: draws a total line + a dashed subpeak line
+    (isotope-labelled, NOT fit-_-N) + a text annotation, returns the total."""
+
+    def start(self, x, y, xmin, xmax, fitpar, ax, resultsText):
+        self.calls.append(dict(x=np.asarray(x), y=np.asarray(y),
+                               xmin=xmin, xmax=xmax, fitpar=list(fitpar),
+                               ax=ax, resultsText=resultsText))
+        (total,) = ax.plot(x, y, color="tab:orange", label="fit total")
+        (sub,) = ax.plot(x, y * 0.5, ls="--", label="Bi211")   # isotope-labelled
+        ax.text(float(x[0]), float(y[0]), "Bi211 6623")
+        ax.legend()
+        total.component_data = {"x": np.asarray(x), "ytot": np.asarray(y)}
+        return total
+
+
+def test_delete_removes_all_artists_of_a_multi_component_fit(fm_mod, monkeypatch):
+    # Regression: deleteFit used to remove only the fit-_-N total line, leaving
+    # subpeak curves, text labels and the legend orphaned on the pad. Uses the
+    # model-agnostic Gaus path so the artist/tag/delete contract is exercised
+    # without the EMG-only calibration/shape prompts.
+    env = Env(fm_mod, monkeypatch,
+              configs={"Gaus": {"amp": 1}}, fit=MultiArtistFit())
+    add_1d_spectrum(env.store)
+    ax = make_ax()
+
+    env.fm.fit(0, "h1", ax, "Gaus", [""] * 20, "2", "8")
+
+    # the fit drew a total + a subpeak + a text (+ legend)
+    assert env.fm.listFitLineLabels(ax) == ["0"]
+    assert len(ax.lines) == 2 and len(ax.texts) == 1
+
+    env.fm.deleteFit(0, "h1", ax, "0")
+
+    # everything the fit added must be gone, not just the total line
+    assert env.fm.listFitLineLabels(ax) == []
+    assert len(ax.lines) == 0, "subpeak curve left behind"
+    assert len(ax.texts) == 0, "text annotation left behind"
+    assert ax.get_legend() is None, "stale legend left behind"
+
+
+# ------------------------------------------- multi-component save / load
+
+def _components_curve():
+    x = np.linspace(0.0, 10.0, 40)
+    total = np.exp(-((x - 5) ** 2))
+    bi = 0.6 * total
+    po = 0.4 * total
+    return {
+        "x": x, "y": total, "model": "AlphaEMGMultiSigma", "name": "h1",
+        "components": [("fit total", total), ("Bi211", bi), ("Po215", po)],
+        "chains": {"Bi211": "A227", "Po215": "A227"},
+        "colors": {"fit total": "tab:orange", "Bi211": "C0", "Po215": "C1"},
+    }
+
+
+def test_save_writes_multi_component_file(env, tmp_path):
+    env.fm._lastFitCurve = _components_curve()
+    p = tmp_path / "multi.csv"
+    env.fm.save_fit_curve(path=str(p))
+    text = p.read_text()
+    assert "multi-component" in text
+    assert "meta = " in text
+    assert "Bi211" in text and "Po215" in text
+    # numeric block still readable by the plain CSV loader
+    arr = np.genfromtxt(str(p), delimiter=",", comments="#")
+    assert arr.shape[1] == 4                       # x + total + 2 isotopes
+
+
+def test_read_round_trips_components_chains_and_colors(env, tmp_path):
+    env.fm._lastFitCurve = _components_curve()
+    p = tmp_path / "multi.csv"
+    env.fm.save_fit_curve(path=str(p))
+
+    struct = env.fm._read_fit_curve_file(str(p))
+    assert struct["multi"] is True
+    names = [n for n, _ in struct["components"]]
+    assert names == ["fit total", "Bi211", "Po215"]
+    assert struct["chains"] == {"Bi211": "A227", "Po215": "A227"}
+    assert struct["colors"]["Bi211"] == "C0"
+    total = dict(struct["components"])["fit total"]
+    assert np.allclose(total, _components_curve()["y"])
+
+
+def test_old_total_only_file_reads_as_non_multi(env, tmp_path):
+    # a fit with no per-isotope components saves the 2-column total-only format
+    env.fm._lastFitCurve = {"x": np.arange(5.0), "y": np.arange(5.0),
+                            "model": "Gaus", "name": "h1"}
+    p = tmp_path / "total.csv"
+    env.fm.save_fit_curve(path=str(p))
+    assert "multi-component" not in p.read_text()
+    struct = env.fm._read_fit_curve_file(str(p))
+    assert struct["multi"] is False
+    assert [n for n, _ in struct["components"]] == ["fit total"]
+
+
+def test_plot_components_tags_one_deletable_group(env):
+    ax = make_ax()
+    curve = _components_curve()
+    i, lines = env.fm._plot_fit_components(ax, curve["x"], curve["components"],
+                                           curve["colors"])
+    assert i == 0
+    assert len(lines) == 3
+    # every line shares the one per-index gid
+    assert all(l.get_gid() == "fit-0" for l in lines)
+    # exactly one carrier holds the fit-_-0 label (the total)
+    carriers = [l for l in lines if l.get_label() == "fit-_-0"]
+    assert len(carriers) == 1
+    assert env.fm.listFitLineLabels(ax) == ["0"]
+    # deletes as a single unit
+    env.fm.deleteFit(0, "h1", ax, "0")
+    assert len(ax.lines) == 0
+
+
+def test_load_multi_component_uses_picker_subset(env, tmp_path, monkeypatch):
+    env.fm._lastFitCurve = _components_curve()
+    p = tmp_path / "multi.csv"
+    env.fm.save_fit_curve(path=str(p))
+
+    # user checks only the total and Bi211
+    monkeypatch.setattr(env.fm, "_prompt_component_selection",
+                        lambda names, chains: ["fit total", "Bi211"])
+    ax = make_ax()
+    env.fm.load_fit_curve(ax=ax, path=str(p))
+    assert len(ax.lines) == 2                       # Po215 was unchecked
+    assert env.fm.listFitLineLabels(ax) == ["0"]    # one fit group
+
+
+def test_load_multi_component_cancel_draws_nothing(env, tmp_path, monkeypatch):
+    env.fm._lastFitCurve = _components_curve()
+    p = tmp_path / "multi.csv"
+    env.fm.save_fit_curve(path=str(p))
+    monkeypatch.setattr(env.fm, "_prompt_component_selection",
+                        lambda names, chains: None)   # cancelled
+    ax = make_ax()
+    out = env.fm.load_fit_curve(ax=ax, path=str(p))
+    assert out is None
+    assert len(ax.lines) == 0

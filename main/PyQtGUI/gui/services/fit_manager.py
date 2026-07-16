@@ -155,14 +155,17 @@ class FitManager(QObject):
         ax.figure.show()
 
     # ------------------------------------------------------------------
-    # Save / load a fit's total curve (sampled (x, y_total) <-> CSV)
+    # Save / load a fit curve (total + per-isotope components <-> CSV)
     # ------------------------------------------------------------------
 
     def _stash_fit_curve(self, fitln, fit_funct, spectrumName):
-        """Remember the last drawn fit's total curve so it can be saved.
+        """Remember the last drawn fit so it can be saved.
 
-        Prefers the sampled total the AlphaEMG* creators stash on the artist
-        (``fitln.component_data``); falls back to the line's own x/y data."""
+        Always captures the sampled total (``fitln.component_data`` for the
+        AlphaEMG* creators, else the line's own x/y). When the creator also
+        stashes per-isotope series (``component_series``) it captures those plus
+        the isotope→chain map and per-component colors, enabling a full
+        multi-component save."""
         if fitln is None:
             return
         try:
@@ -173,13 +176,22 @@ class FitManager(QObject):
             else:
                 cx = np.asarray(fitln.get_xdata(), dtype=float)
                 cy = np.asarray(fitln.get_ydata(), dtype=float)
-            self._lastFitCurve = {"x": cx, "y": cy,
-                                  "model": fit_funct, "name": spectrumName}
+            curve = {"x": cx, "y": cy, "model": fit_funct, "name": spectrumName}
+
+            series = getattr(fitln, "component_series", None)
+            if series:
+                curve["components"] = [(str(n), np.asarray(y, dtype=float))
+                                       for n, y in series]
+                curve["chains"] = dict(getattr(fitln, "_iso_to_chain", {}) or {})
+                curve["colors"] = dict(getattr(fitln, "component_colors", {}) or {})
+            self._lastFitCurve = curve
         except Exception:
             self.logger.debug('could not stash fit curve', exc_info=True)
 
     def save_fit_curve(self, path=None):
-        """Write the last drawn fit's total curve to a two-column CSV.
+        """Write the last drawn fit to a CSV. If per-isotope components were
+        captured, writes a multi-column file (x, fit total, <isotope>, …) with a
+        ``# meta`` JSON header; otherwise a two-column (x, y_total) file.
 
         `path` is supplied by tests; in the GUI it is chosen via QFileDialog."""
         curve = getattr(self, "_lastFitCurve", None)
@@ -197,6 +209,16 @@ class FitManager(QObject):
             if not path.lower().endswith(".csv"):
                 path += ".csv"
 
+        comps = curve.get("components")
+        if comps and len(comps) > 1:
+            self._write_fit_components_csv(
+                path, curve["x"], comps,
+                model=curve.get("model", ""), name=curve.get("name", ""),
+                chains=curve.get("chains"), colors=curve.get("colors"))
+            self.logger.info('save_fit_curve - wrote %d components to %s', len(comps), path)
+            return path
+
+        # total-only fallback (non-multi models, or a fit with a single component)
         x = np.asarray(curve["x"], dtype=float)
         y = np.asarray(curve["y"], dtype=float)
         header = (
@@ -212,11 +234,109 @@ class FitManager(QObject):
         self.logger.info('save_fit_curve - wrote %d points to %s', x.size, path)
         return path
 
+    def _write_fit_components_csv(self, path, x, comps, model="", name="",
+                                  chains=None, colors=None):
+        """Write x + one column per component, with a `# meta` JSON header that
+        records column names, the isotope→chain map, and per-component colors."""
+        x = np.asarray(x, dtype=float)
+        names = [n for n, _ in comps]
+        data = np.column_stack([x] + [np.asarray(y, dtype=float) for _, y in comps])
+        chains = chains or {}
+        colors = colors or {}
+        meta = {
+            "model": model,
+            "spectrum": name,
+            "saved": datetime.now().isoformat(timespec="seconds"),
+            "columns": ["x"] + names,
+            "chains": {n: chains.get(n, "") for n in names if n != "fit total"},
+            "colors": {n: colors[n] for n in names if colors.get(n) is not None},
+        }
+        header = ("CutiePie fit curve (multi-component)\n"
+                  "meta = " + json.dumps(meta) + "\n"
+                  + ",".join(["x"] + names))
+        np.savetxt(path, data, delimiter=",", header=header, comments="# ")
+        return path
+
+    def _read_fit_curve_file(self, path):
+        """Parse a saved fit file. Returns
+        ``{x, components:[(name,y)…], chains, colors, multi}`` or None if the
+        file has no usable numeric (x, y[, …]) block."""
+        meta = None
+        try:
+            with open(path) as f:
+                for line in f:
+                    s = line.strip()
+                    if not s.startswith("#"):
+                        break
+                    body = s.lstrip("#").strip()
+                    if body.lower().startswith("meta"):
+                        eq = body.find("=")
+                        if eq != -1:
+                            try:
+                                meta = json.loads(body[eq + 1:].strip())
+                            except Exception:
+                                meta = None
+        except Exception:
+            self.logger.debug('read_fit_curve_file - header scan failed', exc_info=True)
+
+        try:
+            arr = np.genfromtxt(path, delimiter=",", comments="#")
+        except Exception:
+            return None
+        if arr.ndim != 2 or arr.shape[1] < 2:
+            return None
+        arr = arr[np.isfinite(arr[:, 0])]
+        if arr.shape[0] == 0:
+            return dict(x=np.array([]), components=[], chains={}, colors={}, multi=False)
+
+        x = arr[:, 0].astype(float)
+        ncols = arr.shape[1]
+        if isinstance(meta, dict) and isinstance(meta.get("columns"), list) \
+                and len(meta["columns"]) == ncols:
+            names = [str(n) for n in meta["columns"][1:]]
+            multi = len(names) > 1
+            chains = {str(k): str(v) for k, v in (meta.get("chains") or {}).items()}
+            colors = {str(k): v for k, v in (meta.get("colors") or {}).items()}
+        else:
+            names = ["fit total"] + [f"col{j}" for j in range(2, ncols)]
+            multi = False
+            chains, colors = {}, {}
+        components = [(names[j], arr[:, j + 1].astype(float)) for j in range(len(names))]
+        return dict(x=x, components=components, chains=chains, colors=colors, multi=multi)
+
+    def _plot_fit_components(self, ax, x, comps, colors=None):
+        """Draw the given components on `ax` as ONE fit group. All lines share a
+        per-index gid ``fit-<N>``; the carrier (the total if present, else the
+        first) also gets the ``fit-_-<N>`` label so the group has an index that
+        Sel. All / Delete / clear-on-next-fit recognise. Returns (index, lines)."""
+        colors = colors or {}
+        idxs = [int(l) for l in self.listFitLineLabels(ax)]
+        i = 0
+        while i in idxs:
+            i += 1
+        gid = f"fit-{i}"
+        carrier = "fit total" if any(n == "fit total" for n, _ in comps) \
+            else (comps[0][0] if comps else None)
+        lines = []
+        for name, y in comps:
+            if name == "fit total":
+                (ln,) = ax.plot(x, y, lw=2, color=colors.get(name, "tab:orange"))
+            else:
+                (ln,) = ax.plot(x, y, lw=1.6, ls="--", alpha=0.9, color=colors.get(name))
+            if hasattr(ln, "set_gid"):
+                ln.set_gid(gid)
+            if name == carrier:
+                ln.set_label(f"{FIT_PREFIX}{i}")
+                carrier = None            # label only the first match
+            lines.append(ln)
+        return i, lines
+
     def load_fit_curve(self, index=None, name=None, ax=None, path=None):
         """Draw a saved fit curve onto the currently selected pad's axis.
 
-        The loaded line is tagged as a normal fit artist (``fit-_-N`` label +
-        ``gid='fit'``) so Sel. All / Delete / clear-on-next-fit all see it."""
+        Multi-component files open a chain-grouped picker so you can choose which
+        components to draw; total-only files draw the single curve. Everything is
+        tagged as one deletable fit group (``fit-<N>`` gid + ``fit-_-<N>`` label)."""
         if ax is None:
             self.logger.warning('load_fit_curve - called without ax context; cannot draw')
             QMessageBox.warning(self._parent_widget, "No plot selected",
@@ -230,41 +350,95 @@ class FitManager(QObject):
             if not path:
                 return None
 
-        arr = np.genfromtxt(path, delimiter=",", comments="#")
-        if arr.ndim != 2 or arr.shape[1] < 2:
+        struct = self._read_fit_curve_file(path)
+        if struct is None:
             QMessageBox.warning(self._parent_widget, "Bad fit file",
-                                "Expected a two-column (x, y) CSV.")
+                                "Expected a numeric (x, y[, …]) CSV.")
+            return None
+        if struct["x"].size == 0 or not struct["components"]:
+            QMessageBox.warning(self._parent_widget, "Bad fit file",
+                                "No finite rows in file.")
             return None
 
-        x = arr[:, 0].astype(float)
-        y = arr[:, 1].astype(float)
-        m = np.isfinite(x) & np.isfinite(y)
-        x, y = x[m], y[m]
-        if x.size == 0:
-            QMessageBox.warning(self._parent_widget, "Bad fit file",
-                                "No finite (x, y) rows in file.")
-            return None
+        comps = struct["components"]
+        if struct["multi"]:
+            chosen = self._prompt_component_selection([n for n, _ in comps],
+                                                      struct["chains"])
+            if chosen is None:
+                return None                     # cancelled
+            comps = [(n, y) for n, y in comps if n in chosen]
+            if not comps:
+                QMessageBox.warning(self._parent_widget, "Nothing selected",
+                                    "No components chosen to plot.")
+                return None
 
-        (line,) = ax.plot(x, y, lw=2, color='tab:orange')
-        self._label_loaded_fit(ax, line, path)
+        i, lines = self._plot_fit_components(ax, struct["x"], comps, struct["colors"])
+        self.fitResultsAppended.emit(
+            f"Loaded fit {i} ({len(lines)} component(s)) from {os.path.basename(path)}")
         try:
             ax.figure.canvas.draw_idle()
         except Exception:
             self.logger.debug('load_fit_curve - could not draw', exc_info=True)
-        self.logger.info('load_fit_curve - drew %d points from %s', x.size, path)
-        return line
+        self.logger.info('load_fit_curve - drew %d component(s) from %s', len(lines), path)
+        return lines[0] if lines else None
 
-    def _label_loaded_fit(self, ax, line, path):
-        """Give a loaded line the next free fit index + fit gid, and note it."""
-        idxs = [int(l) for l in self.listFitLineLabels(ax)]
-        i = 0
-        while i in idxs:
-            i += 1
-        line.set_label(f"{FIT_PREFIX}{i}")
-        if hasattr(line, "set_gid"):
-            line.set_gid("fit")
-        self.fitResultsAppended.emit(f"Loaded fit {i} from {os.path.basename(path)}")
-        return i
+    def _prompt_component_selection(self, names, chains):
+        """Modal checkable list of components, grouped by chain. Returns the list
+        of selected names, or None if cancelled."""
+        from PyQt5.QtWidgets import QScrollArea, QWidget  # live-only widgets
+        dlg = QDialog(self._parent_widget)
+        dlg.setWindowTitle("Choose components to plot")
+        v = QVBoxLayout(dlg)
+        v.addWidget(QLabel("Select the fit components to draw:"))
+
+        inner = QWidget()
+        iv = QVBoxLayout(inner)
+        checks = {}
+
+        if "fit total" in names:
+            cb = QCheckBox("fit total")
+            cb.setChecked(True)
+            checks["fit total"] = cb
+            iv.addWidget(cb)
+
+        groups = {}
+        for n in names:
+            if n == "fit total":
+                continue
+            groups.setdefault(chains.get(n) or "Unchained", []).append(n)
+        for ch in sorted(groups):
+            iv.addWidget(QLabel(f"<b>{ch}</b>"))
+            for n in groups[ch]:
+                cb = QCheckBox(n)
+                cb.setChecked(True)
+                checks[n] = cb
+                iv.addWidget(cb)
+        iv.addStretch(1)
+
+        area = QScrollArea()
+        area.setWidget(inner)
+        area.setWidgetResizable(True)
+        v.addWidget(area)
+
+        hb = QHBoxLayout()
+        btn_all = QPushButton("All")
+        btn_none = QPushButton("None")
+        btn_all.clicked.connect(lambda: [c.setChecked(True) for c in checks.values()])
+        btn_none.clicked.connect(lambda: [c.setChecked(False) for c in checks.values()])
+        hb.addWidget(btn_all)
+        hb.addWidget(btn_none)
+        hb.addStretch(1)
+        btn_ok = QPushButton("OK")
+        btn_cancel = QPushButton("Cancel")
+        btn_ok.clicked.connect(dlg.accept)
+        btn_cancel.clicked.connect(dlg.reject)
+        hb.addWidget(btn_ok)
+        hb.addWidget(btn_cancel)
+        v.addLayout(hb)
+
+        if dlg.exec_() != QDialog.Accepted:
+            return None
+        return [n for n, c in checks.items() if c.isChecked()]
 
     # ------------------------------------------------------------------
     # Main fit entry point
@@ -542,8 +716,8 @@ class FitManager(QObject):
                             f"[shapes] mode = {_shape_mode(fit)} ; source: {shape_src or 'unknown'}\n\n"
                         )
 
-                    self.setFitLineLabel(ax, fitln, fitResultsText, spectrumName)
-                    self._tag_new_fit_artists(ax, before_ids)
+                    fitIdx = self.setFitLineLabel(ax, fitln, fitResultsText, spectrumName)
+                    self._tag_new_fit_artists(ax, before_ids, fit_idx=fitIdx)
 
                     if model_name == "AlphaEMG22":
                         try:
@@ -904,12 +1078,13 @@ class FitManager(QObject):
         return ids
 
     def _tag_new_fit_artists(self, ax, before_ids, fit_idx=None):
+        # Group every artist a fit adds under a per-index gid ("fit-<N>") so the
+        # WHOLE fit — total line, subpeak curves, text labels — can be deleted as
+        # a unit (deleteFit). fit_idx=None keeps the generic "fit" gid, used where
+        # no index is known (e.g. the tag-and-clear characterization path).
+        gid = "fit" if fit_idx is None else f"fit-{fit_idx}"
         def _tag(a):
-            if hasattr(a, "set_gid"): a.set_gid("fit")
-            if fit_idx is not None and hasattr(a, "set_label"):
-                lab = getattr(a, "get_label", lambda: "")() or ""
-                if not lab or lab == "_nolegend_":
-                    a.set_label(f"{FIT_PREFIX}{fit_idx}-art")
+            if hasattr(a, "set_gid"): a.set_gid(gid)
         for l in getattr(ax, "lines", []):
             if id(l) not in before_ids: _tag(l)
         for c in getattr(ax, "collections", []):
@@ -940,7 +1115,8 @@ class FitManager(QObject):
                 for a in list(coll):
                     lab = getattr(a, "get_label", lambda: "")() or ""
                     gid = getattr(a, "get_gid",   lambda: None)()
-                    if gid == "fit" or (isinstance(lab, str) and lab.startswith(FIT_PREFIX)):
+                    is_fit_gid = gid == "fit" or (isinstance(gid, str) and gid.startswith("fit-"))
+                    if is_fit_gid or (isinstance(lab, str) and lab.startswith(FIT_PREFIX)):
                         try:
                             a.remove()
                             removed += 1
@@ -980,7 +1156,7 @@ class FitManager(QObject):
 
         if line is None:
             self.logger.debug('setFitLineLabel - line is None')
-            return
+            return None
 
         if not fitIdxs:
             fitLineLabel += "0"
@@ -994,6 +1170,7 @@ class FitManager(QObject):
         line.set_label(fitLineLabel)
         self.setFitResultsLineLabel(fitIdx, resultsText, spectrumName)
         self.logger.debug('setFitLineLabel - line label: %s', line.get_label())
+        return fitIdx
 
     def deleteFit(self, index=None, name=None, ax=None, fit_idx_text=""):
         """Delete the fit lines whose indices appear in `fit_idx_text`, the
@@ -1010,13 +1187,35 @@ class FitManager(QObject):
         notAvailableFitIdxs = [fitIdx for fitIdx in userFitIdxs if fitIdx not in availableFitIdxs]
         if notAvailableFitIdxs:
             self.logger.warning('deleteFit - fit line(s) index(es): %s cannot be deleted', notAvailableFitIdxs)
-        else:
-            for fitIdx in userFitIdxs:
-                fitLineIdentifier = "fit-_-" + fitIdx
-                for fitLine in ax.get_children():
-                    if type(fitLine) == matplotlib.lines.Line2D and fitLine.get_label() == fitLineIdentifier:
-                        fitLine.remove()
-                        self.logger.debug('deleteFit - removed fit line: %s', fitLineIdentifier)
+            return
+
+        # Remove the WHOLE fit, not just its labelled total line: every artist a
+        # fit drew shares the per-index gid "fit-<N>" (subpeak curves, text
+        # labels), while the total line also carries the exact "fit-_-<N>" label.
+        removed_any = False
+        for fitIdx in userFitIdxs:
+            group_gid = "fit-" + fitIdx
+            label = FIT_PREFIX + fitIdx
+            for artist in list(ax.get_children()):
+                a_gid = getattr(artist, "get_gid", lambda: None)()
+                a_lab = getattr(artist, "get_label", lambda: "")() or ""
+                if a_gid == group_gid or a_lab == label:
+                    try:
+                        artist.remove()
+                        removed_any = True
+                    except Exception:
+                        self.logger.debug('deleteFit - could not remove artist', exc_info=True)
+            self.logger.debug('deleteFit - removed fit group: %s', fitIdx)
+
+        if removed_any:
+            leg = ax.get_legend()   # its entries for the deleted curves are now stale
+            if leg is not None:
+                try: leg.remove()
+                except Exception: self.logger.debug('deleteFit - could not remove legend', exc_info=True)
+            try:
+                ax.figure.canvas.draw_idle()
+            except Exception:
+                self.logger.debug('deleteFit - could not draw', exc_info=True)
 
     def listFitLineLabels(self, ax):
         self.logger.info('listFitLineLabels')
