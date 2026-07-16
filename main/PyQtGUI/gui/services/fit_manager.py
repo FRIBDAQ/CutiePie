@@ -184,14 +184,28 @@ class FitManager(QObject):
                                        for n, y in series]
                 curve["chains"] = dict(getattr(fitln, "_iso_to_chain", {}) or {})
                 curve["colors"] = dict(getattr(fitln, "component_colors", {}) or {})
+
+            ps = getattr(fitln, "peak_series", None)
+            if ps:
+                curve["peaks"] = [
+                    dict(chain=str(p.get("chain") or "Unchained"),
+                         isotope=str(p.get("isotope")),
+                         E=(float(p["E"]) if p.get("E") is not None else None),
+                         y=np.asarray(p["y"], dtype=float),
+                         params={k: float(v) for k, v in (p.get("params") or {}).items()})
+                    for p in ps]
             self._lastFitCurve = curve
         except Exception:
             self.logger.debug('could not stash fit curve', exc_info=True)
 
     def save_fit_curve(self, path=None):
-        """Write the last drawn fit to a CSV. If per-isotope components were
-        captured, writes a multi-column file (x, fit total, <isotope>, …) with a
-        ``# meta`` JSON header; otherwise a two-column (x, y_total) file.
+        """Write the last drawn fit to a CSV.
+
+        AlphaEMGMultiSigma fits (which capture per-peak data) write a grouped
+        per-peak file: ``x, fit total``, then per chain the isotope sum and each
+        peak, plus a human-readable ``# per-peak parameters`` block and a real
+        header row (Excel-friendly, self-describing via ``chain/isotope/E`` names).
+        Other fits write a two-column (x, y_total) file.
 
         `path` is supplied by tests; in the GUI it is chosen via QFileDialog."""
         curve = getattr(self, "_lastFitCurve", None)
@@ -208,6 +222,14 @@ class FitManager(QObject):
                 return None
             if not path.lower().endswith(".csv"):
                 path += ".csv"
+
+        peaks = curve.get("peaks")
+        if peaks:
+            self._write_fit_peaks_csv(
+                path, curve["x"], curve["y"], peaks,
+                model=curve.get("model", ""), name=curve.get("name", ""))
+            self.logger.info('save_fit_curve - wrote %d peaks to %s', len(peaks), path)
+            return path
 
         comps = curve.get("components")
         if comps and len(comps) > 1:
@@ -234,6 +256,69 @@ class FitManager(QObject):
         self.logger.info('save_fit_curve - wrote %d points to %s', x.size, path)
         return path
 
+    def _write_fit_peaks_csv(self, path, x, total_y, peaks, model="", name=""):
+        """Write the grouped per-peak / per-chain file (Version 2, self-describing
+        via column names — no JSON). Columns: ``x, fit total``, then per chain
+        (sorted): the isotope sum ``<chain>/<isotope>`` then each peak
+        ``<chain>/<isotope>/<E>``. A ``# per-peak parameters`` comment block and a
+        real (non-comment) header row make it readable and Excel-friendly."""
+        x = np.asarray(x, dtype=float)
+
+        # group peaks: chain (sorted) → isotope (first-seen order) → peaks (by E)
+        by_chain = {}
+        iso_order = {}
+        for p in peaks:
+            ch = p.get("chain") or "Unchained"
+            iso = str(p.get("isotope"))
+            by_chain.setdefault(ch, {}).setdefault(iso, []).append(p)
+            iso_order.setdefault((ch, iso), len(iso_order))
+
+        columns = ["x", "fit total"]
+        col_arrays = [x, np.asarray(total_y, dtype=float)]
+        param_rows = []
+        seen = set(columns)
+
+        def _uniq(base):
+            nm, k = base, 2
+            while nm in seen:
+                nm = f"{base}#{k}"; k += 1
+            seen.add(nm)
+            return nm
+
+        for ch in sorted(by_chain):
+            isos = sorted(by_chain[ch], key=lambda iso: iso_order[(ch, iso)])
+            for iso in isos:
+                plist = sorted(by_chain[ch][iso],
+                               key=lambda p: (p.get("E") if p.get("E") is not None else 0.0))
+                iso_sum = np.sum([np.asarray(p["y"], dtype=float) for p in plist], axis=0)
+                columns.append(_uniq(f"{ch}/{iso}"))
+                col_arrays.append(iso_sum)
+                for p in plist:
+                    ename = f"{p['E']:.0f}" if p.get("E") is not None else "NA"
+                    columns.append(_uniq(f"{ch}/{iso}/{ename}"))
+                    col_arrays.append(np.asarray(p["y"], dtype=float))
+                    param_rows.append((ch, iso, ename, p.get("params") or {}))
+
+        data = np.column_stack(col_arrays)
+        with open(path, "w", newline="") as f:
+            f.write(f"# CutiePie fit curve — {model} : {name}   "
+                    f"(saved {datetime.now().isoformat(timespec='seconds')})\n")
+            f.write("#\n# per-peak parameters:\n")
+            f.write("#   {:<8} {:<10} {:>7}   {:>11} {:>11} {:>7} {:>6} {:>6} {:>5}\n".format(
+                "chain", "isotope", "E_keV", "A", "mu", "sigma", "tau1", "tau2", "eta"))
+            for ch, iso, ename, pr in param_rows:
+                def g(k):
+                    v = pr.get(k)
+                    return float(v) if v is not None else float("nan")
+                f.write("#   {:<8} {:<10} {:>7}   {:>11.4e} {:>11.4f} {:>7.3f} "
+                        "{:>6.3f} {:>6.3f} {:>5.3f}\n".format(
+                            ch, iso, ename, g("A"), g("mu"), g("sigma"),
+                            g("tau1"), g("tau2"), g("eta")))
+            f.write("#\n")
+            f.write(",".join(columns) + "\n")
+            np.savetxt(f, data, delimiter=",", fmt="%.8g")
+        return path
+
     def _write_fit_components_csv(self, path, x, comps, model="", name="",
                                   chains=None, colors=None):
         """Write x + one column per component, with a `# meta` JSON header that
@@ -257,25 +342,56 @@ class FitManager(QObject):
         np.savetxt(path, data, delimiter=",", header=header, comments="# ")
         return path
 
+    @staticmethod
+    def _parse_component_name(name):
+        """Derive {kind, chain, isotope, E} from a column name. Version 2 names
+        are ``chain/isotope`` (isotope sum) or ``chain/isotope/E`` (a peak);
+        ``fit total`` is the total; anything else is a bare component."""
+        if name == "fit total":
+            return dict(name=name, kind="total", chain=None, isotope=None, E=None)
+        parts = name.split("/")
+        if len(parts) == 3:
+            try:
+                E = float(parts[2])
+            except ValueError:
+                E = None
+            return dict(name=name, kind="peak", chain=parts[0], isotope=parts[1], E=E)
+        if len(parts) == 2:
+            return dict(name=name, kind="isotope", chain=parts[0], isotope=parts[1], E=None)
+        return dict(name=name, kind="component", chain=None, isotope=name, E=None)
+
     def _read_fit_curve_file(self, path):
         """Parse a saved fit file. Returns
-        ``{x, components:[(name,y)…], chains, colors, multi}`` or None if the
-        file has no usable numeric (x, y[, …]) block."""
+        ``{x, components:[(name,y)…], structure:[…], chains, colors, multi}`` or
+        None if the file has no usable numeric (x, y[, …]) block. Handles the
+        Version 2 per-peak files (real header row, self-describing names), the
+        legacy ``# meta`` JSON files, and plain two-column total-only files."""
         meta = None
+        header_names = None
         try:
             with open(path) as f:
                 for line in f:
                     s = line.strip()
-                    if not s.startswith("#"):
-                        break
-                    body = s.lstrip("#").strip()
-                    if body.lower().startswith("meta"):
-                        eq = body.find("=")
-                        if eq != -1:
-                            try:
-                                meta = json.loads(body[eq + 1:].strip())
-                            except Exception:
-                                meta = None
+                    if s.startswith("#"):
+                        body = s.lstrip("#").strip()
+                        if body.lower().startswith("meta"):
+                            eq = body.find("=")
+                            if eq != -1:
+                                try:
+                                    meta = json.loads(body[eq + 1:].strip())
+                                except Exception:
+                                    meta = None
+                        continue
+                    if not s:
+                        continue
+                    # first non-comment line: a header row iff its first field
+                    # isn't numeric (Version 2); otherwise it is data.
+                    fields = [c.strip() for c in s.split(",")]
+                    try:
+                        float(fields[0])
+                    except ValueError:
+                        header_names = fields
+                    break
         except Exception:
             self.logger.debug('read_fit_curve_file - header scan failed', exc_info=True)
 
@@ -285,31 +401,63 @@ class FitManager(QObject):
             return None
         if arr.ndim != 2 or arr.shape[1] < 2:
             return None
-        arr = arr[np.isfinite(arr[:, 0])]
+        arr = arr[np.isfinite(arr[:, 0])]      # drops the Version 2 header row (NaN)
         if arr.shape[0] == 0:
-            return dict(x=np.array([]), components=[], chains={}, colors={}, multi=False)
+            return dict(x=np.array([]), components=[], structure=[],
+                        chains={}, colors={}, multi=False)
 
         x = arr[:, 0].astype(float)
         ncols = arr.shape[1]
-        if isinstance(meta, dict) and isinstance(meta.get("columns"), list) \
+        colors = {}
+        if header_names is not None and len(header_names) == ncols:
+            names = [str(n) for n in header_names[1:]]        # Version 2
+        elif isinstance(meta, dict) and isinstance(meta.get("columns"), list) \
                 and len(meta["columns"]) == ncols:
-            names = [str(n) for n in meta["columns"][1:]]
-            multi = len(names) > 1
-            chains = {str(k): str(v) for k, v in (meta.get("chains") or {}).items()}
+            names = [str(n) for n in meta["columns"][1:]]      # legacy meta
             colors = {str(k): v for k, v in (meta.get("colors") or {}).items()}
         else:
-            names = ["fit total"] + [f"col{j}" for j in range(2, ncols)]
-            multi = False
-            chains, colors = {}, {}
+            names = ["fit total"] + [f"col{j}" for j in range(2, ncols)]  # total-only
+
         components = [(names[j], arr[:, j + 1].astype(float)) for j in range(len(names))]
-        return dict(x=x, components=components, chains=chains, colors=colors, multi=multi)
+        structure = [self._parse_component_name(n) for n in names]
+
+        # legacy meta carried the isotope→chain map explicitly; fold it in
+        meta_chains = {}
+        if isinstance(meta, dict):
+            meta_chains = {str(k): str(v) for k, v in (meta.get("chains") or {}).items()}
+        for d in structure:
+            if d["chain"] is None and d["isotope"] in meta_chains:
+                d["chain"] = meta_chains[d["isotope"]]
+                if d["kind"] == "component":
+                    d["kind"] = "isotope"
+
+        chains = {d["name"]: d["chain"] for d in structure if d.get("chain")}
+        multi = len(names) > 1
+        return dict(x=x, components=components, structure=structure,
+                    chains=chains, colors=colors, multi=multi)
 
     def _plot_fit_components(self, ax, x, comps, colors=None):
         """Draw the given components on `ax` as ONE fit group. All lines share a
         per-index gid ``fit-<N>``; the carrier (the total if present, else the
         first) also gets the ``fit-_-<N>`` label so the group has an index that
-        Sel. All / Delete / clear-on-next-fit recognise. Returns (index, lines)."""
+        Sel. All / Delete / clear-on-next-fit recognise. Styling: total solid,
+        isotope sums dashed, individual peaks dotted; a component and its peaks
+        share a colour. Returns (index, lines)."""
         colors = colors or {}
+        cycle = plt.rcParams["axes.prop_cycle"].by_key().get("color") \
+            or ["C0", "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9"]
+        iso_color = {}
+
+        def _color(name):
+            if colors.get(name) is not None:
+                return colors[name]
+            if name == "fit total":
+                return "tab:orange"
+            key = "/".join(name.split("/")[:2])     # chain/isotope groups together
+            if key not in iso_color:
+                iso_color[key] = cycle[len(iso_color) % len(cycle)]
+            return iso_color[key]
+
         idxs = [int(l) for l in self.listFitLineLabels(ax)]
         i = 0
         while i in idxs:
@@ -320,9 +468,11 @@ class FitManager(QObject):
         lines = []
         for name, y in comps:
             if name == "fit total":
-                (ln,) = ax.plot(x, y, lw=2, color=colors.get(name, "tab:orange"))
-            else:
-                (ln,) = ax.plot(x, y, lw=1.6, ls="--", alpha=0.9, color=colors.get(name))
+                (ln,) = ax.plot(x, y, lw=2, color=_color(name))
+            elif name.count("/") >= 2:              # an individual peak
+                (ln,) = ax.plot(x, y, lw=1.1, ls=":", alpha=0.85, color=_color(name))
+            else:                                    # an isotope sum (or bare component)
+                (ln,) = ax.plot(x, y, lw=1.6, ls="--", alpha=0.9, color=_color(name))
             if hasattr(ln, "set_gid"):
                 ln.set_gid(gid)
             if name == carrier:
@@ -362,8 +512,7 @@ class FitManager(QObject):
 
         comps = struct["components"]
         if struct["multi"]:
-            chosen = self._prompt_component_selection([n for n, _ in comps],
-                                                      struct["chains"])
+            chosen = self._prompt_component_selection(struct["structure"])
             if chosen is None:
                 return None                     # cancelled
             comps = [(n, y) for n, y in comps if n in chosen]
@@ -382,9 +531,10 @@ class FitManager(QObject):
         self.logger.info('load_fit_curve - drew %d component(s) from %s', len(lines), path)
         return lines[0] if lines else None
 
-    def _prompt_component_selection(self, names, chains):
-        """Modal checkable list of components, grouped by chain. Returns the list
-        of selected names, or None if cancelled."""
+    def _prompt_component_selection(self, structure):
+        """Modal checkable tree of components (chain → isotope sum → peaks).
+        `structure` is the list of column descriptors from _read_fit_curve_file.
+        Returns the list of selected column names, or None if cancelled."""
         from PyQt5.QtWidgets import QScrollArea, QWidget  # live-only widgets
         dlg = QDialog(self._parent_widget)
         dlg.setWindowTitle("Choose components to plot")
@@ -395,24 +545,32 @@ class FitManager(QObject):
         iv = QVBoxLayout(inner)
         checks = {}
 
-        if "fit total" in names:
-            cb = QCheckBox("fit total")
+        def _add(name, label, indent):
+            cb = QCheckBox(label)
             cb.setChecked(True)
-            checks["fit total"] = cb
+            if indent:
+                cb.setStyleSheet(f"margin-left: {indent}px;")
+            checks[name] = cb
             iv.addWidget(cb)
 
-        groups = {}
-        for n in names:
-            if n == "fit total":
-                continue
-            groups.setdefault(chains.get(n) or "Unchained", []).append(n)
-        for ch in sorted(groups):
+        for d in structure:
+            if d["kind"] == "total":
+                _add(d["name"], "fit total", 0)
+
+        # chain → isotope sum → peaks, preserving structure order within a chain
+        chains = {}
+        for d in structure:
+            if d["kind"] in ("isotope", "peak", "component"):
+                chains.setdefault(d["chain"] or "Unchained", []).append(d)
+        for ch in sorted(chains):
             iv.addWidget(QLabel(f"<b>{ch}</b>"))
-            for n in groups[ch]:
-                cb = QCheckBox(n)
-                cb.setChecked(True)
-                checks[n] = cb
-                iv.addWidget(cb)
+            for d in chains[ch]:
+                if d["kind"] == "peak":
+                    e = d["E"]
+                    label = f"{d['isotope']} · {e:.0f} keV" if e is not None else d["name"]
+                    _add(d["name"], label, 40)
+                else:                              # isotope sum (or bare component)
+                    _add(d["name"], f"{d['isotope']} (sum)", 16)
         iv.addStretch(1)
 
         area = QScrollArea()

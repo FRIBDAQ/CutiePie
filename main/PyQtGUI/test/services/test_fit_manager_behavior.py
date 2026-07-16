@@ -589,7 +589,7 @@ def test_load_multi_component_uses_picker_subset(env, tmp_path, monkeypatch):
 
     # user checks only the total and Bi211
     monkeypatch.setattr(env.fm, "_prompt_component_selection",
-                        lambda names, chains: ["fit total", "Bi211"])
+                        lambda structure: ["fit total", "Bi211"])
     ax = make_ax()
     env.fm.load_fit_curve(ax=ax, path=str(p))
     assert len(ax.lines) == 2                       # Po215 was unchecked
@@ -601,8 +601,96 @@ def test_load_multi_component_cancel_draws_nothing(env, tmp_path, monkeypatch):
     p = tmp_path / "multi.csv"
     env.fm.save_fit_curve(path=str(p))
     monkeypatch.setattr(env.fm, "_prompt_component_selection",
-                        lambda names, chains: None)   # cancelled
+                        lambda structure: None)        # cancelled
     ax = make_ax()
     out = env.fm.load_fit_curve(ax=ax, path=str(p))
     assert out is None
     assert len(ax.lines) == 0
+
+
+# ------------------------------------ Version 2: per-peak / per-chain save
+
+def _peaks_curve():
+    x = np.linspace(6600.0, 6620.0, 21)
+    def peak(mu, A):
+        y = A * np.exp(-0.5 * ((x - mu) / 3.0) ** 2)
+        return y
+    p1 = peak(6605.0, 640.0)   # Bi211 / 6623
+    p2 = peak(6610.0, 172.0)   # Bi211 / 6278
+    p3 = peak(6614.0, 391.0)   # Po215 / 7386
+    total = p1 + p2 + p3
+    def params(A, mu):
+        return {"A": A, "mu": mu, "sigma": 3.0, "tau1": 8.0, "tau2": 40.0, "eta": 0.7}
+    peaks = [
+        dict(chain="A227", isotope="Bi211", E=6623.0, y=p1, params=params(640.0, 6605.0)),
+        dict(chain="A227", isotope="Bi211", E=6278.0, y=p2, params=params(172.0, 6610.0)),
+        dict(chain="A227", isotope="Po215", E=7386.0, y=p3, params=params(391.0, 6614.0)),
+    ]
+    return {"x": x, "y": total, "model": "AlphaEMGMultiSigma", "name": "h1", "peaks": peaks}
+
+
+def test_save_peaks_writes_version2_layout(env, tmp_path):
+    env.fm._lastFitCurve = _peaks_curve()
+    p = tmp_path / "peaks.csv"
+    env.fm.save_fit_curve(path=str(p))
+    text = p.read_text()
+
+    # human-readable, self-describing — and NO json meta line
+    assert "meta =" not in text
+    assert "per-peak parameters:" in text
+    # real (non-comment) header row with grouped chain/isotope/E names
+    header = [ln for ln in text.splitlines() if ln.startswith("x,")][0]
+    cols = header.split(",")
+    assert cols[:2] == ["x", "fit total"]
+    assert "A227/Bi211" in cols                 # isotope sum column
+    assert "A227/Bi211/6623" in cols            # a peak column
+    assert "A227/Po215/7386" in cols
+    # loads as a normal CSV numeric block for Excel/pandas
+    arr = np.genfromtxt(str(p), delimiter=",", comments="#")
+    arr = arr[np.isfinite(arr[:, 0])]
+    assert arr.shape[1] == len(cols)
+
+
+def test_read_version2_recovers_structure(env, tmp_path):
+    env.fm._lastFitCurve = _peaks_curve()
+    p = tmp_path / "peaks.csv"
+    env.fm.save_fit_curve(path=str(p))
+
+    struct = env.fm._read_fit_curve_file(str(p))
+    assert struct["multi"] is True
+    kinds = {d["name"]: d["kind"] for d in struct["structure"]}
+    assert kinds["fit total"] == "total"
+    assert kinds["A227/Bi211"] == "isotope"
+    assert kinds["A227/Bi211/6623"] == "peak"
+    # chain + energy parsed back out of the column name
+    peak = [d for d in struct["structure"] if d["name"] == "A227/Bi211/6623"][0]
+    assert peak["chain"] == "A227" and peak["isotope"] == "Bi211" and peak["E"] == 6623.0
+    # the isotope-sum column equals the sum of its two peaks
+    data = dict(struct["components"])
+    assert np.allclose(data["A227/Bi211"], data["A227/Bi211/6623"] + data["A227/Bi211/6278"])
+
+
+def test_load_version2_picker_can_pick_a_single_peak(env, tmp_path, monkeypatch):
+    env.fm._lastFitCurve = _peaks_curve()
+    p = tmp_path / "peaks.csv"
+    env.fm.save_fit_curve(path=str(p))
+
+    # user picks just the total and one individual peak
+    monkeypatch.setattr(env.fm, "_prompt_component_selection",
+                        lambda structure: ["fit total", "A227/Bi211/6623"])
+    ax = make_ax()
+    env.fm.load_fit_curve(ax=ax, path=str(p))
+    assert len(ax.lines) == 2                       # total + one peak
+    assert env.fm.listFitLineLabels(ax) == ["0"]    # one deletable group
+    env.fm.deleteFit(0, "h1", ax, "0")
+    assert len(ax.lines) == 0
+
+
+def test_peaks_save_supersedes_component_save(env, tmp_path):
+    # when both peaks and components are present, the per-peak (v2) file wins
+    curve = _peaks_curve()
+    curve["components"] = [("fit total", curve["y"]), ("A227/Bi211", curve["y"])]
+    env.fm._lastFitCurve = curve
+    p = tmp_path / "both.csv"
+    env.fm.save_fit_curve(path=str(p))
+    assert "meta =" not in p.read_text()            # chose v2, not the meta file

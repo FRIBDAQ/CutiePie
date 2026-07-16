@@ -1016,6 +1016,9 @@ class AlphaMultiEMGSigmaFit:
         # per-isotope summed sampled curve (its subpeaks combined on the xx grid),
         # captured so a fit can be saved with all components (see fitln_total.component_series)
         iso_series = {}
+        # per-PEAK sampled curve + fitted params (chain/isotope/energy), captured for
+        # the per-peak-per-chain save (see fitln_total.peak_series)
+        peak_series = []
         # plot all subpeaks; same color per isotope, one legend entry per isotope
         for iso in self._isotopes:
             color = iso_colors[iso['name']]
@@ -1033,6 +1036,15 @@ class AlphaMultiEMGSigmaFit:
                                   sp['tau1'], sp['tau2'], sp['eta'], bwv)
 
                 iso_series[iso['name']] = iso_series.get(iso['name'], 0.0) + yj
+                peak_series.append(dict(
+                    chain=iso_to_chain.get(iso['name']) or "Unchained",
+                    isotope=iso['name'],
+                    E=float(sp['E']),
+                    y=yj,
+                    params=dict(A=float(sp['A']), mu=float(sp['mu']),
+                                sigma=float(sp['sigma']), tau1=float(sp['tau1']),
+                                tau2=float(sp['tau2']), eta=float(sp['eta'])),
+                ))
 
                 label = iso['name'] if first_for_iso else "_nolegend_"
                 (ln,) = axis.plot(
@@ -1151,6 +1163,8 @@ class AlphaMultiEMGSigmaFit:
             'fit total': 'tab:orange',
             **{iso['name']: iso_colors[iso['name']] for iso in self._isotopes},
         }
+        # per-peak sampled curves + params for the per-peak-per-chain save
+        fitln_total.peak_series = peak_series
         fitln_total._isotopes = [iso['name'] for iso in self._isotopes]
         #### for peak plot selection
         fitln_total._iso_lines = iso_lines
