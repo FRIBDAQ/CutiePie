@@ -342,3 +342,70 @@ def test_fit_output_line_format():
     assert "Peak 3" in text
     assert "7449.3" in text
     assert "FWHM" in text and "area" in text
+
+
+# ---------------------------- Peak Finder 2: automatic fit window (plan A)
+
+from services.peak_finder import estimate_fit_window, fit_gaussian_linear_auto
+
+
+def test_auto_fit_narrow_and_wide_peaks_same_click_style():
+    # no width input: the window must adapt to the peak itself
+    rng = np.random.default_rng(11)
+    x = np.arange(0.0, 600.0, 1.0)
+    for sigma in (2.0, 15.0):
+        y = _gauss_line(x, A=150.0, mu=300.0, sigma=sigma, m=-0.02, b=40.0)
+        y = y + rng.normal(0.0, 1.5, x.size)
+        r = fit_gaussian_linear_auto(x, y, center=300.0)
+        assert r["ok"], f"sigma={sigma}: {r.get('error')}"
+        assert abs(r["mu"] - 300.0) < 1.0, f"sigma={sigma}"
+        assert abs(r["sigma"] - sigma) / sigma < 0.15, f"sigma={sigma}"
+
+
+def test_auto_fit_off_summit_click_converges():
+    x = np.arange(0.0, 400.0, 1.0)
+    y = _gauss_line(x, A=100.0, mu=200.0, sigma=8.0, m=0.0, b=20.0)
+    # click on the flank, 1.5 sigma off the summit
+    r = fit_gaussian_linear_auto(x, y, center=212.0)
+    assert r["ok"] and abs(r["mu"] - 200.0) < 1.0
+
+
+def test_auto_fit_flat_background_fails_cleanly():
+    rng = np.random.default_rng(3)
+    x = np.arange(0.0, 400.0, 1.0)
+    y = np.full_like(x, 50.0) + rng.normal(0.0, np.sqrt(50.0), x.size)
+    r = fit_gaussian_linear_auto(x, y, center=200.0)
+    assert r["ok"] is False
+    assert "no peak" in r["error"].lower()
+
+
+def test_auto_fit_peak_near_spectrum_edge():
+    x = np.arange(0.0, 200.0, 1.0)
+    y = _gauss_line(x, A=90.0, mu=12.0, sigma=4.0, m=0.0, b=10.0)
+    r = fit_gaussian_linear_auto(x, y, center=12.0)
+    assert r["ok"] and abs(r["mu"] - 12.0) < 1.0
+
+
+def test_auto_fit_reports_window_used():
+    x = np.arange(0.0, 400.0, 1.0)
+    y = _gauss_line(x, A=100.0, mu=200.0, sigma=6.0, m=0.0, b=15.0)
+    r = fit_gaussian_linear_auto(x, y, center=200.0)
+    assert r["ok"]
+    assert r["win_lo"] < r["mu"] < r["win_hi"]
+    # window should be a few sigma wide, not the whole spectrum
+    span = r["win_hi"] - r["win_lo"]
+    assert 4 * r["sigma"] < span < 20 * r["sigma"]
+    # and the formatter mentions it
+    from services.peak_finder import format_gauss_fit_output
+    assert "window" in format_gauss_fit_output(1, r)
+
+
+def test_estimate_fit_window_snaps_and_scales():
+    x = np.arange(0.0, 400.0, 1.0)
+    y = _gauss_line(x, A=100.0, mu=200.0, sigma=10.0, m=0.0, b=5.0)
+    est = estimate_fit_window(x, y, center=195.0)     # off-summit click
+    assert est["ok"]
+    assert abs(est["mu"] - 200.0) < 3.0               # snapped to the summit
+    fwhm_true = 10.0 * 2.3548
+    assert 0.5 * fwhm_true < est["fwhm"] < 2.0 * fwhm_true
+    assert est["half_window"] >= est["fwhm"]          # window spans the peak

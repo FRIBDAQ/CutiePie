@@ -127,7 +127,7 @@ from services import geometry_io
 from services.dataframe_export import export_spectrum_csv
 from services.peak_finder import (
     PEAK_ALGORITHMS, find_peaks_in_range, format_peak_labels, format_peak_output,
-    fit_gaussian_linear, format_gauss_fit_output,
+    fit_gaussian_linear_auto, format_gauss_fit_output,
 )
 from services.figure_overlay import compute_overlay_position, apply_joystick_move, apply_fine_move
 from services.thread_workers import RestWorker, AutoUpdateWorker
@@ -3115,25 +3115,16 @@ class MainWindow(QMainWindow):
                 out.append("[skip] Peak Finder 2 works on 1D spectra only.")
                 return
 
-            try:
-                window_bins = int(self.extraPopup.peak.peak2_window.text())
-                if window_bins <= 0:
-                    raise ValueError
-            except ValueError:
-                out.append("[skip] Window (in bins) must be a positive integer.")
-                return
-
             binx     = self.getSpectrumStoreInfo("binx", index=index)
             minxREST = self.getSpectrumStoreInfo("minx", index=index)
             maxxREST = self.getSpectrumStoreInfo("maxx", index=index)
             xtmp = self.createRange(binx, minxREST, maxxREST)
             ytmp = self.getSpectrumStoreInfo("data", index=index)
-            # bin centres to match the counts array
+            # bin centres to match the counts array; the fit window is chosen
+            # automatically from the data around the click (plan A)
             xc = np.asarray(xtmp[:-1]) + 0.5 * np.diff(np.asarray(xtmp))
-            bw = float(maxxREST - minxREST) / float(binx)
-            half_window = 0.5 * window_bins * bw
 
-            r = fit_gaussian_linear(xc, np.asarray(ytmp)[1:], float(event.xdata), half_window)
+            r = fit_gaussian_linear_auto(xc, np.asarray(ytmp)[1:], float(event.xdata))
 
             self.peak2_count += 1
             out.append(format_gauss_fit_output(self.peak2_count, r))

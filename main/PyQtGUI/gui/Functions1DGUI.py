@@ -92,28 +92,19 @@ class Fncts1D(QDialog):
         self.peak2_start.setStyleSheet("background-color:#bcee68;")
         self.peak2_start.setToolTip(
             "Arm the selected pad: each left-click fits a gaussian + linear "
-            "background around the click")
+            "background around the click (fit window chosen automatically)")
         self.peak2_clear = QPushButton("Clear", self)
         self.peak2_clear.setToolTip("Remove all fitted peaks and clear the output")
-
-        self.peak2_window_label = QLabel("Window (in bins)")
-        self.peak2_window = QLineEdit()
-        self.peak2_window.setText("40")
 
         self.peak2_results_label = QLabel("Output")
         self.peak2_results = QTextEdit()
         self.peak2_results.setReadOnly(True)
-
-        layw = QHBoxLayout()
-        layw.addWidget(self.peak2_window_label)
-        layw.addWidget(self.peak2_window)
 
         layb = QHBoxLayout()
         layb.addWidget(self.peak2_start)
         layb.addWidget(self.peak2_clear)
 
         layout = QVBoxLayout()
-        layout.addLayout(layw)
         layout.addLayout(layb)
         layout.addWidget(self.peak2_results_label)
         layout.addWidget(self.peak2_results)

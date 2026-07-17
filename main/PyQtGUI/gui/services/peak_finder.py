@@ -278,17 +278,116 @@ def fit_gaussian_linear(x_axis, y_data, center, half_window):
                 xx=xx, y_fit=_gauss_lin(xx, *popt), y_bg=m * xx + b)
 
 
+def estimate_fit_window(x_axis, y_data, center):
+    """Estimate the fit window around a clicked position — no user width.
+
+    Plan-A heuristic: lightly smooth the counts, hill-climb from the click to
+    the local summit, walk down each flank until the descent stops (3
+    consecutive non-decreasing bins), take the lower stop level as the local
+    background, and measure a crude FWHM at half of (summit - background).
+    Returns ``{ok, mu, fwhm, half_window}`` — ``half_window = 3*FWHM``, floored
+    at 8 bins — or ``{ok: False, error}`` when the click shows no significant
+    peak (summit fails a 3-sigma Poisson test against the local background)."""
+    x = np.asarray(x_axis, dtype=float)
+    y = np.asarray(y_data, dtype=float)
+    n = x.size
+    if n < 12:
+        return dict(ok=False, error="spectrum window too small")
+    bw = float(np.median(np.diff(x)))
+
+    # light smoothing so the hill-climb and walks don't chase Poisson noise
+    kernel = np.ones(5) / 5.0
+    ys = np.convolve(y, kernel, mode="same")
+
+    # hill-climb from the click to the local summit (adapts to any binning)
+    i = int(np.argmin(np.abs(x - float(center))))
+    for _ in range(200):
+        lo, hi = max(0, i - 3), min(n, i + 4)
+        j = lo + int(np.argmax(ys[lo:hi]))
+        if j == i:
+            break
+        i = j
+    p = i
+
+    def _walk(step):
+        """Follow the flank away from the summit until 3 consecutive
+        non-decreasing bins (descent over); return the stop index."""
+        k, bad, last = p, 0, ys[p]
+        while 0 < k + step < n - 1:
+            k += step
+            if ys[k] < last:
+                bad = 0
+                last = ys[k]
+            else:
+                bad += 1
+                if bad >= 3:
+                    break
+        return k
+
+    l_stop, r_stop = _walk(-1), _walk(+1)
+    bg = min(float(np.min(ys[l_stop:p + 1])), float(np.min(ys[p:r_stop + 1])))
+    amp = float(ys[p]) - bg
+    if amp <= 3.0 * np.sqrt(max(bg, 1.0)):
+        return dict(ok=False, error="no peak found near click "
+                                    "(not significant above local background)")
+
+    # crude FWHM: first half-crossing on each flank (stop index as fallback)
+    level = bg + 0.5 * amp
+    li = p
+    while li > l_stop and ys[li] > level:
+        li -= 1
+    ri = p
+    while ri < r_stop and ys[ri] > level:
+        ri += 1
+    fwhm = float(x[ri] - x[li])
+    if fwhm < 2.0 * bw:
+        return dict(ok=False, error="no peak found near click (narrower than 2 bins)")
+
+    half_window = max(3.0 * fwhm, 8.0 * bw)
+    return dict(ok=True, mu=float(x[p]), fwhm=fwhm, half_window=half_window)
+
+
+def fit_gaussian_linear_auto(x_axis, y_data, center):
+    """Click-to-fit with an automatic window (plan A).
+
+    Estimate the window from the data (:func:`estimate_fit_window`), fit, then
+    refine once over ``mu_fit +- 4*sigma_fit`` so the final window adapts to
+    the *fitted* width. The returned dict additionally carries the window
+    actually used (``win_lo``/``win_hi``)."""
+    est = estimate_fit_window(x_axis, y_data, center)
+    if not est["ok"]:
+        return dict(ok=False, error=est["error"])
+
+    x = np.asarray(x_axis, dtype=float)
+    bw = float(np.median(np.diff(x)))
+    r1 = fit_gaussian_linear(x_axis, y_data, est["mu"], est["half_window"])
+    r1_win = (est["mu"] - est["half_window"], est["mu"] + est["half_window"])
+    if not r1["ok"]:
+        return r1
+
+    hw2 = max(4.0 * r1["sigma"], 8.0 * bw)
+    r2 = fit_gaussian_linear(x_axis, y_data, r1["mu"], hw2)
+    if r2["ok"]:
+        r2["win_lo"], r2["win_hi"] = r1["mu"] - hw2, r1["mu"] + hw2
+        return r2
+    r1["win_lo"], r1["win_hi"] = r1_win
+    return r1
+
+
 def format_gauss_fit_output(peak_no, r):
     """The Peak Finder 2 output block for one fitted peak (or its error)."""
     if not r.get("ok"):
         return f"Peak {peak_no}: FAILED — {r.get('error', 'unknown error')}"
-    return (f"Peak {peak_no} @ μ = {r['mu']:.6g} ± {r['dmu']:.2g}\n"
+    text = (f"Peak {peak_no} @ μ = {r['mu']:.6g} ± {r['dmu']:.2g}\n"
             f"   A = {r['A']:.4g} ± {r['dA']:.2g}, "
             f"σ = {r['sigma']:.4g} ± {r['dsigma']:.2g}, "
             f"FWHM = {r['fwhm']:.4g} ± {r['dfwhm']:.2g}\n"
             f"   net area = {r['area']:.4g} ± {r['darea']:.2g} counts, "
             f"bg = {r['m']:.3g}·x + {r['b']:.4g}, "
             f"red-χ² = {r['redchi']:.3g}")
+    if "win_lo" in r and "win_hi" in r:
+        text += f"\n   window = [{r['win_lo']:.6g}, {r['win_hi']:.6g}] (auto)"
+    return text
 
 
 def format_peak_output(peaks, properties, datax):
