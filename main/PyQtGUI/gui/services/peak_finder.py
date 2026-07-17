@@ -39,7 +39,10 @@ the find + output-formatting logic is unit-testable without PyQt5 (mirrors
 """
 
 import numpy as np
+from scipy.optimize import curve_fit
 from scipy.signal import find_peaks, peak_prominences, peak_widths, savgol_filter
+
+_FWHM_K = 2.0 * np.sqrt(2.0 * np.log(2.0))   # sigma -> FWHM
 
 
 def find_peaks_in_range(x_axis, y_data, xmin, xmax, width):
@@ -194,6 +197,98 @@ PEAK_ALGORITHMS = {
     "Raw counts (legacy)": find_peaks_in_range,
     "Raw counts (legacy, fast)": find_peaks_in_range_vectorized,
 }
+
+
+# ---------------------------------------------------------------------------
+# Peak Finder 2 — click-to-fit: gaussian + linear background around a click.
+# Qt-free core; MainWindow owns the Start/Stop toggle, the mpl click binding,
+# and the drawing (fit curve, dashed background, blue net-area fill).
+# ---------------------------------------------------------------------------
+
+def _gauss_lin(x, A, mu, sigma, m, b):
+    return A * np.exp(-0.5 * ((x - mu) / sigma) ** 2) + m * x + b
+
+
+def fit_gaussian_linear(x_axis, y_data, center, half_window):
+    """Fit ``A*exp(-(x-mu)^2/2sigma^2) + m*x + b`` around a clicked position.
+
+    ``center`` is the clicked x; the fit spans ``center +- half_window`` (in x
+    units), clipped to the spectrum. Seeds: mu at the highest bin near the
+    click, background from the window's edge bins, A from peak minus
+    background.
+
+    Returns a dict. On success (``ok=True``): params ``A/mu/sigma/m/b`` with
+    uncertainties ``dA/dmu/dsigma``, ``fwhm``/``dfwhm``, the NET gaussian area
+    in counts ``area``/``darea`` (``A*sigma*sqrt(2pi)/bin_width`` — background
+    excluded), ``redchi``, and sampled curves ``xx``/``y_fit``/``y_bg`` for
+    drawing (the blue fill goes between ``y_bg`` and ``y_fit``).
+    On failure (``ok=False``): an ``error`` message string."""
+    x = np.asarray(x_axis, dtype=float)
+    y = np.asarray(y_data, dtype=float)
+    mask = (x >= center - half_window) & (x <= center + half_window)
+    xs, ys = x[mask], y[mask]
+    if xs.size < 6:
+        return dict(ok=False, error="fit window holds fewer than 6 bins — "
+                                    "widen the Window field or click inside the spectrum")
+
+    bw = float(np.median(np.diff(xs))) if xs.size > 1 else 1.0
+
+    # seeds: background from the window edges, centroid from the local maximum
+    n_edge = max(2, xs.size // 10)
+    edge_x = np.concatenate([xs[:n_edge], xs[-n_edge:]])
+    edge_y = np.concatenate([ys[:n_edge], ys[-n_edge:]])
+    try:
+        m0, b0 = np.polyfit(edge_x, edge_y, 1)
+    except Exception:
+        m0, b0 = 0.0, float(np.min(ys))
+    resid = ys - (m0 * xs + b0)
+    i_pk = int(np.argmax(resid))
+    mu0 = float(xs[i_pk])
+    A0 = max(float(resid[i_pk]), 1e-3)
+    sigma0 = max(half_window / 6.0, bw)
+
+    try:
+        popt, pcov = curve_fit(
+            _gauss_lin, xs, ys, p0=[A0, mu0, sigma0, m0, b0],
+            bounds=([0.0, xs[0], bw * 0.25, -np.inf, -np.inf],
+                    [np.inf, xs[-1], (xs[-1] - xs[0]), np.inf, np.inf]),
+            maxfev=5000)
+    except Exception as e:
+        return dict(ok=False, error=f"fit did not converge: {e}")
+
+    A, mu, sigma, m, b = (float(v) for v in popt)
+    perr = np.sqrt(np.clip(np.diag(pcov), 0.0, np.inf))
+    dA, dmu, dsigma = float(perr[0]), float(perr[1]), float(perr[2])
+
+    fwhm = _FWHM_K * sigma
+    dfwhm = _FWHM_K * dsigma
+    area = A * sigma * np.sqrt(2.0 * np.pi) / bw
+    # propagate A and sigma errors (correlation ignored — quoted as estimate)
+    darea = area * float(np.hypot(dA / A if A else 0.0,
+                                  dsigma / sigma if sigma else 0.0))
+
+    yhat = _gauss_lin(xs, *popt)
+    dof = max(xs.size - 5, 1)
+    redchi = float(np.sum((ys - yhat) ** 2 / np.clip(yhat, 1.0, None)) / dof)
+
+    xx = np.linspace(xs[0], xs[-1], 400)
+    return dict(ok=True, A=A, dA=dA, mu=mu, dmu=dmu, sigma=sigma,
+                dsigma=dsigma, m=m, b=b, fwhm=fwhm, dfwhm=dfwhm,
+                area=area, darea=darea, redchi=redchi,
+                xx=xx, y_fit=_gauss_lin(xx, *popt), y_bg=m * xx + b)
+
+
+def format_gauss_fit_output(peak_no, r):
+    """The Peak Finder 2 output block for one fitted peak (or its error)."""
+    if not r.get("ok"):
+        return f"Peak {peak_no}: FAILED — {r.get('error', 'unknown error')}"
+    return (f"Peak {peak_no} @ μ = {r['mu']:.6g} ± {r['dmu']:.2g}\n"
+            f"   A = {r['A']:.4g} ± {r['dA']:.2g}, "
+            f"σ = {r['sigma']:.4g} ± {r['dsigma']:.2g}, "
+            f"FWHM = {r['fwhm']:.4g} ± {r['dfwhm']:.2g}\n"
+            f"   net area = {r['area']:.4g} ± {r['darea']:.2g} counts, "
+            f"bg = {r['m']:.3g}·x + {r['b']:.4g}, "
+            f"red-χ² = {r['redchi']:.3g}")
 
 
 def format_peak_output(peaks, properties, datax):

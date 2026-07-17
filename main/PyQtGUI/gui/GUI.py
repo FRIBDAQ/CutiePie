@@ -127,6 +127,7 @@ from services import geometry_io
 from services.dataframe_export import export_spectrum_csv
 from services.peak_finder import (
     PEAK_ALGORITHMS, find_peaks_in_range, format_peak_labels, format_peak_output,
+    fit_gaussian_linear, format_gauss_fit_output,
 )
 from services.figure_overlay import compute_overlay_position, apply_joystick_move, apply_fine_move
 from services.thread_workers import RestWorker, AutoUpdateWorker
@@ -418,6 +419,13 @@ class MainWindow(QMainWindow):
         self.peak_txt = {}
         self.isChecked = {}
 
+        # Peak Finder 2 (click-to-fit): armed-mode connection id, accumulated
+        # artists [(curve, bg, fill), ...] and the running peak counter
+        self.peak2_cid = None
+        self.peak2_canvas = None
+        self.peak2_artists = []
+        self.peak2_count = 0
+
         # overlay
         self.onFigure = False
 
@@ -671,6 +679,10 @@ class MainWindow(QMainWindow):
 
         self.extraPopup.peak.peak_analysis.clicked.connect(self.analyzePeak)
         self.extraPopup.peak.peak_analysis_clear.clicked.connect(self.peakAnalClear)
+        # Peak Finder 2 (click-to-fit): Start is a checkable toggle; lambda
+        # shields Clear from clicked(bool)'s checked arg (the E17 trap)
+        self.extraPopup.peak.peak2_start.toggled.connect(self.peakFit2Toggle)
+        self.extraPopup.peak.peak2_clear.clicked.connect(lambda: self.peakFit2Clear())
         # peak-selection list: wired ONCE here (the old per-scan
         # stateChanged.connect on the fixed checkbox grid stacked a duplicate
         # connection on every Scan); lambdas shield from clicked(bool)'s
@@ -3047,6 +3059,119 @@ class MainWindow(QMainWindow):
             # or a find_peaks failure must not crash the GUI — but must not be
             # silent either (the user would see nothing happen with no clue why).
             self.logger.exception('analyzePeak - peak analysis failed')
+
+
+    ############################
+    # 14b) Peak Finder 2 — click-to-fit (gaussian + linear background)
+    ############################
+
+    def peakFit2Toggle(self, checked):
+        """Start/Stop toggle: arm (or disarm) the current tab's canvas so each
+        left-click fits a gaussian+linear around the clicked position."""
+        self.logger.info('peakFit2Toggle - checked: %s', checked)
+        btn = self.extraPopup.peak.peak2_start
+        if checked:
+            canvas = self.wTab.wPlot[self.wTab.currentIndex()].canvas
+            self.peak2_canvas = canvas
+            self.peak2_cid = canvas.mpl_connect("button_press_event", self.onPeakFit2Click)
+            btn.setText("Stop")
+            btn.setStyleSheet("background-color:#ff6b6b;")
+            self.extraPopup.peak.peak2_results.append(
+                "[armed] Left-click a peak on the pad to fit it. "
+                "Click Stop to disarm.")
+        else:
+            if self.peak2_cid is not None and self.peak2_canvas is not None:
+                try:
+                    self.peak2_canvas.mpl_disconnect(self.peak2_cid)
+                except Exception:
+                    self.logger.debug('peakFit2Toggle - disconnect failed', exc_info=True)
+            self.peak2_cid = None
+            self.peak2_canvas = None
+            btn.setText("Start")
+            btn.setStyleSheet("background-color:#bcee68;")
+
+    def onPeakFit2Click(self, event):
+        """Armed-mode click handler: fit gaussian+linear around the click on
+        the clicked pad, draw curve + dashed background + blue net-area fill,
+        and report the parameters in the Peak Finder 2 output box."""
+        if event.button != 1 or event.dblclick or event.inaxes is None:
+            return
+        if event.xdata is None:
+            return
+        out = self.extraPopup.peak.peak2_results
+        try:
+            if "colorbar_" in event.inaxes.get_label():
+                return
+            # resolve the clicked pad (same rule as on_press)
+            index = list(self.currentPlot.figure.axes).index(event.inaxes)
+            if self.currentPlot.isEnlarged:
+                index = self.wTab.selected_plot_index_bak[self.wTab.currentIndex()]
+
+            name = self.nameFromIndex(index)
+            if not name:
+                out.append("[skip] Clicked pad holds no spectrum.")
+                return
+            if self.getSpectrumStoreInfo("dim", index=index) != 1:
+                out.append("[skip] Peak Finder 2 works on 1D spectra only.")
+                return
+
+            try:
+                window_bins = int(self.extraPopup.peak.peak2_window.text())
+                if window_bins <= 0:
+                    raise ValueError
+            except ValueError:
+                out.append("[skip] Window (in bins) must be a positive integer.")
+                return
+
+            binx     = self.getSpectrumStoreInfo("binx", index=index)
+            minxREST = self.getSpectrumStoreInfo("minx", index=index)
+            maxxREST = self.getSpectrumStoreInfo("maxx", index=index)
+            xtmp = self.createRange(binx, minxREST, maxxREST)
+            ytmp = self.getSpectrumStoreInfo("data", index=index)
+            # bin centres to match the counts array
+            xc = np.asarray(xtmp[:-1]) + 0.5 * np.diff(np.asarray(xtmp))
+            bw = float(maxxREST - minxREST) / float(binx)
+            half_window = 0.5 * window_bins * bw
+
+            r = fit_gaussian_linear(xc, np.asarray(ytmp)[1:], float(event.xdata), half_window)
+
+            self.peak2_count += 1
+            out.append(format_gauss_fit_output(self.peak2_count, r))
+            if not r["ok"]:
+                return
+
+            ax = event.inaxes
+            (curve,) = ax.plot(r["xx"], r["y_fit"], color="tab:red", lw=1.8)
+            (bgline,) = ax.plot(r["xx"], r["y_bg"], color="grey", lw=1.0, ls="--")
+            fill = ax.fill_between(r["xx"], r["y_bg"], r["y_fit"],
+                                   where=r["y_fit"] >= r["y_bg"],
+                                   color="tab:blue", alpha=0.45)
+            for art in (curve, bgline, fill):
+                if hasattr(art, "set_gid"):
+                    art.set_gid("peakfit2")
+            self.peak2_artists.append((curve, bgline, fill))
+            self.currentPlot.canvas.draw_idle()
+        except Exception:
+            # a click must never crash the GUI; report instead
+            self.logger.exception('onPeakFit2Click - fit failed')
+            out.append("[error] Fit failed — see log.")
+
+    def peakFit2Clear(self):
+        """Remove every Peak Finder 2 artist and clear its output box."""
+        self.logger.info('peakFit2Clear')
+        for group in self.peak2_artists:
+            for art in group:
+                try:
+                    art.remove()
+                except Exception:
+                    self.logger.debug('peakFit2Clear - artist remove failed', exc_info=True)
+        self.peak2_artists = []
+        self.peak2_count = 0
+        self.extraPopup.peak.peak2_results.clear()
+        try:
+            self.currentPlot.canvas.draw_idle()
+        except Exception:
+            self.logger.debug('peakFit2Clear - redraw failed', exc_info=True)
 
 
     ############################

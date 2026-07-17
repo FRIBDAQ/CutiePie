@@ -33,6 +33,8 @@ class SpecialFunctions(QWidget):
         self.v.addWidget(self.peak.create_jupBox())
 
         self.layout.addLayout(self.v)
+        # Peak Finder 2 (click-to-fit) column, right of the Peak Finder stack
+        self.layout.addWidget(self.peak.create_peakBox2())
         self.layout.addWidget(self.imaging.create_liseBox())
         self.layout.addWidget(self.options.create_options())
         # fillpoints has issues with speed

@@ -255,3 +255,90 @@ def test_all_algorithms_share_the_return_contract():
         for key in REQUIRED_PROPERTY_KEYS:
             assert key in props, f"{name} missing {key}"
         assert all(0 <= p < len(datax) for p in peaks), name
+
+
+# ------------------------------- Peak Finder 2: click-to-fit gaussian+linear
+
+from services.peak_finder import fit_gaussian_linear
+
+
+def _gauss_line(x, A, mu, sigma, m, b):
+    return A * np.exp(-0.5 * ((x - mu) / sigma) ** 2) + m * x + b
+
+
+def test_fit_recovers_known_gaussian_on_slope():
+    rng = np.random.default_rng(7)
+    x = np.arange(0.0, 400.0, 1.0)
+    y = _gauss_line(x, A=120.0, mu=207.0, sigma=6.0, m=-0.05, b=60.0)
+    y = y + rng.normal(0.0, 1.0, x.size)          # mild noise
+
+    r = fit_gaussian_linear(x, y, center=204.0, half_window=40.0)
+    assert r["ok"] is True
+    assert abs(r["mu"] - 207.0) < 0.5
+    assert abs(r["sigma"] - 6.0) < 0.5
+    assert abs(r["A"] - 120.0) < 5.0
+    assert abs(r["fwhm"] - 6.0 * 2.3548) < 1.0
+    # net gaussian counts = A*sigma*sqrt(2pi)/bin_width (bin width 1 here)
+    expected_area = 120.0 * 6.0 * np.sqrt(2 * np.pi)
+    assert abs(r["area"] - expected_area) / expected_area < 0.05
+    # uncertainties present and finite
+    for k in ("dmu", "dsigma", "dA", "dfwhm", "darea"):
+        assert np.isfinite(r[k])
+    # sampled curves for drawing: same x grid, fit above bg at the peak
+    assert r["xx"].shape == r["y_fit"].shape == r["y_bg"].shape
+    i = int(np.argmin(np.abs(r["xx"] - r["mu"])))
+    assert r["y_fit"][i] > r["y_bg"][i]
+
+
+def test_fit_seeds_from_local_max_not_click():
+    # click slightly off-peak still converges to the true centroid
+    x = np.arange(0.0, 200.0, 1.0)
+    y = _gauss_line(x, A=80.0, mu=100.0, sigma=4.0, m=0.0, b=10.0)
+    r = fit_gaussian_linear(x, y, center=93.0, half_window=25.0)
+    assert r["ok"] and abs(r["mu"] - 100.0) < 0.5
+
+
+def test_fit_window_clipped_at_spectrum_edge():
+    x = np.arange(0.0, 100.0, 1.0)
+    y = _gauss_line(x, A=50.0, mu=8.0, sigma=3.0, m=0.0, b=5.0)
+    r = fit_gaussian_linear(x, y, center=8.0, half_window=30.0)   # window spills left
+    assert r["ok"] and abs(r["mu"] - 8.0) < 1.0
+
+
+def test_fit_too_few_points_fails_cleanly():
+    x = np.arange(0.0, 100.0, 1.0)
+    y = np.ones_like(x)
+    r = fit_gaussian_linear(x, y, center=50.0, half_window=1.0)
+    assert r["ok"] is False
+    assert isinstance(r["error"], str) and r["error"]
+
+
+def test_fit_flat_data_fails_cleanly_or_zero_area():
+    x = np.arange(0.0, 100.0, 1.0)
+    y = np.full_like(x, 7.0)
+    r = fit_gaussian_linear(x, y, center=50.0, half_window=20.0)
+    # flat data: either the fit fails, or it converges to ~zero amplitude
+    assert (r["ok"] is False) or (abs(r["A"]) < 1.0)
+
+
+def test_fit_area_respects_bin_width():
+    # same gaussian sampled with 2-unit bins: counts-per-bin area halves? No —
+    # area in COUNTS = A*sigma*sqrt(2pi)/bin_width; with bw=2 the summed counts
+    # under the peak are half those of bw=1 sampling
+    x = np.arange(0.0, 400.0, 2.0)
+    y = _gauss_line(x, A=100.0, mu=200.0, sigma=8.0, m=0.0, b=0.0)
+    r = fit_gaussian_linear(x, y, center=200.0, half_window=60.0)
+    assert r["ok"]
+    expected = 100.0 * 8.0 * np.sqrt(2 * np.pi) / 2.0
+    assert abs(r["area"] - expected) / expected < 0.05
+
+
+def test_fit_output_line_format():
+    from services.peak_finder import format_gauss_fit_output
+    r = dict(ok=True, mu=7449.3, dmu=0.4, A=123.4, dA=5.6, sigma=12.3,
+             dsigma=0.5, fwhm=29.0, dfwhm=1.1, area=4530.0, darea=120.0,
+             m=-0.05, b=60.0, redchi=1.23)
+    text = format_gauss_fit_output(3, r)
+    assert "Peak 3" in text
+    assert "7449.3" in text
+    assert "FWHM" in text and "area" in text

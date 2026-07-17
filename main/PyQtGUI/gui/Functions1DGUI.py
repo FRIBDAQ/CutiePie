@@ -82,7 +82,47 @@ class Fncts1D(QDialog):
 
         return peakBox
 
-    def create_jupBox(self):    
+    def create_peakBox2(self):
+        # Peak Finder 2: click-to-fit. Start toggles an armed mode (wired in
+        # GUI.py) where each pad click fits gaussian+linear around the click.
+        peakBox2 = QGroupBox("Peak Finder 2")
+
+        self.peak2_start = QPushButton("Start", self)
+        self.peak2_start.setCheckable(True)
+        self.peak2_start.setStyleSheet("background-color:#bcee68;")
+        self.peak2_start.setToolTip(
+            "Arm the selected pad: each left-click fits a gaussian + linear "
+            "background around the click")
+        self.peak2_clear = QPushButton("Clear", self)
+        self.peak2_clear.setToolTip("Remove all fitted peaks and clear the output")
+
+        self.peak2_window_label = QLabel("Window (in bins)")
+        self.peak2_window = QLineEdit()
+        self.peak2_window.setText("40")
+
+        self.peak2_results_label = QLabel("Output")
+        self.peak2_results = QTextEdit()
+        self.peak2_results.setReadOnly(True)
+
+        layw = QHBoxLayout()
+        layw.addWidget(self.peak2_window_label)
+        layw.addWidget(self.peak2_window)
+
+        layb = QHBoxLayout()
+        layb.addWidget(self.peak2_start)
+        layb.addWidget(self.peak2_clear)
+
+        layout = QVBoxLayout()
+        layout.addLayout(layw)
+        layout.addLayout(layb)
+        layout.addWidget(self.peak2_results_label)
+        layout.addWidget(self.peak2_results)
+        layout.addStretch(1)
+        peakBox2.setLayout(layout)
+
+        return peakBox2
+
+    def create_jupBox(self):
         jupBox = QGroupBox("Jupyter Notebook")        
 
         self.jup_start = QPushButton("Start", self)
