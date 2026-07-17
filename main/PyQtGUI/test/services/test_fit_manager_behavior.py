@@ -582,30 +582,21 @@ def test_plot_components_tags_one_deletable_group(env):
     assert len(ax.lines) == 0
 
 
-def test_load_multi_component_uses_picker_subset(env, tmp_path, monkeypatch):
+def test_load_multi_component_draws_all_and_opens_panel(env, tmp_path, monkeypatch):
     env.fm._lastFitCurve = _components_curve()
     p = tmp_path / "multi.csv"
     env.fm.save_fit_curve(path=str(p))
 
-    # user checks only the total and Bi211
-    monkeypatch.setattr(env.fm, "_prompt_component_selection",
-                        lambda structure: ["fit total", "Bi211"])
+    opened = {}
+    monkeypatch.setattr(env.fm, "_open_loaded_fit_panel",
+                        lambda ax, structure, group: opened.update(group=group))
     ax = make_ax()
-    env.fm.load_fit_curve(ax=ax, path=str(p))
-    assert len(ax.lines) == 2                       # Po215 was unchecked
-    assert env.fm.listFitLineLabels(ax) == ["0"]    # one fit group
+    group = env.fm.load_fit_curve(ax=ax, path=str(p))
 
-
-def test_load_multi_component_cancel_draws_nothing(env, tmp_path, monkeypatch):
-    env.fm._lastFitCurve = _components_curve()
-    p = tmp_path / "multi.csv"
-    env.fm.save_fit_curve(path=str(p))
-    monkeypatch.setattr(env.fm, "_prompt_component_selection",
-                        lambda structure: None)        # cancelled
-    ax = make_ax()
-    out = env.fm.load_fit_curve(ax=ax, path=str(p))
-    assert out is None
-    assert len(ax.lines) == 0
+    # all three components drawn as ONE group; the live panel was opened
+    assert len(ax.lines) == 3                        # total + Bi211 + Po215
+    assert env.fm.listFitLineLabels(ax) == ["0"]
+    assert opened["group"] is group
 
 
 # ------------------------------------ Version 2: per-peak / per-chain save
@@ -634,21 +625,29 @@ def test_save_peaks_writes_version2_layout(env, tmp_path):
     p = tmp_path / "peaks.csv"
     env.fm.save_fit_curve(path=str(p))
     text = p.read_text()
+    lines = text.splitlines()
 
-    # human-readable, self-describing — and NO json meta line
+    # self-describing — no json meta line
     assert "meta =" not in text
-    assert "per-peak parameters:" in text
-    # real (non-comment) header row with grouped chain/isotope/E names
-    header = [ln for ln in text.splitlines() if ln.startswith("x,")][0]
+    # the per-peak parameters section is now a CSV table, NOT a comment block
+    assert "# per-peak parameters:" not in text
+    assert "chain,isotope,E_keV,A,mu,sigma,tau1,tau2,eta" in lines
+    assert any(ln.startswith("A227,Bi211,6623,") for ln in lines)   # a param row
+    assert any(ln.startswith("A227,Po215,7386,") for ln in lines)
+
+    # sampled-data table header with grouped chain/isotope/E names
+    header = [ln for ln in lines if ln.startswith("x,")][0]
     cols = header.split(",")
     assert cols[:2] == ["x", "fit total"]
     assert "A227/Bi211" in cols                 # isotope sum column
     assert "A227/Bi211/6623" in cols            # a peak column
     assert "A227/Po215/7386" in cols
-    # loads as a normal CSV numeric block for Excel/pandas
-    arr = np.genfromtxt(str(p), delimiter=",", comments="#")
-    arr = arr[np.isfinite(arr[:, 0])]
-    assert arr.shape[1] == len(cols)
+
+    # the data table round-trips through the loader
+    struct = env.fm._read_fit_curve_file(str(p))
+    assert struct["multi"] is True
+    assert [n for n, _ in struct["components"]] == cols[1:]
+    assert dict(struct["components"])["fit total"].shape[0] == 21
 
 
 def test_read_version2_recovers_structure(env, tmp_path):
@@ -670,20 +669,69 @@ def test_read_version2_recovers_structure(env, tmp_path):
     assert np.allclose(data["A227/Bi211"], data["A227/Bi211/6623"] + data["A227/Bi211/6278"])
 
 
-def test_load_version2_picker_can_pick_a_single_peak(env, tmp_path, monkeypatch):
+def test_load_version2_returns_editable_group(env, tmp_path, monkeypatch):
     env.fm._lastFitCurve = _peaks_curve()
     p = tmp_path / "peaks.csv"
     env.fm.save_fit_curve(path=str(p))
 
-    # user picks just the total and one individual peak
-    monkeypatch.setattr(env.fm, "_prompt_component_selection",
-                        lambda structure: ["fit total", "A227/Bi211/6623"])
+    monkeypatch.setattr(env.fm, "_open_loaded_fit_panel",
+                        lambda ax, structure, group: None)
     ax = make_ax()
-    env.fm.load_fit_curve(ax=ax, path=str(p))
-    assert len(ax.lines) == 2                       # total + one peak
-    assert env.fm.listFitLineLabels(ax) == ["0"]    # one deletable group
+    group = env.fm.load_fit_curve(ax=ax, path=str(p))
+
+    # all columns drawn (total + 2 isotope sums + 3 peaks), one deletable group
+    assert len(ax.lines) == 6
+    assert env.fm.listFitLineLabels(ax) == ["0"]
+    # remove one peak live via the group; still one group
+    group.set("A227/Bi211/6623", False)
+    assert len(ax.lines) == 5
+    assert env.fm.listFitLineLabels(ax) == ["0"]
     env.fm.deleteFit(0, "h1", ax, "0")
     assert len(ax.lines) == 0
+
+
+# ---------------------------------------------- LoadedFitGroup (live add/remove)
+
+def _group(fm_mod, env, ax):
+    x = np.linspace(0.0, 10.0, 20)
+    data = {"fit total": np.sin(x) + 2, "A227/Bi211": np.sin(x) + 1,
+            "A227/Bi211/6623": 0.5 * np.sin(x)}
+    return fm_mod.LoadedFitGroup(ax, x, data, {}, index=0)
+
+
+def test_group_add_remove_keeps_single_index(fm_mod, env):
+    ax = make_ax()
+    g = _group(fm_mod, env, ax)
+    g.set("fit total", True)
+    g.set("A227/Bi211", True)
+    assert len(ax.lines) == 2
+    assert all(l.get_gid() == "fit-0" for l in ax.lines)
+    assert env.fm.listFitLineLabels(ax) == ["0"]        # exactly one carrier
+    g.set("A227/Bi211", False)
+    assert len(ax.lines) == 1
+    assert env.fm.listFitLineLabels(ax) == ["0"]
+
+
+def test_group_carrier_reassigns_when_total_removed(fm_mod, env):
+    ax = make_ax()
+    g = _group(fm_mod, env, ax)
+    g.set("fit total", True)
+    g.set("A227/Bi211/6623", True)
+    assert env.fm.listFitLineLabels(ax) == ["0"]
+    g.set("fit total", False)                            # carrier removed
+    assert len(ax.lines) == 1
+    assert env.fm.listFitLineLabels(ax) == ["0"]        # label hopped to the peak
+
+
+def test_group_empty_then_readd(fm_mod, env):
+    ax = make_ax()
+    g = _group(fm_mod, env, ax)
+    g.set("fit total", True)
+    g.set("fit total", False)
+    assert len(ax.lines) == 0
+    assert env.fm.listFitLineLabels(ax) == []           # index freed
+    g.set("A227/Bi211", True)
+    assert env.fm.listFitLineLabels(ax) == ["0"]        # group reappears
 
 
 def test_peaks_save_supersedes_component_save(env, tmp_path):

@@ -20,6 +20,85 @@ from alpha_filter_dialog import AlphaChainIsoFilterDialog
 FIT_PREFIX = "fit-_-"
 
 
+class LoadedFitGroup:
+    """Live-editable set of drawn lines for one loaded fit on an axis.
+
+    Components can be added/removed one at a time (as the Load-Fit panel's
+    checkboxes are toggled) while staying a single deletable fit group: every
+    line shares the gid ``fit-<N>`` and exactly one shown line carries the
+    ``fit-_-<N>`` label (the group's index that Sel. All / Delete recognise).
+    Qt-free so the add/remove logic is unit-testable on a headless Agg axis."""
+
+    def __init__(self, ax, x, data, colors, index):
+        self.ax = ax
+        self.x = np.asarray(x, dtype=float)
+        self.data = dict(data or {})        # name -> y array
+        self.colors = dict(colors or {})
+        self.index = index
+        self.gid = f"fit-{index}"
+        self.label = f"{FIT_PREFIX}{index}"
+        self.lines = {}                     # name -> Line2D
+        self._iso_color = {}
+        self._cycle = (plt.rcParams["axes.prop_cycle"].by_key().get("color")
+                       or ["C0", "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9"])
+
+    def _color(self, name):
+        if self.colors.get(name) is not None:
+            return self.colors[name]
+        if name == "fit total":
+            return "tab:orange"
+        key = "/".join(name.split("/")[:2])     # a component and its peaks share a colour
+        if key not in self._iso_color:
+            self._iso_color[key] = self._cycle[len(self._iso_color) % len(self._cycle)]
+        return self._iso_color[key]
+
+    def _plot(self, name, y):
+        c = self._color(name)
+        if name == "fit total":
+            (ln,) = self.ax.plot(self.x, y, lw=2, color=c)
+        elif name.count("/") >= 2:              # an individual peak
+            (ln,) = self.ax.plot(self.x, y, lw=1.1, ls=":", alpha=0.85, color=c)
+        else:                                    # isotope sum (or bare component)
+            (ln,) = self.ax.plot(self.x, y, lw=1.6, ls="--", alpha=0.9, color=c)
+        if hasattr(ln, "set_gid"):
+            ln.set_gid(self.gid)
+        return ln
+
+    def set(self, name, on):
+        """Show (on=True) or hide (on=False) a component. Returns True if the
+        drawn set changed."""
+        y = self.data.get(name)
+        if y is None:
+            return False
+        changed = False
+        if on and name not in self.lines:
+            self.lines[name] = self._plot(name, np.asarray(y, dtype=float))
+            changed = True
+        elif not on and name in self.lines:
+            ln = self.lines.pop(name)
+            try:
+                ln.remove()
+            except Exception:
+                pass
+            changed = True
+        if changed:
+            self._reconcile_carrier()
+        return changed
+
+    def _reconcile_carrier(self):
+        """Keep exactly one shown line holding the ``fit-_-<N>`` label so the
+        group has a single index; reassign if the carrier was removed."""
+        if not self.lines:
+            return
+        holders = [ln for ln in self.lines.values() if ln.get_label() == self.label]
+        if holders:
+            for extra in holders[1:]:
+                extra.set_label("_nolegend_")
+            return
+        carrier = self.lines.get("fit total") or next(iter(self.lines.values()))
+        carrier.set_label(self.label)
+
+
 class FitManager(QObject):
     """Owns all fitting operations: execute, CSV, manage artists, result popups."""
 
@@ -48,6 +127,7 @@ class FitManager(QObject):
         self._csv_ax           = None
         self._cal              = None
         self._alphaFilterDlg   = None
+        self._loadedFitPanel   = None   # modeless Load-Fit component panel
         self._lastFitResultsText = None
         self._lastFitCurve     = None   # {'x','y','model','name'} of the last drawn fit total
 
@@ -258,10 +338,16 @@ class FitManager(QObject):
 
     def _write_fit_peaks_csv(self, path, x, total_y, peaks, model="", name=""):
         """Write the grouped per-peak / per-chain file (Version 2, self-describing
-        via column names — no JSON). Columns: ``x, fit total``, then per chain
-        (sorted): the isotope sum ``<chain>/<isotope>`` then each peak
-        ``<chain>/<isotope>/<E>``. A ``# per-peak parameters`` comment block and a
-        real (non-comment) header row make it readable and Excel-friendly."""
+        via column names — no JSON). The file holds TWO CSV tables:
+
+        1. a per-peak **parameter** table (``chain,isotope,E_keV,A,mu,sigma,
+           tau1,tau2,eta``), one row per peak — a real CSV table, not comments;
+        2. the sampled **data** table: ``x, fit total``, then per chain (sorted)
+           the isotope sum ``<chain>/<isotope>`` and each peak
+           ``<chain>/<isotope>/<E>``.
+
+        A blank line separates the two; a single ``#`` title line leads the file.
+        Both tables import cleanly into Excel/pandas."""
         x = np.asarray(x, dtype=float)
 
         # group peaks: chain (sorted) → isotope (first-seen order) → peaks (by E)
@@ -299,22 +385,22 @@ class FitManager(QObject):
                     col_arrays.append(np.asarray(p["y"], dtype=float))
                     param_rows.append((ch, iso, ename, p.get("params") or {}))
 
+        def _num(pr, k):
+            v = pr.get(k)
+            return f"{float(v):.8g}" if v is not None else "nan"
+
         data = np.column_stack(col_arrays)
         with open(path, "w", newline="") as f:
             f.write(f"# CutiePie fit curve — {model} : {name}   "
                     f"(saved {datetime.now().isoformat(timespec='seconds')})\n")
-            f.write("#\n# per-peak parameters:\n")
-            f.write("#   {:<8} {:<10} {:>7}   {:>11} {:>11} {:>7} {:>6} {:>6} {:>5}\n".format(
-                "chain", "isotope", "E_keV", "A", "mu", "sigma", "tau1", "tau2", "eta"))
+            # per-peak parameters as a CSV table (was a comment block)
+            f.write("chain,isotope,E_keV,A,mu,sigma,tau1,tau2,eta\n")
             for ch, iso, ename, pr in param_rows:
-                def g(k):
-                    v = pr.get(k)
-                    return float(v) if v is not None else float("nan")
-                f.write("#   {:<8} {:<10} {:>7}   {:>11.4e} {:>11.4f} {:>7.3f} "
-                        "{:>6.3f} {:>6.3f} {:>5.3f}\n".format(
-                            ch, iso, ename, g("A"), g("mu"), g("sigma"),
-                            g("tau1"), g("tau2"), g("eta")))
-            f.write("#\n")
+                f.write(f"{ch},{iso},{ename},{_num(pr,'A')},{_num(pr,'mu')},"
+                        f"{_num(pr,'sigma')},{_num(pr,'tau1')},{_num(pr,'tau2')},"
+                        f"{_num(pr,'eta')}\n")
+            f.write("\n")
+            # sampled data table
             f.write(",".join(columns) + "\n")
             np.savetxt(f, data, delimiter=",", fmt="%.8g")
         return path
@@ -368,56 +454,82 @@ class FitManager(QObject):
         legacy ``# meta`` JSON files, and plain two-column total-only files."""
         meta = None
         header_names = None
+        data_start = None
         try:
             with open(path) as f:
-                for line in f:
-                    s = line.strip()
-                    if s.startswith("#"):
-                        body = s.lstrip("#").strip()
-                        if body.lower().startswith("meta"):
-                            eq = body.find("=")
-                            if eq != -1:
-                                try:
-                                    meta = json.loads(body[eq + 1:].strip())
-                                except Exception:
-                                    meta = None
-                        continue
-                    if not s:
-                        continue
-                    # first non-comment line: a header row iff its first field
-                    # isn't numeric (Version 2); otherwise it is data.
-                    fields = [c.strip() for c in s.split(",")]
-                    try:
-                        float(fields[0])
-                    except ValueError:
-                        header_names = fields
-                    break
-        except Exception:
-            self.logger.debug('read_fit_curve_file - header scan failed', exc_info=True)
-
-        try:
-            arr = np.genfromtxt(path, delimiter=",", comments="#")
+                lines = f.read().splitlines()
         except Exception:
             return None
+
+        # Locate the sampled-data table: its header row's first column is
+        # exactly "x". A per-peak parameter table above it (chain,isotope,…) is
+        # skipped. Legacy files have no such row (their header is commented).
+        for idx, raw in enumerate(lines):
+            s = raw.strip()
+            if s.startswith("#"):
+                body = s.lstrip("#").strip()
+                if body.lower().startswith("meta"):
+                    eq = body.find("=")
+                    if eq != -1:
+                        try:
+                            meta = json.loads(body[eq + 1:].strip())
+                        except Exception:
+                            meta = None
+                continue
+            if not s:
+                continue
+            fields = [c.strip() for c in s.split(",")]
+            if fields and fields[0] == "x":
+                header_names = fields
+                data_start = idx + 1
+                break
+
+        colors = {}
+        if header_names is not None:
+            # Version 2: parse the numeric rows below the data header
+            rows = []
+            for raw in lines[data_start:]:
+                s = raw.strip()
+                if not s or s.startswith("#"):
+                    if rows:
+                        break
+                    continue
+                try:
+                    rows.append([float(c) for c in s.split(",")])
+                except ValueError:
+                    break
+            if not rows:
+                return dict(x=np.array([]), components=[], structure=[],
+                            chains={}, colors={}, multi=False)
+            arr = np.array(rows, dtype=float)
+            names = [str(n) for n in header_names[1:]]
+        else:
+            # legacy: commented column header (# meta …) or plain total-only
+            try:
+                arr = np.genfromtxt(path, delimiter=",", comments="#")
+            except Exception:
+                return None
+            if arr.ndim != 2 or arr.shape[1] < 2:
+                return None
+            ncols = arr.shape[1]
+            if isinstance(meta, dict) and isinstance(meta.get("columns"), list) \
+                    and len(meta["columns"]) == ncols:
+                names = [str(n) for n in meta["columns"][1:]]
+                colors = {str(k): v for k, v in (meta.get("colors") or {}).items()}
+            else:
+                names = ["fit total"] + [f"col{j}" for j in range(2, ncols)]
+
         if arr.ndim != 2 or arr.shape[1] < 2:
             return None
-        arr = arr[np.isfinite(arr[:, 0])]      # drops the Version 2 header row (NaN)
+        arr = arr[np.isfinite(arr[:, 0])]
         if arr.shape[0] == 0:
             return dict(x=np.array([]), components=[], structure=[],
                         chains={}, colors={}, multi=False)
 
         x = arr[:, 0].astype(float)
         ncols = arr.shape[1]
-        colors = {}
-        if header_names is not None and len(header_names) == ncols:
-            names = [str(n) for n in header_names[1:]]        # Version 2
-        elif isinstance(meta, dict) and isinstance(meta.get("columns"), list) \
-                and len(meta["columns"]) == ncols:
-            names = [str(n) for n in meta["columns"][1:]]      # legacy meta
-            colors = {str(k): v for k, v in (meta.get("colors") or {}).items()}
-        else:
-            names = ["fit total"] + [f"col{j}" for j in range(2, ncols)]  # total-only
-
+        if len(names) != ncols - 1:            # keep names aligned with the data
+            names = (list(names) + [f"col{j}" for j in range(ncols)])[:ncols - 1]
         components = [(names[j], arr[:, j + 1].astype(float)) for j in range(len(names))]
         structure = [self._parse_component_name(n) for n in names]
 
@@ -435,6 +547,14 @@ class FitManager(QObject):
         multi = len(names) > 1
         return dict(x=x, components=components, structure=structure,
                     chains=chains, colors=colors, multi=multi)
+
+    def _next_fit_index(self, ax):
+        """Lowest free fit index on this axis (fills gaps)."""
+        idxs = [int(l) for l in self.listFitLineLabels(ax)]
+        i = 0
+        while i in idxs:
+            i += 1
+        return i
 
     def _plot_fit_components(self, ax, x, comps, colors=None):
         """Draw the given components on `ax` as ONE fit group. All lines share a
@@ -458,10 +578,7 @@ class FitManager(QObject):
                 iso_color[key] = cycle[len(iso_color) % len(cycle)]
             return iso_color[key]
 
-        idxs = [int(l) for l in self.listFitLineLabels(ax)]
-        i = 0
-        while i in idxs:
-            i += 1
+        i = self._next_fit_index(ax)
         gid = f"fit-{i}"
         carrier = "fit total" if any(n == "fit total" for n, _ in comps) \
             else (comps[0][0] if comps else None)
@@ -484,9 +601,10 @@ class FitManager(QObject):
     def load_fit_curve(self, index=None, name=None, ax=None, path=None):
         """Draw a saved fit curve onto the currently selected pad's axis.
 
-        Multi-component files open a chain-grouped picker so you can choose which
-        components to draw; total-only files draw the single curve. Everything is
-        tagged as one deletable fit group (``fit-<N>`` gid + ``fit-_-<N>`` label)."""
+        Multi-component files draw every component and open a **modeless** panel
+        so you can add/remove components live without re-loading; total-only files
+        draw the single curve. Everything is tagged as one deletable fit group
+        (``fit-<N>`` gid + ``fit-_-<N>`` label)."""
         if ax is None:
             self.logger.warning('load_fit_curve - called without ax context; cannot draw')
             QMessageBox.warning(self._parent_widget, "No plot selected",
@@ -510,17 +628,25 @@ class FitManager(QObject):
                                 "No finite rows in file.")
             return None
 
+        self._close_loaded_fit_panel()          # a fresh load replaces any open panel
         comps = struct["components"]
         if struct["multi"]:
-            chosen = self._prompt_component_selection(struct["structure"])
-            if chosen is None:
-                return None                     # cancelled
-            comps = [(n, y) for n, y in comps if n in chosen]
-            if not comps:
-                QMessageBox.warning(self._parent_widget, "Nothing selected",
-                                    "No components chosen to plot.")
-                return None
+            # one editable group: draw all components, then open the live panel
+            index = self._next_fit_index(ax)
+            group = LoadedFitGroup(ax, struct["x"], dict(comps), struct["colors"], index)
+            for nm, _ in comps:
+                group.set(nm, True)
+            self.fitResultsAppended.emit(
+                f"Loaded fit {index} ({len(comps)} component(s)) from {os.path.basename(path)}")
+            self._open_loaded_fit_panel(ax, struct["structure"], group)
+            try:
+                ax.figure.canvas.draw_idle()
+            except Exception:
+                self.logger.debug('load_fit_curve - could not draw', exc_info=True)
+            self.logger.info('load_fit_curve - drew %d component(s) from %s', len(comps), path)
+            return group
 
+        # total-only: draw the single curve (no panel)
         i, lines = self._plot_fit_components(ax, struct["x"], comps, struct["colors"])
         self.fitResultsAppended.emit(
             f"Loaded fit {i} ({len(lines)} component(s)) from {os.path.basename(path)}")
@@ -531,25 +657,44 @@ class FitManager(QObject):
         self.logger.info('load_fit_curve - drew %d component(s) from %s', len(lines), path)
         return lines[0] if lines else None
 
-    def _prompt_component_selection(self, structure):
-        """Modal checkable tree of components (chain → isotope sum → peaks).
-        `structure` is the list of column descriptors from _read_fit_curve_file.
-        Returns the list of selected column names, or None if cancelled."""
+    def _close_loaded_fit_panel(self):
+        dlg = getattr(self, "_loadedFitPanel", None)
+        if dlg is not None:
+            try:
+                dlg.close()
+            except Exception:
+                pass
+        self._loadedFitPanel = None
+
+    def _open_loaded_fit_panel(self, ax, structure, group):
+        """Modeless panel bound to a loaded fit `group`: a chain → isotope sum →
+        peaks tree whose checkboxes add/remove that component on the pad live.
+        Stays open until closed; a new Load Fit or a new fit closes it."""
         from PyQt5.QtWidgets import QScrollArea, QWidget  # live-only widgets
+        self._close_loaded_fit_panel()
         dlg = QDialog(self._parent_widget)
-        dlg.setWindowTitle("Choose components to plot")
+        dlg.setWindowTitle("Loaded fit components")
+        dlg.setWindowModality(Qt.NonModal)
         v = QVBoxLayout(dlg)
-        v.addWidget(QLabel("Select the fit components to draw:"))
+        v.addWidget(QLabel("Tick to add a component, untick to remove it:"))
 
         inner = QWidget()
         iv = QVBoxLayout(inner)
         checks = {}
 
+        def _redraw():
+            try:
+                ax.figure.canvas.draw_idle()
+            except Exception:
+                self.logger.debug('loaded-fit panel - could not draw', exc_info=True)
+
         def _add(name, label, indent):
             cb = QCheckBox(label)
-            cb.setChecked(True)
+            cb.setChecked(True)                 # group is already fully drawn
             if indent:
                 cb.setStyleSheet(f"margin-left: {indent}px;")
+            # connect AFTER the initial setChecked so it doesn't fire on build
+            cb.toggled.connect(lambda on, nm=name: (group.set(nm, on), _redraw()))
             checks[name] = cb
             iv.addWidget(cb)
 
@@ -557,7 +702,6 @@ class FitManager(QObject):
             if d["kind"] == "total":
                 _add(d["name"], "fit total", 0)
 
-        # chain → isotope sum → peaks, preserving structure order within a chain
         chains = {}
         for d in structure:
             if d["kind"] in ("isotope", "peak", "component"):
@@ -573,8 +717,7 @@ class FitManager(QObject):
                     _add(d["name"], f"{d['isotope']} (sum)", 16)
         iv.addStretch(1)
 
-        # An isotope-sum checkbox is a parent: toggling it checks/unchecks all of
-        # that isotope's individual peak checkboxes at once.
+        # An isotope-sum checkbox is a parent: toggling it toggles all its peaks.
         for d in structure:
             if d["kind"] != "isotope":
                 continue
@@ -597,20 +740,19 @@ class FitManager(QObject):
         btn_none = QPushButton("None")
         btn_all.clicked.connect(lambda: [c.setChecked(True) for c in checks.values()])
         btn_none.clicked.connect(lambda: [c.setChecked(False) for c in checks.values()])
+        btn_close = QPushButton("Close")
+        btn_close.clicked.connect(dlg.close)
         hb.addWidget(btn_all)
         hb.addWidget(btn_none)
         hb.addStretch(1)
-        btn_ok = QPushButton("OK")
-        btn_cancel = QPushButton("Cancel")
-        btn_ok.clicked.connect(dlg.accept)
-        btn_cancel.clicked.connect(dlg.reject)
-        hb.addWidget(btn_ok)
-        hb.addWidget(btn_cancel)
+        hb.addWidget(btn_close)
         v.addLayout(hb)
 
-        if dlg.exec_() != QDialog.Accepted:
-            return None
-        return [n for n, c in checks.items() if c.isChecked()]
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+        self._loadedFitPanel = dlg
+        return dlg
 
     # ------------------------------------------------------------------
     # Main fit entry point
@@ -626,6 +768,7 @@ class FitManager(QObject):
         fit_funct = (fit_funct or "").strip()
 
         self._close_alpha_filter_popup()
+        self._close_loaded_fit_panel()   # a new fit clears loaded artists + its panel
 
         model_name = fit_funct
         force_prompt = bool(True)
