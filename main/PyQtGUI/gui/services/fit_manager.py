@@ -1394,7 +1394,7 @@ class FitManager(QObject):
 
     def _tag_new_fit_artists(self, ax, before_ids, fit_idx=None):
         # Group every artist a fit adds under a per-index gid ("fit-<N>") so the
-        # WHOLE fit — total line, subpeak curves, text labels — can be deleted as
+        # WHOLE fit (total line, subpeak curves, text labels) can be deleted as
         # a unit (deleteFit). fit_idx=None keeps the generic "fit" gid, used where
         # no index is known (e.g. the tag-and-clear characterization path).
         gid = "fit" if fit_idx is None else f"fit-{fit_idx}"
@@ -1504,8 +1504,8 @@ class FitManager(QObject):
             self.logger.warning('deleteFit - fit line(s) index(es): %s cannot be deleted', notAvailableFitIdxs)
             return
 
-        # Remove the WHOLE fit, not just its labelled total line: every artist a
-        # fit drew shares the per-index gid "fit-<N>" (subpeak curves, text
+        # Remove the WHOLE fit: every artist it drew shares the per-index gid
+        # "fit-<N>" (subpeak curves, text
         # labels), while the total line also carries the exact "fit-_-<N>" label.
         removed_any = False
         for fitIdx in userFitIdxs:

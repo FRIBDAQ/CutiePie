@@ -219,7 +219,7 @@ def fit_gaussian_linear(x_axis, y_data, center, half_window):
 
     Returns a dict. On success (``ok=True``): params ``A/mu/sigma/m/b`` with
     uncertainties ``dA/dmu/dsigma``, ``fwhm``/``dfwhm``, the NET gaussian area
-    in counts ``area``/``darea`` (``A*sigma*sqrt(2pi)/bin_width`` — background
+    in counts ``area``/``darea`` (``A*sigma*sqrt(2pi)/bin_width``; background
     excluded), ``redchi``, and sampled curves ``xx``/``y_fit``/``y_bg`` for
     drawing (the blue fill goes between ``y_bg`` and ``y_fit``).
     On failure (``ok=False``): an ``error`` message string."""
@@ -250,6 +250,9 @@ def fit_gaussian_linear(x_axis, y_data, center, half_window):
     try:
         popt, pcov = curve_fit(
             _gauss_lin, xs, ys, p0=[A0, mu0, sigma0, m0, b0],
+            # Poisson weights for counting data: per-bin variance = the
+            # counts, and pcov reports absolute uncertainties
+            sigma=np.sqrt(np.clip(ys, 1.0, None)), absolute_sigma=True,
             bounds=([0.0, xs[0], bw * 0.25, -np.inf, -np.inf],
                     [np.inf, xs[-1], (xs[-1] - xs[0]), np.inf, np.inf]),
             maxfev=5000)
@@ -263,7 +266,7 @@ def fit_gaussian_linear(x_axis, y_data, center, half_window):
     fwhm = _FWHM_K * sigma
     dfwhm = _FWHM_K * dsigma
     area = A * sigma * np.sqrt(2.0 * np.pi) / bw
-    # propagate A and sigma errors (correlation ignored — quoted as estimate)
+    # propagate A and sigma errors (correlation ignored; quoted as estimate)
     darea = area * float(np.hypot(dA / A if A else 0.0,
                                   dsigma / sigma if sigma else 0.0))
 
@@ -279,15 +282,16 @@ def fit_gaussian_linear(x_axis, y_data, center, half_window):
 
 
 def estimate_fit_window(x_axis, y_data, center):
-    """Estimate the fit window around a clicked position — no user width.
+    """Estimate the fit window around a clicked position; no user width.
 
     Plan-A heuristic: lightly smooth the counts, hill-climb from the click to
     the local summit, walk down each flank until the descent stops (3
     consecutive non-decreasing bins), take the lower stop level as the local
     background, and measure a crude FWHM at half of (summit - background).
-    Returns ``{ok, mu, fwhm, half_window}`` — ``half_window = 3*FWHM``, floored
-    at 8 bins — or ``{ok: False, error}`` when the click shows no significant
-    peak (summit fails a 3-sigma Poisson test against the local background)."""
+    Returns ``{ok, mu, fwhm, half_window}`` with ``half_window = 3*FWHM``,
+    floored at 8 bins. Returns ``{ok: False, error}`` when the click shows no
+    significant peak (summit fails a 3-sigma Poisson test against the local
+    background)."""
     x = np.asarray(x_axis, dtype=float)
     y = np.asarray(y_data, dtype=float)
     n = x.size
@@ -299,10 +303,19 @@ def estimate_fit_window(x_axis, y_data, center):
     kernel = np.ones(5) / 5.0
     ys = np.convolve(y, kernel, mode="same")
 
-    # hill-climb from the click to the local summit (adapts to any binning)
+    # hill-climb from the click to the local summit (adapts to any binning).
+    # After each +-3 climb converges, scan +-15 bins: a small noise bump on a
+    # wide peak's flank is a genuine local max that stalls the narrow climb;
+    # the wider scan hops over it and the climb resumes.
     i = int(np.argmin(np.abs(x - float(center))))
-    for _ in range(200):
-        lo, hi = max(0, i - 3), min(n, i + 4)
+    for _ in range(50):
+        for _ in range(200):
+            lo, hi = max(0, i - 3), min(n, i + 4)
+            j = lo + int(np.argmax(ys[lo:hi]))
+            if j == i:
+                break
+            i = j
+        lo, hi = max(0, i - 15), min(n, i + 16)
         j = lo + int(np.argmax(ys[lo:hi]))
         if j == i:
             break
@@ -352,7 +365,7 @@ def fit_gaussian_linear_auto(x_axis, y_data, center):
 
     Estimate the window from the data (:func:`estimate_fit_window`), fit, then
     refine once over ``mu_fit +- 4*sigma_fit`` so the final window adapts to
-    the *fitted* width. The returned dict additionally carries the window
+    the *fitted* width. The returned dict also carries the window
     actually used (``win_lo``/``win_hi``)."""
     est = estimate_fit_window(x_axis, y_data, center)
     if not est["ok"]:

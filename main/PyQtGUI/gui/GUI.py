@@ -419,11 +419,13 @@ class MainWindow(QMainWindow):
         self.peak_txt = {}
         self.isChecked = {}
 
-        # Peak Finder 2 (click-to-fit): armed-mode connection id, accumulated
-        # artists [(curve, bg, fill), ...] and the running peak counter
+        # Peak Finder 2 (click-to-fit): armed-mode connection id, per-fit
+        # records [{number, index, name, result, artists}, ...] (full curves
+        # stored so fits can be redrawn/refit independent of artist survival)
+        # and the running peak counter
         self.peak2_cid = None
         self.peak2_canvas = None
-        self.peak2_artists = []
+        self.peak2_fits = []
         self.peak2_count = 0
 
         # overlay
@@ -3090,6 +3092,32 @@ class MainWindow(QMainWindow):
             btn.setText("Start")
             btn.setStyleSheet("background-color:#bcee68;")
 
+    def _peak2_other_mode_active(self):
+        """True while another pad interaction owns clicks: rubber-band
+        zoom, gate create/edit, or summing-region create. An armed Peak
+        Finder 2 must not also fit on those presses."""
+        cp = self.currentPlot
+        if cp.zoomPress or cp.toCreateGate or cp.toEditGate or cp.toCreateSumRegion:
+            return True
+        try:
+            return self.gatePopup.isVisible() or self.sumRegionPopup.isVisible()
+        except Exception:
+            return False
+
+    def _peak2_draw(self, ax, r):
+        """Draw one fit result on `ax` (curve + dashed bg + blue net-area fill)
+        and return the artist tuple. Factored out so a fit record can be
+        redrawn from its stored curves at any time (lifecycle safety)."""
+        (curve,) = ax.plot(r["xx"], r["y_fit"], color="tab:red", lw=1.8)
+        (bgline,) = ax.plot(r["xx"], r["y_bg"], color="grey", lw=1.0, ls="--")
+        fill = ax.fill_between(r["xx"], r["y_bg"], r["y_fit"],
+                               where=r["y_fit"] >= r["y_bg"],
+                               color="tab:blue", alpha=0.45)
+        for art in (curve, bgline, fill):
+            if hasattr(art, "set_gid"):
+                art.set_gid("peakfit2")
+        return (curve, bgline, fill)
+
     def onPeakFit2Click(self, event):
         """Armed-mode click handler: fit gaussian+linear around the click on
         the clicked pad, draw curve + dashed background + blue net-area fill,
@@ -3097,6 +3125,8 @@ class MainWindow(QMainWindow):
         if event.button != 1 or event.dblclick or event.inaxes is None:
             return
         if event.xdata is None:
+            return
+        if self._peak2_other_mode_active():
             return
         out = self.extraPopup.peak.peak2_results
         try:
@@ -3126,43 +3156,77 @@ class MainWindow(QMainWindow):
 
             r = fit_gaussian_linear_auto(xc, np.asarray(ytmp)[1:], float(event.xdata))
 
+            if not r["ok"]:
+                # failures don't consume a peak number
+                out.append(f"[failed] {r.get('error', 'fit failed')}")
+                return
             self.peak2_count += 1
             out.append(format_gauss_fit_output(self.peak2_count, r))
-            if not r["ok"]:
-                return
 
-            ax = event.inaxes
-            (curve,) = ax.plot(r["xx"], r["y_fit"], color="tab:red", lw=1.8)
-            (bgline,) = ax.plot(r["xx"], r["y_bg"], color="grey", lw=1.0, ls="--")
-            fill = ax.fill_between(r["xx"], r["y_bg"], r["y_fit"],
-                                   where=r["y_fit"] >= r["y_bg"],
-                                   color="tab:blue", alpha=0.45)
-            for art in (curve, bgline, fill):
-                if hasattr(art, "set_gid"):
-                    art.set_gid("peakfit2")
-            self.peak2_artists.append((curve, bgline, fill))
+            artists = self._peak2_draw(event.inaxes, r)
+            # full record (data included) so the fit can be redrawn or refit
+            # later without depending on artist survival
+            self.peak2_fits.append(dict(number=self.peak2_count, index=index,
+                                        name=name, result=r, artists=artists))
             self.currentPlot.canvas.draw_idle()
         except Exception:
             # a click must never crash the GUI; report instead
             self.logger.exception('onPeakFit2Click - fit failed')
             out.append("[error] Fit failed — see log.")
 
+    def peakFit2RedrawAll(self):
+        """Redraw every recorded fit from its stored curves onto its pad's
+        current axis (recovers from axis rebuilds, e.g. enlarge/un-enlarge)."""
+        self.logger.info('peakFit2RedrawAll - %d record(s)', len(self.peak2_fits))
+        canvases = set()
+        for rec in self.peak2_fits:
+            for art in rec.get("artists") or ():
+                try:
+                    art.remove()
+                except Exception:
+                    self.logger.debug('peakFit2RedrawAll - stale artist', exc_info=True)
+            try:
+                ax = self.getSpectrumViewInfo("axis", index=rec["index"])
+            except Exception:
+                ax = None
+            if ax is None:
+                rec["artists"] = ()
+                continue
+            rec["artists"] = self._peak2_draw(ax, rec["result"])
+            canvases.add(ax.figure.canvas)
+        for canvas in canvases:
+            try:
+                canvas.draw_idle()
+            except Exception:
+                self.logger.debug('peakFit2RedrawAll - redraw failed', exc_info=True)
+
     def peakFit2Clear(self):
         """Remove every Peak Finder 2 artist and clear its output box."""
         self.logger.info('peakFit2Clear')
-        for group in self.peak2_artists:
-            for art in group:
+        canvases = set()
+        for rec in self.peak2_fits:
+            for art in rec.get("artists") or ():
+                try:
+                    canvases.add(art.axes.figure.canvas)
+                except Exception:
+                    pass
                 try:
                     art.remove()
                 except Exception:
                     self.logger.debug('peakFit2Clear - artist remove failed', exc_info=True)
-        self.peak2_artists = []
+        self.peak2_fits = []
         self.peak2_count = 0
         self.extraPopup.peak.peak2_results.clear()
+        # redraw every canvas that held a fit, including other tabs'
         try:
-            self.currentPlot.canvas.draw_idle()
+            canvases.add(self.currentPlot.canvas)
         except Exception:
-            self.logger.debug('peakFit2Clear - redraw failed', exc_info=True)
+            pass
+        for canvas in canvases:
+            try:
+                canvas.draw_idle()
+            except Exception:
+                self.logger.debug('peakFit2Clear - redraw failed', exc_info=True)
 
 
     ############################

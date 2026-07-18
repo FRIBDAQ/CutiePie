@@ -409,3 +409,37 @@ def test_estimate_fit_window_snaps_and_scales():
     fwhm_true = 10.0 * 2.3548
     assert 0.5 * fwhm_true < est["fwhm"] < 2.0 * fwhm_true
     assert est["half_window"] >= est["fwhm"]          # window spans the peak
+
+
+def test_auto_fit_wide_peak_with_noise_bump_on_flank():
+    # a small bump on the flank of a wide peak must not stall the
+    # hill-climb — the estimator should still find the true summit
+    x = np.arange(0.0, 800.0, 1.0)
+    y = _gauss_line(x, A=100.0, mu=400.0, sigma=25.0, m=0.0, b=10.0)
+    # a bump strong enough to be a genuine local max on the flank
+    # (20 counts, sigma 2.5, 20 bins off-summit); the naive +-3 climb
+    # stalls on it (measured: est mu = 419 pre-fix)
+    y += 20.0 * np.exp(-0.5 * ((x - 420.0) / 2.5) ** 2)
+    est = estimate_fit_window(x, y, center=430.0)   # click beyond the bump
+    assert est["ok"]
+    assert abs(est["mu"] - 400.0) < 6.0             # summit, not the bump
+    r = fit_gaussian_linear_auto(x, y, center=430.0)
+    assert r["ok"] and abs(r["mu"] - 400.0) < 2.0
+
+
+def test_fit_poisson_calibration():
+    # characterization: on true-model Poisson data the fit must recover
+    # the params and report red-chi2 ~ 1. NOTE: this does NOT discriminate
+    # weighted from unweighted curve_fit (measured pull RMS 0.99 vs 1.06;
+    # curve_fit's default cov rescaling self-corrects on average); the
+    # sigma=sqrt(y), absolute_sigma=True choice is correctness-in-principle,
+    # pinned here only against gross regression.
+    rng = np.random.default_rng(5)
+    x = np.arange(0.0, 300.0, 1.0)
+    y = _gauss_line(x, A=400.0, mu=150.0, sigma=8.0, m=0.0, b=100.0)
+    y = rng.poisson(np.clip(y, 0, None)).astype(float)
+    r = fit_gaussian_linear(x, y, center=150.0, half_window=60.0)
+    assert r["ok"]
+    assert abs(r["mu"] - 150.0) < 0.7
+    # Poisson-weighted red-chi2 on true-model Poisson data must be ~1
+    assert 0.5 < r["redchi"] < 2.0
