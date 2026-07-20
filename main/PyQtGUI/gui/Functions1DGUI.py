@@ -93,6 +93,14 @@ class Fncts1D(QDialog):
         self.peak2_start.setToolTip(
             "Arm the selected pad: each left-click fits a gaussian + linear "
             "background around the click (fit window chosen automatically)")
+        self.peak2_fix = QPushButton("Fix Peak", self)
+        self.peak2_fix.setCheckable(True)
+        self.peak2_fix.setStyleSheet("background-color:#bcee68;")
+        self.peak2_fix.setToolTip(
+            "Arm fixed-μ fitting: each left-click fits with the peak centre "
+            "pinned exactly at the clicked x (window centred on the click). "
+            "Use for a small peak next to a bigger one. Mutually exclusive "
+            "with Start")
         self.peak2_clear = QPushButton("Clear", self)
         self.peak2_clear.setToolTip("Remove all fitted peaks and clear the output")
         self.peak2_config = QPushButton("Config", self)
@@ -106,6 +114,7 @@ class Fncts1D(QDialog):
 
         layb = QHBoxLayout()
         layb.addWidget(self.peak2_start)
+        layb.addWidget(self.peak2_fix)
         layb.addWidget(self.peak2_clear)
         layb.addWidget(self.peak2_config)
 

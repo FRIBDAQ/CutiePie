@@ -127,7 +127,8 @@ from services import geometry_io
 from services.dataframe_export import export_spectrum_csv
 from services.peak_finder import (
     PEAK_ALGORITHMS, find_peaks_in_range, format_peak_labels, format_peak_output,
-    fit_gaussian_linear_auto, format_gauss_fit_output,
+    fit_gaussian_linear_auto, fit_gaussian_linear_range, fix_peak_window,
+    format_gauss_fit_output,
 )
 from services.figure_overlay import compute_overlay_position, apply_joystick_move, apply_fine_move
 from services.thread_workers import RestWorker, AutoUpdateWorker
@@ -425,6 +426,7 @@ class MainWindow(QMainWindow):
         # and the running peak counter
         self.peak2_cid = None
         self.peak2_canvas = None
+        self.peak2_fix_armed = False
         self.peak2_fits = []
         self.peak2_count = 0
 
@@ -684,6 +686,7 @@ class MainWindow(QMainWindow):
         # Peak Finder 2 (click-to-fit): Start is a checkable toggle; lambda
         # shields Clear from clicked(bool)'s checked arg (the E17 trap)
         self.extraPopup.peak.peak2_start.toggled.connect(self.peakFit2Toggle)
+        self.extraPopup.peak.peak2_fix.toggled.connect(self.peakFit2FixToggle)
         self.extraPopup.peak.peak2_clear.clicked.connect(lambda: self.peakFit2Clear())
         self.extraPopup.peak.peak2_config.clicked.connect(lambda: self.peakFit2Config())
         # peak-selection list: wired ONCE here (the old per-scan
@@ -3074,6 +3077,10 @@ class MainWindow(QMainWindow):
         self.logger.info('peakFit2Toggle - checked: %s', checked)
         btn = self.extraPopup.peak.peak2_start
         if checked:
+            # Start and Fix Peak are mutually exclusive arming modes; disarming
+            # Fix here also releases the shared canvas connection before we
+            # reconnect below.
+            self.extraPopup.peak.peak2_fix.setChecked(False)
             canvas = self.wTab.wPlot[self.wTab.currentIndex()].canvas
             self.peak2_canvas = canvas
             self.peak2_cid = canvas.mpl_connect("button_press_event", self.onPeakFit2Click)
@@ -3091,6 +3098,34 @@ class MainWindow(QMainWindow):
             self.peak2_cid = None
             self.peak2_canvas = None
             btn.setText("Start")
+            btn.setStyleSheet("background-color:#bcee68;")
+
+    def peakFit2FixToggle(self, checked):
+        """Fix Peak toggle: arm fixed-μ fitting on the current tab's canvas,
+        mutually exclusive with Start. While armed, each left-click fits
+        gaussian+linear with μ pinned exactly at the clicked x (window centred
+        on the click; see `_peak2_max_window_bins` for its size)."""
+        self.logger.info('peakFit2FixToggle - checked: %s', checked)
+        btn = self.extraPopup.peak.peak2_fix
+        self.peak2_fix_armed = bool(checked)
+        if checked:
+            # mutual exclusion: disarming Start releases the shared connection
+            self.extraPopup.peak.peak2_start.setChecked(False)
+            canvas = self.wTab.wPlot[self.wTab.currentIndex()].canvas
+            self.peak2_canvas = canvas
+            self.peak2_cid = canvas.mpl_connect("button_press_event", self.onPeakFit2Click)
+            btn.setStyleSheet("background-color:#ff6b6b;")
+            self.extraPopup.peak.peak2_results.append(
+                "[armed: fix μ] Left-click at a peak centre to fit with μ "
+                "pinned there. Click Fix Peak again to disarm.")
+        else:
+            if self.peak2_cid is not None and self.peak2_canvas is not None:
+                try:
+                    self.peak2_canvas.mpl_disconnect(self.peak2_cid)
+                except Exception:
+                    self.logger.debug('peakFit2FixToggle - disconnect failed', exc_info=True)
+            self.peak2_cid = None
+            self.peak2_canvas = None
             btn.setStyleSheet("background-color:#bcee68;")
 
     def _peak2_other_mode_active(self):
@@ -3198,20 +3233,34 @@ class MainWindow(QMainWindow):
             bw = float(maxxREST - minxREST) / float(binx)
             max_hw = 0.5 * cap_bins * bw if cap_bins else None
 
-            r = fit_gaussian_linear_auto(xc, np.asarray(ytmp)[1:],
-                                         float(event.xdata),
-                                         max_half_window=max_hw)
-
-            if not r["ok"]:
-                if cap_bins:
-                    self.logger.debug('onPeakFit2Click - capped fit skipped: %s',
-                                      r.get('error'))
+            cx = float(event.xdata)
+            if self.peak2_fix_armed:
+                # Fix Peak: pin μ at the clicked x over a window centred on the
+                # click (cap sizes it, else 50 bins) — never estimate_fit_window,
+                # which would snap onto a bigger neighbour. Failures are always
+                # reported here; the cap only sizes the window, it does not
+                # silence the click.
+                lo, hi = fix_peak_window(cx, bw, cap_bins=cap_bins)
+                r = fit_gaussian_linear_range(xc, np.asarray(ytmp)[1:], lo, hi,
+                                              fixed={"mu": cx})
+                tag = "fixed μ"
+                if not r["ok"]:
+                    out.append(f"[failed] {r.get('error', 'fit failed')}")
                     return
-                # failures don't consume a peak number
-                out.append(f"[failed] {r.get('error', 'fit failed')}")
-                return
+            else:
+                r = fit_gaussian_linear_auto(xc, np.asarray(ytmp)[1:], cx,
+                                             max_half_window=max_hw)
+                tag = None
+                if not r["ok"]:
+                    if cap_bins:
+                        self.logger.debug('onPeakFit2Click - capped fit skipped: %s',
+                                          r.get('error'))
+                        return
+                    # failures don't consume a peak number
+                    out.append(f"[failed] {r.get('error', 'fit failed')}")
+                    return
             self.peak2_count += 1
-            out.append(format_gauss_fit_output(self.peak2_count, r))
+            out.append(format_gauss_fit_output(self.peak2_count, r, tag=tag))
 
             artists = self._peak2_draw(event.inaxes, r)
             # full record (data included) so the fit can be redrawn or refit
