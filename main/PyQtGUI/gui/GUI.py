@@ -127,8 +127,8 @@ from services import geometry_io
 from services.dataframe_export import export_spectrum_csv
 from services.peak_finder import (
     PEAK_ALGORITHMS, find_peaks_in_range, format_peak_labels, format_peak_output,
-    fit_gaussian_linear_auto, fit_gaussian_linear_range, fix_peak_window,
-    format_gauss_fit_output,
+    find_duplicate_mu, fit_gaussian_linear_auto, fit_gaussian_linear_range,
+    fix_peak_window, format_gauss_fit_output,
 )
 from services.figure_overlay import compute_overlay_position, apply_joystick_move, apply_fine_move
 from services.thread_workers import RestWorker, AutoUpdateWorker
@@ -3258,6 +3258,16 @@ class MainWindow(QMainWindow):
                         return
                     # failures don't consume a peak number
                     out.append(f"[failed] {r.get('error', 'fit failed')}")
+                    return
+                # duplicate suppression (auto mode only): an off-peak flank
+                # click re-fits an already-fitted peak on the same spectrum;
+                # skip it if the centroid lands within ~1 bin of an existing fit
+                same = [rec for rec in self.peak2_fits if rec.get("name") == name]
+                dup = find_duplicate_mu(r["mu"],
+                                        [rec["result"]["mu"] for rec in same], bw)
+                if dup is not None:
+                    out.append(f"[skip] already fitted near μ = {r['mu']:.6g} "
+                               f"(Peak {same[dup]['number']}).")
                     return
             self.peak2_count += 1
             out.append(format_gauss_fit_output(self.peak2_count, r, tag=tag))

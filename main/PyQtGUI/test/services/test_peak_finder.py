@@ -594,3 +594,29 @@ def test_A3_format_output_tag_marks_fixed_mu():
     # default (no tag) stays byte-identical to today's format
     assert format_gauss_fit_output(4, r) == format_gauss_fit_output(4, r, tag=None)
     assert "(fixed" not in format_gauss_fit_output(4, r)
+
+
+# ===================== Peak Finder 2: duplicate-fit suppression (auto mode) =====
+
+from services.peak_finder import find_duplicate_mu
+
+
+def test_dup_none_when_no_existing():
+    assert find_duplicate_mu(200.0, [], tol=1.0) is None
+
+
+def test_dup_matches_within_tolerance():
+    # existing peaks at 100, 200, 300; new mu 200.4 within 1-bin tol of index 1
+    assert find_duplicate_mu(200.4, [100.0, 200.0, 300.0], tol=1.0) == 1
+
+
+def test_dup_none_when_outside_tolerance():
+    assert find_duplicate_mu(205.0, [100.0, 200.0, 300.0], tol=1.0) is None
+
+
+def test_dup_returns_first_match():
+    assert find_duplicate_mu(200.0, [200.0, 200.5], tol=1.0) == 0
+
+
+def test_dup_boundary_exactly_at_tol_is_duplicate():
+    assert find_duplicate_mu(201.0, [200.0], tol=1.0) == 0

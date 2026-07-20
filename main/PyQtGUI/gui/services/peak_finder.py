@@ -441,6 +441,19 @@ def fit_gaussian_linear_auto(x_axis, y_data, center, max_half_window=None):
 _FIX_PEAK_DEFAULT_HALF_WINDOW_BINS = 50
 
 
+def find_duplicate_mu(new_mu, existing_mus, tol):
+    """Index of the first entry in ``existing_mus`` within ``tol`` (x units) of
+    ``new_mu``, else ``None``.
+
+    Used by auto click-to-fit to suppress a re-fit of an already-fitted peak:
+    an off-peak flank click converges to the same centroid, so a new fit whose
+    mu lands within ~1 bin of an existing fit's mu is the same peak."""
+    for i, mu in enumerate(existing_mus):
+        if abs(float(new_mu) - float(mu)) <= float(tol):
+            return i
+    return None
+
+
 def fix_peak_window(center, bin_width, cap_bins=None):
     """Fixed-mu fit window for the Fix Peak tool: symmetric about the clicked
     ``center`` (x units), NOT chosen from the data.
