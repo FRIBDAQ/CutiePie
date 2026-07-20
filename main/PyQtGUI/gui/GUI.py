@@ -685,6 +685,7 @@ class MainWindow(QMainWindow):
         # shields Clear from clicked(bool)'s checked arg (the E17 trap)
         self.extraPopup.peak.peak2_start.toggled.connect(self.peakFit2Toggle)
         self.extraPopup.peak.peak2_clear.clicked.connect(lambda: self.peakFit2Clear())
+        self.extraPopup.peak.peak2_config.clicked.connect(lambda: self.peakFit2Config())
         # peak-selection list: wired ONCE here (the old per-scan
         # stateChanged.connect on the fixed checkbox grid stacked a duplicate
         # connection on every Scan); lambdas shield from clicked(bool)'s
@@ -3118,6 +3119,43 @@ class MainWindow(QMainWindow):
                 art.set_gid("peakfit2")
         return (curve, bgline, fill)
 
+    def _peak2_max_window_bins(self):
+        """The Config cap (max fit window in bins), or None when unset."""
+        try:
+            raw = QSettings().value("PeakFinder2/max_window_bins", "", type=str)
+            n = int(raw)
+            return n if n > 0 else None
+        except Exception:
+            return None
+
+    def peakFit2Config(self):
+        """Config dialog: max fit window in bins (empty = no cap)."""
+        self.logger.info('peakFit2Config')
+        current = self._peak2_max_window_bins()
+        text, ok = QInputDialog.getText(
+            self, "Peak Finder 2 — Config",
+            "Max fit window (in bins), empty = no cap:\n"
+            "With a cap set, clicks that can't be fitted are skipped silently.",
+            text="" if current is None else str(current))
+        if not ok:
+            return
+        out = self.extraPopup.peak.peak2_results
+        s = QSettings()
+        text = text.strip()
+        if text == "":
+            s.setValue("PeakFinder2/max_window_bins", "")
+            out.append("[config] Max window: no cap.")
+            return
+        try:
+            n = int(text)
+            if n <= 0:
+                raise ValueError
+        except ValueError:
+            out.append("[config] Max window must be a positive integer or empty — unchanged.")
+            return
+        s.setValue("PeakFinder2/max_window_bins", str(n))
+        out.append(f"[config] Max window: {n} bins.")
+
     def onPeakFit2Click(self, event):
         """Armed-mode click handler: fit gaussian+linear around the click on
         the clicked pad, draw curve + dashed background + blue net-area fill,
@@ -3154,9 +3192,21 @@ class MainWindow(QMainWindow):
             # automatically from the data around the click (plan A)
             xc = np.asarray(xtmp[:-1]) + 0.5 * np.diff(np.asarray(xtmp))
 
-            r = fit_gaussian_linear_auto(xc, np.asarray(ytmp)[1:], float(event.xdata))
+            # Config cap (bins -> x units); with a cap set, unfittable clicks
+            # are skipped silently by design
+            cap_bins = self._peak2_max_window_bins()
+            bw = float(maxxREST - minxREST) / float(binx)
+            max_hw = 0.5 * cap_bins * bw if cap_bins else None
+
+            r = fit_gaussian_linear_auto(xc, np.asarray(ytmp)[1:],
+                                         float(event.xdata),
+                                         max_half_window=max_hw)
 
             if not r["ok"]:
+                if cap_bins:
+                    self.logger.debug('onPeakFit2Click - capped fit skipped: %s',
+                                      r.get('error'))
+                    return
                 # failures don't consume a peak number
                 out.append(f"[failed] {r.get('error', 'fit failed')}")
                 return

@@ -95,6 +95,10 @@ class Fncts1D(QDialog):
             "background around the click (fit window chosen automatically)")
         self.peak2_clear = QPushButton("Clear", self)
         self.peak2_clear.setToolTip("Remove all fitted peaks and clear the output")
+        self.peak2_config = QPushButton("Config", self)
+        self.peak2_config.setToolTip(
+            "Set the max fit window (in bins); empty = no cap. With a cap set, "
+            "clicks that can't be fitted are skipped silently")
 
         self.peak2_results_label = QLabel("Output")
         self.peak2_results = QTextEdit()
@@ -103,6 +107,7 @@ class Fncts1D(QDialog):
         layb = QHBoxLayout()
         layb.addWidget(self.peak2_start)
         layb.addWidget(self.peak2_clear)
+        layb.addWidget(self.peak2_config)
 
         layout = QVBoxLayout()
         layout.addLayout(layb)
