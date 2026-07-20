@@ -443,3 +443,154 @@ def test_fit_poisson_calibration():
     assert abs(r["mu"] - 150.0) < 0.7
     # Poisson-weighted red-chi2 on true-model Poisson data must be ~1
     assert 0.5 < r["redchi"] < 2.0
+
+
+# ===================== INTERSPEC Phase A1: generalized range fit ================
+
+from services.peak_finder import fit_gaussian_linear_range
+
+
+def test_A1_range_fit_recovers_peak_asymmetric_window():
+    x = np.arange(0.0, 400.0, 1.0)
+    y = _gauss_line(x, A=120.0, mu=200.0, sigma=6.0, m=-0.02, b=50.0)
+    r = fit_gaussian_linear_range(x, y, lo=170.0, hi=260.0)   # 30 left, 60 right
+    assert r["ok"]
+    assert abs(r["mu"] - 200.0) < 0.7
+    assert r["win_lo"] == 170.0 and r["win_hi"] == 260.0
+
+
+def test_A1_range_fit_swaps_reversed_bounds():
+    x = np.arange(0.0, 400.0, 1.0)
+    y = _gauss_line(x, A=100.0, mu=200.0, sigma=6.0, m=0.0, b=40.0)
+    r = fit_gaussian_linear_range(x, y, lo=250.0, hi=150.0)   # reversed
+    assert r["ok"]
+    assert r["win_lo"] == 150.0 and r["win_hi"] == 250.0
+
+
+def test_A1_fit_gaussian_linear_delegates_to_range():
+    # The old center/half_window API must equal the explicit-window one.
+    x = np.arange(0.0, 400.0, 1.0)
+    y = _gauss_line(x, A=90.0, mu=205.0, sigma=5.0, m=-0.03, b=45.0)
+    a = fit_gaussian_linear(x, y, center=205.0, half_window=45.0)
+    b = fit_gaussian_linear_range(x, y, lo=160.0, hi=250.0)
+    assert a["ok"] and b["ok"]
+    for k in ("A", "mu", "sigma", "m", "b"):
+        assert abs(a[k] - b[k]) < 1e-9
+
+
+def test_A1_range_fit_fixed_mu_pins_on_shoulder():
+    x = np.arange(0.0, 400.0, 1.0)
+    y = (_gauss_line(x, A=500.0, mu=180.0, sigma=12.0, m=0.0, b=20.0)
+         + 60.0 * np.exp(-0.5 * ((x - 232.0) / 6.0) ** 2))
+    pinned = fit_gaussian_linear_range(x, y, lo=205.0, hi=260.0,
+                                       fixed={"mu": 232.0})
+    assert pinned["ok"]
+    assert pinned["mu"] == 232.0        # pinned exactly
+    assert pinned["dmu"] == 0.0         # pinned -> zero uncertainty
+    assert pinned["A"] > 0.0
+
+
+def test_A1_range_fit_fixed_sigma_pins_width():
+    x = np.arange(0.0, 400.0, 1.0)
+    y = _gauss_line(x, A=100.0, mu=200.0, sigma=8.0, m=0.0, b=30.0)
+    r = fit_gaussian_linear_range(x, y, lo=160.0, hi=240.0, fixed={"sigma": 5.0})
+    assert r["ok"]
+    assert r["sigma"] == 5.0 and r["dsigma"] == 0.0
+
+
+def test_A1_range_fit_seeds_accepted():
+    x = np.arange(0.0, 400.0, 1.0)
+    y = _gauss_line(x, A=100.0, mu=200.0, sigma=6.0, m=0.0, b=30.0)
+    r = fit_gaussian_linear_range(x, y, lo=160.0, hi=240.0,
+                                  seeds={"mu": 201.0, "sigma": 7.0})
+    assert r["ok"]
+    assert abs(r["mu"] - 200.0) < 1.0
+
+
+def test_A1_range_fit_unknown_param_name_errors():
+    x = np.arange(0.0, 400.0, 1.0)
+    y = _gauss_line(x, A=100.0, mu=200.0, sigma=6.0, m=0.0, b=30.0)
+    r = fit_gaussian_linear_range(x, y, lo=160.0, hi=240.0, fixed={"bogus": 1.0})
+    assert r["ok"] is False and r["error"]
+
+
+def test_A1_range_fit_too_narrow_fails_cleanly():
+    x = np.arange(0.0, 400.0, 1.0)
+    y = _gauss_line(x, A=100.0, mu=200.0, sigma=6.0, m=0.0, b=30.0)
+    r = fit_gaussian_linear_range(x, y, lo=199.0, hi=201.0)   # ~3 bins
+    assert r["ok"] is False and r["error"]
+
+
+# ===================== INTERSPEC Phase A2: auto-window cap ======================
+
+def test_A2_cap_clamps_window():
+    x = np.arange(0.0, 600.0, 1.0)
+    y = _gauss_line(x, A=150.0, mu=300.0, sigma=15.0, m=0.0, b=30.0)
+    free = fit_gaussian_linear_auto(x, y, center=300.0)
+    capped = fit_gaussian_linear_auto(x, y, center=300.0, max_half_window=25.0)
+    assert free["ok"] and capped["ok"]
+    assert (free["win_hi"] - free["win_lo"]) > 60.0
+    assert (capped["win_hi"] - capped["win_lo"]) <= 51.0     # 2*cap + slop
+    assert abs(capped["mu"] - 300.0) < 1.5
+
+
+def test_A2_cap_none_is_uncapped():
+    x = np.arange(0.0, 600.0, 1.0)
+    y = _gauss_line(x, A=150.0, mu=300.0, sigma=15.0, m=0.0, b=30.0)
+    a = fit_gaussian_linear_auto(x, y, center=300.0)
+    b = fit_gaussian_linear_auto(x, y, center=300.0, max_half_window=None)
+    assert a["ok"] and b["ok"]
+    assert (a["win_hi"] - a["win_lo"]) == (b["win_hi"] - b["win_lo"])
+
+
+def test_A2_cap_too_tight_fails_cleanly():
+    x = np.arange(0.0, 200.0, 1.0)
+    y = _gauss_line(x, A=100.0, mu=100.0, sigma=5.0, m=0.0, b=10.0)
+    r = fit_gaussian_linear_auto(x, y, center=100.0, max_half_window=2.0)
+    assert r["ok"] is False and r["error"]
+
+
+# ===================== INTERSPEC Phase A3: Fix-Peak window + output tag =========
+
+from services.peak_finder import fix_peak_window
+
+
+def test_A3_fix_window_default_half_width_50_bins():
+    lo, hi = fix_peak_window(center=300.0, bin_width=2.0, cap_bins=None)
+    assert lo == 300.0 - 50 * 2.0
+    assert hi == 300.0 + 50 * 2.0
+
+
+def test_A3_fix_window_cap_sets_full_window():
+    # Cap set: full window = cap bins (half-width = 0.5*cap).
+    lo, hi = fix_peak_window(center=300.0, bin_width=2.0, cap_bins=60)
+    assert hi - lo == 60 * 2.0
+    assert lo == 300.0 - 30 * 2.0 and hi == 300.0 + 30 * 2.0
+
+
+def test_A3_fix_window_symmetric_about_center():
+    lo, hi = fix_peak_window(center=1234.5, bin_width=1.0, cap_bins=None)
+    assert abs((hi - 1234.5) - (1234.5 - lo)) < 1e-9
+
+
+def test_A3_fix_window_recovers_amplitude_with_mu_pinned():
+    # Small peak on the flank of a big one: pinning mu recovers it.
+    x = np.arange(0.0, 400.0, 1.0)
+    y = (_gauss_line(x, A=500.0, mu=180.0, sigma=12.0, m=0.0, b=20.0)
+         + 60.0 * np.exp(-0.5 * ((x - 230.0) / 6.0) ** 2))
+    lo, hi = fix_peak_window(center=230.0, bin_width=1.0, cap_bins=None)
+    r = fit_gaussian_linear_range(x, y, lo, hi, fixed={"mu": 230.0})
+    assert r["ok"]
+    assert r["mu"] == 230.0 and r["dmu"] == 0.0 and r["A"] > 0.0
+
+
+def test_A3_format_output_tag_marks_fixed_mu():
+    from services.peak_finder import format_gauss_fit_output
+    r = dict(ok=True, mu=230.0, dmu=0.0, A=60.0, dA=3.0, sigma=6.0,
+             dsigma=0.3, fwhm=14.1, dfwhm=0.7, area=900.0, darea=40.0,
+             m=0.0, b=20.0, redchi=1.1)
+    tagged = format_gauss_fit_output(4, r, tag="fixed μ")
+    assert "Peak 4" in tagged and "fixed μ" in tagged
+    # default (no tag) stays byte-identical to today's format
+    assert format_gauss_fit_output(4, r) == format_gauss_fit_output(4, r, tag=None)
+    assert "(fixed" not in format_gauss_fit_output(4, r)

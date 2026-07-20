@@ -209,31 +209,46 @@ def _gauss_lin(x, A, mu, sigma, m, b):
     return A * np.exp(-0.5 * ((x - mu) / sigma) ** 2) + m * x + b
 
 
-def fit_gaussian_linear(x_axis, y_data, center, half_window):
-    """Fit ``A*exp(-(x-mu)^2/2sigma^2) + m*x + b`` around a clicked position.
+_GL_PARAMS = ("A", "mu", "sigma", "m", "b")
 
-    ``center`` is the clicked x; the fit spans ``center +- half_window`` (in x
-    units), clipped to the spectrum. Seeds: mu at the highest bin near the
-    click, background from the window's edge bins, A from peak minus
+
+def fit_gaussian_linear_range(x_axis, y_data, lo, hi, fixed=None, seeds=None):
+    """Fit ``A*exp(-(x-mu)^2/2sigma^2) + m*x + b`` over the explicit window
+    ``[lo, hi]`` (may be asymmetric about the peak; clipped to the spectrum;
+    reversed bounds are swapped).
+
+    ``fixed`` pins parameters by name (e.g. ``{'mu': 662.0}``): the pinned value
+    is substituted into the model and only the remaining parameters vary (pinned
+    uncertainties come back 0.0 and the dof drops accordingly). ``seeds``
+    overrides the automatic starting values by name. Automatic seeds: background
+    from the window's edge bins, mu at the residual maximum, A from peak minus
     background.
 
     Returns a dict. On success (``ok=True``): params ``A/mu/sigma/m/b`` with
     uncertainties ``dA/dmu/dsigma``, ``fwhm``/``dfwhm``, the NET gaussian area
     in counts ``area``/``darea`` (``A*sigma*sqrt(2pi)/bin_width``; background
-    excluded), ``redchi``, and sampled curves ``xx``/``y_fit``/``y_bg`` for
-    drawing (the blue fill goes between ``y_bg`` and ``y_fit``).
-    On failure (``ok=False``): an ``error`` message string."""
+    excluded), ``redchi``, the effective window ``win_lo``/``win_hi``, and
+    sampled curves ``xx``/``y_fit``/``y_bg`` for drawing (the blue fill goes
+    between ``y_bg`` and ``y_fit``). On failure (``ok=False``): an ``error``
+    message string."""
     x = np.asarray(x_axis, dtype=float)
     y = np.asarray(y_data, dtype=float)
-    mask = (x >= center - half_window) & (x <= center + half_window)
+    lo, hi = (float(lo), float(hi)) if lo <= hi else (float(hi), float(lo))
+    mask = (x >= lo) & (x <= hi)
     xs, ys = x[mask], y[mask]
     if xs.size < 6:
-        return dict(ok=False, error="fit window holds fewer than 6 bins — "
-                                    "widen the Window field or click inside the spectrum")
+        return dict(ok=False, error="fit window holds fewer than 6 bins; "
+                                    "widen the window or click inside the spectrum")
 
     bw = float(np.median(np.diff(xs))) if xs.size > 1 else 1.0
+    fixed = {k: float(v) for k, v in (fixed or {}).items()}
+    seeds = {k: float(v) for k, v in (seeds or {}).items()}
+    unknown = (set(fixed) | set(seeds)) - set(_GL_PARAMS)
+    if unknown:
+        return dict(ok=False, error=f"unknown parameter(s): {sorted(unknown)}")
 
-    # seeds: background from the window edges, centroid from the local maximum
+    # automatic seeds: background from the window edges, centroid from the
+    # background-subtracted local maximum
     n_edge = max(2, xs.size // 10)
     edge_x = np.concatenate([xs[:n_edge], xs[-n_edge:]])
     edge_y = np.concatenate([ys[:n_edge], ys[-n_edge:]])
@@ -243,25 +258,42 @@ def fit_gaussian_linear(x_axis, y_data, center, half_window):
         m0, b0 = 0.0, float(np.min(ys))
     resid = ys - (m0 * xs + b0)
     i_pk = int(np.argmax(resid))
-    mu0 = float(xs[i_pk])
-    A0 = max(float(resid[i_pk]), 1e-3)
-    sigma0 = max(half_window / 6.0, bw)
+    p0 = {"A": max(float(resid[i_pk]), 1e-3), "mu": float(xs[i_pk]),
+          "sigma": max((hi - lo) / 12.0, bw), "m": float(m0), "b": float(b0)}
+    p0.update(seeds)
+    lb = {"A": 0.0, "mu": float(xs[0]), "sigma": bw * 0.25, "m": -np.inf, "b": -np.inf}
+    ub = {"A": np.inf, "mu": float(xs[-1]), "sigma": float(xs[-1] - xs[0]),
+          "m": np.inf, "b": np.inf}
+
+    free = [n for n in _GL_PARAMS if n not in fixed]
+    if not free:
+        return dict(ok=False, error="every parameter is fixed; nothing to fit")
+
+    def model(xv, *free_vals):
+        vals = dict(fixed)
+        vals.update(zip(free, free_vals))
+        return _gauss_lin(xv, vals["A"], vals["mu"], vals["sigma"],
+                          vals["m"], vals["b"])
 
     try:
         popt, pcov = curve_fit(
-            _gauss_lin, xs, ys, p0=[A0, mu0, sigma0, m0, b0],
+            model, xs, ys, p0=[p0[n] for n in free],
             # Poisson weights for counting data: per-bin variance = the
             # counts, and pcov reports absolute uncertainties
             sigma=np.sqrt(np.clip(ys, 1.0, None)), absolute_sigma=True,
-            bounds=([0.0, xs[0], bw * 0.25, -np.inf, -np.inf],
-                    [np.inf, xs[-1], (xs[-1] - xs[0]), np.inf, np.inf]),
+            bounds=([lb[n] for n in free], [ub[n] for n in free]),
             maxfev=5000)
     except Exception as e:
         return dict(ok=False, error=f"fit did not converge: {e}")
 
-    A, mu, sigma, m, b = (float(v) for v in popt)
-    perr = np.sqrt(np.clip(np.diag(pcov), 0.0, np.inf))
-    dA, dmu, dsigma = float(perr[0]), float(perr[1]), float(perr[2])
+    vals = dict(fixed)
+    vals.update(zip(free, (float(v) for v in popt)))
+    perr_free = np.sqrt(np.clip(np.diag(pcov), 0.0, np.inf))
+    err = {n: 0.0 for n in _GL_PARAMS}
+    err.update(zip(free, (float(e) for e in perr_free)))
+
+    A, mu, sigma, m, b = (vals[n] for n in _GL_PARAMS)
+    dA, dmu, dsigma = err["A"], err["mu"], err["sigma"]
 
     fwhm = _FWHM_K * sigma
     dfwhm = _FWHM_K * dsigma
@@ -270,15 +302,25 @@ def fit_gaussian_linear(x_axis, y_data, center, half_window):
     darea = area * float(np.hypot(dA / A if A else 0.0,
                                   dsigma / sigma if sigma else 0.0))
 
-    yhat = _gauss_lin(xs, *popt)
-    dof = max(xs.size - 5, 1)
+    yhat = _gauss_lin(xs, A, mu, sigma, m, b)
+    dof = max(xs.size - len(free), 1)
     redchi = float(np.sum((ys - yhat) ** 2 / np.clip(yhat, 1.0, None)) / dof)
 
     xx = np.linspace(xs[0], xs[-1], 400)
     return dict(ok=True, A=A, dA=dA, mu=mu, dmu=dmu, sigma=sigma,
                 dsigma=dsigma, m=m, b=b, fwhm=fwhm, dfwhm=dfwhm,
                 area=area, darea=darea, redchi=redchi,
-                xx=xx, y_fit=_gauss_lin(xx, *popt), y_bg=m * xx + b)
+                win_lo=lo, win_hi=hi,
+                xx=xx, y_fit=_gauss_lin(xx, A, mu, sigma, m, b), y_bg=m * xx + b)
+
+
+def fit_gaussian_linear(x_axis, y_data, center, half_window):
+    """Fit around a clicked position over ``center +- half_window`` (x units).
+
+    Thin delegate of :func:`fit_gaussian_linear_range`; kept for callers that
+    think in click + width."""
+    return fit_gaussian_linear_range(x_axis, y_data,
+                                     center - half_window, center + half_window)
 
 
 def estimate_fit_window(x_axis, y_data, center):
@@ -360,25 +402,34 @@ def estimate_fit_window(x_axis, y_data, center):
     return dict(ok=True, mu=float(x[p]), fwhm=fwhm, half_window=half_window)
 
 
-def fit_gaussian_linear_auto(x_axis, y_data, center):
+def fit_gaussian_linear_auto(x_axis, y_data, center, max_half_window=None):
     """Click-to-fit with an automatic window (plan A).
 
     Estimate the window from the data (:func:`estimate_fit_window`), fit, then
     refine once over ``mu_fit +- 4*sigma_fit`` so the final window adapts to
-    the *fitted* width. The returned dict also carries the window
-    actually used (``win_lo``/``win_hi``)."""
+    the *fitted* width. The returned dict also carries the window actually used
+    (``win_lo``/``win_hi``).
+
+    ``max_half_window`` (the Config cap, in x units) clamps BOTH passes' half
+    windows; a window clamped below the fit minimum returns ``ok=False`` so the
+    caller can skip it."""
     est = estimate_fit_window(x_axis, y_data, center)
     if not est["ok"]:
         return dict(ok=False, error=est["error"])
 
     x = np.asarray(x_axis, dtype=float)
     bw = float(np.median(np.diff(x)))
-    r1 = fit_gaussian_linear(x_axis, y_data, est["mu"], est["half_window"])
-    r1_win = (est["mu"] - est["half_window"], est["mu"] + est["half_window"])
+
+    def _cap(hw):
+        return min(hw, float(max_half_window)) if max_half_window is not None else hw
+
+    hw1 = _cap(est["half_window"])
+    r1 = fit_gaussian_linear(x_axis, y_data, est["mu"], hw1)
+    r1_win = (est["mu"] - hw1, est["mu"] + hw1)
     if not r1["ok"]:
         return r1
 
-    hw2 = max(4.0 * r1["sigma"], 8.0 * bw)
+    hw2 = _cap(max(4.0 * r1["sigma"], 8.0 * bw))
     r2 = fit_gaussian_linear(x_axis, y_data, r1["mu"], hw2)
     if r2["ok"]:
         r2["win_lo"], r2["win_hi"] = r1["mu"] - hw2, r1["mu"] + hw2
@@ -387,11 +438,33 @@ def fit_gaussian_linear_auto(x_axis, y_data, center):
     return r1
 
 
-def format_gauss_fit_output(peak_no, r):
-    """The Peak Finder 2 output block for one fitted peak (or its error)."""
+_FIX_PEAK_DEFAULT_HALF_WINDOW_BINS = 50
+
+
+def fix_peak_window(center, bin_width, cap_bins=None):
+    """Fixed-mu fit window for the Fix Peak tool: symmetric about the clicked
+    ``center`` (x units), NOT chosen from the data.
+
+    ``estimate_fit_window`` is deliberately avoided here — its hill-climb snaps
+    to the strongest local summit, which is the wrong peak in the exact case
+    Fix Peak exists for (a small peak beside a big neighbour). The half-width is
+    half the cap when a Config cap is set (so the full window equals
+    ``cap_bins`` — the same meaning the cap has in the auto path), else ``50``
+    bins. Returns ``(lo, hi)`` in x units."""
+    half_bins = (0.5 * cap_bins) if cap_bins else _FIX_PEAK_DEFAULT_HALF_WINDOW_BINS
+    hw = half_bins * float(bin_width)
+    return center - hw, center + hw
+
+
+def format_gauss_fit_output(peak_no, r, tag=None):
+    """The Peak Finder 2 output block for one fitted peak (or its error).
+
+    ``tag`` (e.g. ``"fixed μ"``) annotates the peak header for the tool that
+    produced it; ``None`` leaves the line byte-identical to the auto path."""
+    label = f"Peak {peak_no}" + (f" ({tag})" if tag else "")
     if not r.get("ok"):
-        return f"Peak {peak_no}: FAILED — {r.get('error', 'unknown error')}"
-    text = (f"Peak {peak_no} @ μ = {r['mu']:.6g} ± {r['dmu']:.2g}\n"
+        return f"{label}: FAILED — {r.get('error', 'unknown error')}"
+    text = (f"{label} @ μ = {r['mu']:.6g} ± {r['dmu']:.2g}\n"
             f"   A = {r['A']:.4g} ± {r['dA']:.2g}, "
             f"σ = {r['sigma']:.4g} ± {r['dsigma']:.2g}, "
             f"FWHM = {r['fwhm']:.4g} ± {r['dfwhm']:.2g}\n"
