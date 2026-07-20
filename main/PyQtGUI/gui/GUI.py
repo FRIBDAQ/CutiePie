@@ -128,7 +128,7 @@ from services.dataframe_export import export_spectrum_csv
 from services.peak_finder import (
     PEAK_ALGORITHMS, find_peaks_in_range, format_peak_labels, format_peak_output,
     find_duplicate_mu, fit_gaussian_linear_auto, fit_gaussian_linear_range,
-    fix_peak_window, format_gauss_fit_output,
+    fix_peak_window, format_gauss_fit_output, format_gauss_fit_row,
 )
 from services.figure_overlay import compute_overlay_position, apply_joystick_move, apply_fine_move
 from services.thread_workers import RestWorker, AutoUpdateWorker
@@ -157,6 +157,16 @@ from alpha_filter_dialog import AlphaChainIsoFilterDialog
 SETTING_BASEDIR = "workdir"
 SETTING_EXECUTABLE = "exec"
 DEBUG = False
+
+
+class _NumericItem(QTableWidgetItem):
+    """Peak Finder 2 results-table cell that sorts by a stored numeric value
+    (Qt.UserRole) rather than its displayed '<value> ± <err>' string."""
+    def __lt__(self, other):
+        try:
+            return float(self.data(QtCore.Qt.UserRole)) < float(other.data(QtCore.Qt.UserRole))
+        except (TypeError, ValueError):
+            return super().__lt__(other)
 
 # Single source of truth for the auto-update combo: index i of the names maps
 # to seconds at the same index (ConnectionManager.autoUpdateStart relies on it).
@@ -687,8 +697,10 @@ class MainWindow(QMainWindow):
         # shields Clear from clicked(bool)'s checked arg (the E17 trap)
         self.extraPopup.peak.peak2_start.toggled.connect(self.peakFit2Toggle)
         self.extraPopup.peak.peak2_fix.toggled.connect(self.peakFit2FixToggle)
+        self.extraPopup.peak.peak2_delete.clicked.connect(lambda: self._peak2_delete_selected())
         self.extraPopup.peak.peak2_clear.clicked.connect(lambda: self.peakFit2Clear())
         self.extraPopup.peak.peak2_config.clicked.connect(lambda: self.peakFit2Config())
+        self.extraPopup.peak.peak2_table.itemSelectionChanged.connect(self._peak2_row_selected)
         # peak-selection list: wired ONCE here (the old per-scan
         # stateChanged.connect on the fixed checkbox grid stacked a duplicate
         # connection on every Scan); lambdas shield from clicked(bool)'s
@@ -3086,7 +3098,7 @@ class MainWindow(QMainWindow):
             self.peak2_cid = canvas.mpl_connect("button_press_event", self.onPeakFit2Click)
             btn.setText("Stop")
             btn.setStyleSheet("background-color:#ff6b6b;")
-            self.extraPopup.peak.peak2_results.append(
+            self._peak2_status(
                 "[armed] Left-click a peak on the pad to fit it. "
                 "Click Stop to disarm.")
         else:
@@ -3115,7 +3127,7 @@ class MainWindow(QMainWindow):
             self.peak2_canvas = canvas
             self.peak2_cid = canvas.mpl_connect("button_press_event", self.onPeakFit2Click)
             btn.setStyleSheet("background-color:#ff6b6b;")
-            self.extraPopup.peak.peak2_results.append(
+            self._peak2_status(
                 "[armed: fix μ] Left-click at a peak centre to fit with μ "
                 "pinned there. Click Fix Peak again to disarm.")
         else:
@@ -3127,6 +3139,99 @@ class MainWindow(QMainWindow):
             self.peak2_cid = None
             self.peak2_canvas = None
             btn.setStyleSheet("background-color:#bcee68;")
+
+    def _peak2_status(self, msg):
+        """Show the latest Peak Finder 2 status/feedback line (armed/config/
+        skip/failed/error)."""
+        self.extraPopup.peak.peak2_status.setText(msg)
+
+    def _peak2_add_row(self, peak_no, r, tag=None):
+        """Insert one fitted peak as a row in the results table (compact
+        columns + numeric sort keys; hover shows the full detail)."""
+        row = format_gauss_fit_row(peak_no, r, tag=tag)
+        t = self.extraPopup.peak.peak2_table
+        t.setSortingEnabled(False)     # don't re-sort mid-insert
+        ri = t.rowCount()
+        t.insertRow(ri)
+        for ci, (text, sortval) in enumerate(row["cells"]):
+            item = _NumericItem(text)
+            # the # cell's sort value (== peak number) doubles as the row->fit
+            # lookup key for delete/highlight
+            item.setData(QtCore.Qt.UserRole, float(sortval))
+            item.setToolTip(row["tooltip"])
+            t.setItem(ri, ci, item)
+        t.setSortingEnabled(True)
+
+    def _peak2_selected_number(self):
+        """Fit number of the currently-selected table row, or None."""
+        t = self.extraPopup.peak.peak2_table
+        ri = t.currentRow()
+        if ri < 0 or t.item(ri, 0) is None:
+            return None
+        try:
+            return int(round(float(t.item(ri, 0).data(QtCore.Qt.UserRole))))
+        except (TypeError, ValueError):
+            return None
+
+    def _peak2_delete_selected(self):
+        """Delete the selected fit: its table row, its record, and its artists
+        on the pad."""
+        num = self._peak2_selected_number()
+        if num is None:
+            self._peak2_status("[delete] Select a fit row first.")
+            return
+        rec = next((rc for rc in self.peak2_fits if rc.get("number") == num), None)
+        canvases = set()
+        if rec is not None:
+            for art in rec.get("artists") or ():
+                try:
+                    canvases.add(art.axes.figure.canvas)
+                    art.remove()
+                except Exception:
+                    self.logger.debug('_peak2_delete_selected - remove failed', exc_info=True)
+            self.peak2_fits.remove(rec)
+        t = self.extraPopup.peak.peak2_table
+        for ri in range(t.rowCount()):
+            it = t.item(ri, 0)
+            if it is not None and int(round(float(it.data(QtCore.Qt.UserRole)))) == num:
+                t.removeRow(ri)
+                break
+        try:
+            canvases.add(self.currentPlot.canvas)
+        except Exception:
+            pass
+        for c in canvases:
+            try:
+                c.draw_idle()
+            except Exception:
+                self.logger.debug('_peak2_delete_selected - redraw failed', exc_info=True)
+        self._peak2_status(f"[delete] Removed Peak {num}.")
+
+    def _peak2_row_selected(self):
+        """Highlight the selected fit's curve on the pad (thicker + orange);
+        restore the others to the default red."""
+        sel = self._peak2_selected_number()
+        canvases = set()
+        for rec in self.peak2_fits:
+            arts = rec.get("artists") or ()
+            if not arts:
+                continue
+            curve = arts[0]
+            try:
+                if rec.get("number") == sel:
+                    curve.set_linewidth(3.2)
+                    curve.set_color("tab:orange")
+                else:
+                    curve.set_linewidth(1.8)
+                    curve.set_color("tab:red")
+                canvases.add(curve.axes.figure.canvas)
+            except Exception:
+                self.logger.debug('_peak2_row_selected - restyle failed', exc_info=True)
+        for c in canvases:
+            try:
+                c.draw_idle()
+            except Exception:
+                self.logger.debug('_peak2_row_selected - redraw failed', exc_info=True)
 
     def _peak2_other_mode_active(self):
         """True while another pad interaction owns clicks: rubber-band
@@ -3174,22 +3279,21 @@ class MainWindow(QMainWindow):
             text="" if current is None else str(current))
         if not ok:
             return
-        out = self.extraPopup.peak.peak2_results
         s = QSettings()
         text = text.strip()
         if text == "":
             s.setValue("PeakFinder2/max_window_bins", "")
-            out.append("[config] Max window: no cap.")
+            self._peak2_status("[config] Max window: no cap.")
             return
         try:
             n = int(text)
             if n <= 0:
                 raise ValueError
         except ValueError:
-            out.append("[config] Max window must be a positive integer or empty — unchanged.")
+            self._peak2_status("[config] Max window must be a positive integer or empty — unchanged.")
             return
         s.setValue("PeakFinder2/max_window_bins", str(n))
-        out.append(f"[config] Max window: {n} bins.")
+        self._peak2_status(f"[config] Max window: {n} bins.")
 
     def onPeakFit2Click(self, event):
         """Armed-mode click handler: fit gaussian+linear around the click on
@@ -3201,7 +3305,6 @@ class MainWindow(QMainWindow):
             return
         if self._peak2_other_mode_active():
             return
-        out = self.extraPopup.peak.peak2_results
         try:
             if "colorbar_" in event.inaxes.get_label():
                 return
@@ -3212,10 +3315,10 @@ class MainWindow(QMainWindow):
 
             name = self.nameFromIndex(index)
             if not name:
-                out.append("[skip] Clicked pad holds no spectrum.")
+                self._peak2_status("[skip] Clicked pad holds no spectrum.")
                 return
             if self.getSpectrumStoreInfo("dim", index=index) != 1:
-                out.append("[skip] Peak Finder 2 works on 1D spectra only.")
+                self._peak2_status("[skip] Peak Finder 2 works on 1D spectra only.")
                 return
 
             binx     = self.getSpectrumStoreInfo("binx", index=index)
@@ -3245,7 +3348,7 @@ class MainWindow(QMainWindow):
                                               fixed={"mu": cx})
                 tag = "fixed μ"
                 if not r["ok"]:
-                    out.append(f"[failed] {r.get('error', 'fit failed')}")
+                    self._peak2_status(f"[failed] {r.get('error', 'fit failed')}")
                     return
             else:
                 r = fit_gaussian_linear_auto(xc, np.asarray(ytmp)[1:], cx,
@@ -3257,7 +3360,7 @@ class MainWindow(QMainWindow):
                                           r.get('error'))
                         return
                     # failures don't consume a peak number
-                    out.append(f"[failed] {r.get('error', 'fit failed')}")
+                    self._peak2_status(f"[failed] {r.get('error', 'fit failed')}")
                     return
                 # duplicate suppression (auto mode only): an off-peak flank
                 # click re-fits an already-fitted peak on the same spectrum;
@@ -3266,11 +3369,11 @@ class MainWindow(QMainWindow):
                 dup = find_duplicate_mu(r["mu"],
                                         [rec["result"]["mu"] for rec in same], bw)
                 if dup is not None:
-                    out.append(f"[skip] already fitted near μ = {r['mu']:.6g} "
-                               f"(Peak {same[dup]['number']}).")
+                    self._peak2_status(f"[skip] already fitted near μ = {r['mu']:.6g} "
+                                       f"(Peak {same[dup]['number']}).")
                     return
             self.peak2_count += 1
-            out.append(format_gauss_fit_output(self.peak2_count, r, tag=tag))
+            self._peak2_add_row(self.peak2_count, r, tag=tag)
 
             artists = self._peak2_draw(event.inaxes, r)
             # full record (data included) so the fit can be redrawn or refit
@@ -3281,7 +3384,7 @@ class MainWindow(QMainWindow):
         except Exception:
             # a click must never crash the GUI; report instead
             self.logger.exception('onPeakFit2Click - fit failed')
-            out.append("[error] Fit failed — see log.")
+            self._peak2_status("[error] Fit failed — see log.")
 
     def peakFit2RedrawAll(self):
         """Redraw every recorded fit from its stored curves onto its pad's
@@ -3325,7 +3428,8 @@ class MainWindow(QMainWindow):
                     self.logger.debug('peakFit2Clear - artist remove failed', exc_info=True)
         self.peak2_fits = []
         self.peak2_count = 0
-        self.extraPopup.peak.peak2_results.clear()
+        self.extraPopup.peak.peak2_table.setRowCount(0)
+        self._peak2_status("")
         # redraw every canvas that held a fit, including other tabs'
         try:
             canvases.add(self.currentPlot.canvas)

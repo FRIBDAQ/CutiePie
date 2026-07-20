@@ -6,11 +6,12 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
 from PyQt5.QtWidgets import (
-    QComboBox, QDialog, QGroupBox, QHBoxLayout,
-    QLabel, QLineEdit, QListWidget, QPushButton, QTextEdit, QVBoxLayout,
+    QAbstractItemView, QComboBox, QDialog, QGroupBox, QHBoxLayout,
+    QHeaderView, QLabel, QLineEdit, QListWidget, QPushButton, QTableWidget,
+    QTextEdit, QVBoxLayout,
 )
 
-from services.peak_finder import PEAK_ALGORITHMS
+from services.peak_finder import PEAK_ALGORITHMS, PEAK2_TABLE_COLUMNS
 
 class Fncts1D(QDialog):
 
@@ -101,27 +102,44 @@ class Fncts1D(QDialog):
             "pinned exactly at the clicked x (window centred on the click). "
             "Use for a small peak next to a bigger one. Mutually exclusive "
             "with Start")
+        self.peak2_delete = QPushButton("Delete", self)
+        self.peak2_delete.setToolTip("Remove the selected fit (row) and its curve")
         self.peak2_clear = QPushButton("Clear", self)
-        self.peak2_clear.setToolTip("Remove all fitted peaks and clear the output")
+        self.peak2_clear.setToolTip("Remove all fitted peaks and clear the table")
         self.peak2_config = QPushButton("Config", self)
         self.peak2_config.setToolTip(
             "Set the max fit window (in bins); empty = no cap. With a cap set, "
             "clicks that can't be fitted are skipped silently")
 
-        self.peak2_results_label = QLabel("Output")
-        self.peak2_results = QTextEdit()
-        self.peak2_results.setReadOnly(True)
+        # one row per fitted peak; sortable by header; hover a row for the full
+        # σ/A/background/window detail. Selecting a row highlights its curve on
+        # the pad (wired in GUI.py).
+        self.peak2_results_label = QLabel("Fitted peaks")
+        self.peak2_table = QTableWidget(0, len(PEAK2_TABLE_COLUMNS))
+        self.peak2_table.setHorizontalHeaderLabels(list(PEAK2_TABLE_COLUMNS))
+        self.peak2_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.peak2_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.peak2_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.peak2_table.setSortingEnabled(True)
+        self.peak2_table.verticalHeader().setVisible(False)
+        self.peak2_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+        # latest status/feedback line ([armed]/[config]/[skip]/[failed]/…)
+        self.peak2_status = QLabel("")
+        self.peak2_status.setWordWrap(True)
 
         layb = QHBoxLayout()
         layb.addWidget(self.peak2_start)
         layb.addWidget(self.peak2_fix)
+        layb.addWidget(self.peak2_delete)
         layb.addWidget(self.peak2_clear)
         layb.addWidget(self.peak2_config)
 
         layout = QVBoxLayout()
         layout.addLayout(layb)
         layout.addWidget(self.peak2_results_label)
-        layout.addWidget(self.peak2_results)
+        layout.addWidget(self.peak2_table)
+        layout.addWidget(self.peak2_status)
         layout.addStretch(1)
         peakBox2.setLayout(layout)
 

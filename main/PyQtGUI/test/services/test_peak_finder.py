@@ -620,3 +620,50 @@ def test_dup_returns_first_match():
 
 def test_dup_boundary_exactly_at_tol_is_duplicate():
     assert find_duplicate_mu(201.0, [200.0], tol=1.0) == 0
+
+
+# ===================== Peak Finder 2: results-table row formatter ==============
+
+from services.peak_finder import (
+    format_gauss_fit_row, format_gauss_fit_output, PEAK2_TABLE_COLUMNS,
+)
+
+
+def _row_result():
+    return dict(ok=True, mu=6623.4, dmu=0.42, A=123.4, dA=5.6, sigma=12.3,
+                dsigma=0.51, fwhm=29.02, dfwhm=1.12, area=4530.0, darea=120.0,
+                m=-0.05, b=60.1, redchi=1.23, win_lo=6580.0, win_hi=6670.0)
+
+
+def test_row_columns_are_five_in_order():
+    assert PEAK2_TABLE_COLUMNS == ("#", "μ", "FWHM", "area", "χ²ᵣ")
+
+
+def test_row_cells_display_and_sortkeys():
+    row = format_gauss_fit_row(1, _row_result())
+    cells = row["cells"]
+    assert len(cells) == 5
+    # display text carries the ± and value; sort key is the raw numeric
+    assert cells[0][0] == "1" and cells[0][1] == 1.0
+    assert cells[1][0].startswith("6623.4") and "±" in cells[1][0]
+    assert cells[1][1] == 6623.4
+    assert cells[2][1] == 29.02        # FWHM sort key
+    assert cells[3][1] == 4530.0       # area sort key
+    assert cells[4][0] == "1.23" and cells[4][1] == 1.23
+
+
+def test_row_tag_marks_number_cell_and_tooltip():
+    row = format_gauss_fit_row(2, _row_result(), tag="fixed μ")
+    assert "*" in row["cells"][0][0]           # # cell marked
+    assert "fixed μ" in row["tooltip"]
+
+
+def test_row_tooltip_reuses_detailed_formatter():
+    r = _row_result()
+    row = format_gauss_fit_row(3, r)
+    assert row["tooltip"] == format_gauss_fit_output(3, r)
+
+
+def test_row_untagged_has_no_marker():
+    row = format_gauss_fit_row(1, _row_result())
+    assert row["cells"][0][0] == "1" and row["tag"] is None

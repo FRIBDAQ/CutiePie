@@ -489,6 +489,35 @@ def format_gauss_fit_output(peak_no, r, tag=None):
     return text
 
 
+# Column headers for the Peak Finder 2 results table (one row per fit).
+PEAK2_TABLE_COLUMNS = ("#", "μ", "FWHM", "area", "χ²ᵣ")
+
+
+def format_gauss_fit_row(peak_no, r, tag=None):
+    """Compact one-row-per-fit view for the results table.
+
+    Returns a dict:
+      ``cells`` — list of ``(display_text, sort_value)`` in
+      :data:`PEAK2_TABLE_COLUMNS` order; the display text carries the ``± err``
+      while the sort value is the raw numeric so a table sorts columns
+      numerically, not lexically.
+      ``tag`` — the tool tag (e.g. ``"fixed μ"``) or ``None``; when set, the
+      ``#`` cell is marked with ``*``.
+      ``tooltip`` — the full detailed block (:func:`format_gauss_fit_output`),
+      for a per-row hover tooltip so the compact row keeps the full detail one
+      hover away."""
+    marker = " *" if tag else ""
+    cells = [
+        (f"{peak_no}{marker}", float(peak_no)),
+        (f"{r['mu']:.6g} ± {r['dmu']:.2g}", float(r['mu'])),
+        (f"{r['fwhm']:.4g} ± {r['dfwhm']:.2g}", float(r['fwhm'])),
+        (f"{r['area']:.4g} ± {r['darea']:.2g}", float(r['area'])),
+        (f"{r['redchi']:.3g}", float(r['redchi'])),
+    ]
+    return {"cells": cells, "tag": tag,
+            "tooltip": format_gauss_fit_output(peak_no, r, tag=tag)}
+
+
 def format_peak_output(peaks, properties, datax):
     """Build the per-peak result lines shown in the peak-analysis output box.
 
