@@ -521,6 +521,35 @@ def fit_composite(x_axis, y_data, lo, hi, spec, fixed=None, seeds=None):
                 y_bg=bg_xx, y_comp=y_comp, bg_params=bg_params, spec=dict(spec))
 
 
+def fit_composite_auto(x_axis, y_data, center, spec, max_half_window=None):
+    """Click-to-fit with an automatic window for an arbitrary composite ``spec``.
+
+    The window is found the same shape-agnostic way as
+    :func:`fit_gaussian_linear_auto` (estimate from the data, then refine once
+    over ``mu +- 4*sigma`` of the primary component), but the model fitted over
+    it is whatever ``spec`` selects. ``max_half_window`` (the Config cap, x
+    units) clamps both passes; an over-tight window returns ``ok=False``."""
+    est = estimate_fit_window(x_axis, y_data, center)
+    if not est["ok"]:
+        return dict(ok=False, error=est["error"])
+
+    x = np.asarray(x_axis, dtype=float)
+    bw = float(np.median(np.diff(x)))
+
+    def _cap(hw):
+        return min(hw, float(max_half_window)) if max_half_window is not None else hw
+
+    hw1 = _cap(est["half_window"])
+    r1 = fit_composite(x_axis, y_data, est["mu"] - hw1, est["mu"] + hw1, spec)
+    if not r1["ok"]:
+        return r1
+
+    c0 = r1["components"][0]
+    hw2 = _cap(max(4.0 * c0["sigma"], 8.0 * bw))
+    r2 = fit_composite(x_axis, y_data, c0["mu"] - hw2, c0["mu"] + hw2, spec)
+    return r2 if r2["ok"] else r1
+
+
 def fit_gaussian_linear(x_axis, y_data, center, half_window):
     """Fit around a clicked position over ``center +- half_window`` (x units).
 
@@ -832,8 +861,9 @@ def format_composite_fit_row(peak_no, r, tag=None):
     primary = max(comps, key=lambda c: c["area"])
     total_area = float(sum(c["area"] for c in comps))
     marker = " *" if tag else ""
+    mult = f"×{k}" if k > 1 else ""     # only a genuine doublet+ shows the count
     cells = [
-        (f"{peak_no}×{k}{marker}", float(peak_no)),
+        (f"{peak_no}{mult}{marker}", float(peak_no)),
         (f"{primary['mu']:.6g} ± {primary['dmu']:.2g}", float(primary["mu"])),
         (f"{primary['fwhm']:.4g} ± {primary['dfwhm']:.2g}", float(primary["fwhm"])),
         (f"{total_area:.4g}", total_area),

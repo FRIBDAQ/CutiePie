@@ -111,6 +111,21 @@ class Fncts1D(QDialog):
             "Set the max fit window (in bins); empty = no cap. With a cap set, "
             "clicks that can't be fitted are skipped silently")
 
+        # signal + background model for NEW fits (wired in GUI.py). The tail-side
+        # box only matters when the signal is Crystal ball. Selecting a fit row
+        # syncs these back to that fit's model (E3); changing one re-fits the
+        # selected fit (E3) and sets the default for the next new fit.
+        self.peak2_signal = QComboBox(self)
+        self.peak2_signal.addItems(["Gaussian", "Crystal ball"])
+        self.peak2_signal.setToolTip("Signal shape used for new fits")
+        self.peak2_bg = QComboBox(self)
+        self.peak2_bg.addItems(["Linear", "Quadratic", "Cubic"])
+        self.peak2_bg.setToolTip("Background shape used for new fits")
+        self.peak2_cb_tail = QComboBox(self)
+        self.peak2_cb_tail.addItems(["low", "high"])
+        self.peak2_cb_tail.setToolTip(
+            "Crystal Ball tail side (ignored for a Gaussian signal)")
+
         # one row per fitted peak; sortable by header; hover a row for the full
         # σ/A/background/window detail. Selecting a row highlights its curve on
         # the pad (wired in GUI.py).
@@ -135,8 +150,17 @@ class Fncts1D(QDialog):
         layb.addWidget(self.peak2_clear)
         layb.addWidget(self.peak2_config)
 
+        lays = QHBoxLayout()
+        lays.addWidget(QLabel("Signal"))
+        lays.addWidget(self.peak2_signal)
+        lays.addWidget(QLabel("Bg"))
+        lays.addWidget(self.peak2_bg)
+        lays.addWidget(QLabel("CB tail"))
+        lays.addWidget(self.peak2_cb_tail)
+
         layout = QVBoxLayout()
         layout.addLayout(layb)
+        layout.addLayout(lays)
         layout.addWidget(self.peak2_results_label)
         layout.addWidget(self.peak2_table)
         layout.addWidget(self.peak2_status)

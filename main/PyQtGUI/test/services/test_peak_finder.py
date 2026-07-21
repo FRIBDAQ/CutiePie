@@ -971,6 +971,61 @@ def test_E1_row_g1poly1_delegates_and_has_no_multiplier():
     assert row["tooltip"] == format_composite_fit_output(1, _fit_g1poly1())
 
 
+from services.peak_finder import fit_composite_auto
+
+
+def test_E2_auto_matches_gaussian_auto_for_default_spec():
+    # the gaussian x1 + poly1 auto path must track the original flat auto
+    x = np.arange(0.0, 600.0, 1.0)
+    y = _gauss_line(x, A=150.0, mu=300.0, sigma=15.0, m=-0.02, b=30.0)
+    spec = {"signal": "gaussian", "n_components": 1, "background": "poly1"}
+    comp = fit_composite_auto(x, y, 300.0, spec)
+    flat = fit_gaussian_linear_auto(x, y, 300.0)
+    assert comp["ok"] and flat["ok"]
+    assert abs(comp["components"][0]["mu"] - flat["mu"]) < 1e-6
+    assert abs((comp["win_hi"] - comp["win_lo"])
+               - (flat["win_hi"] - flat["win_lo"])) < 1e-6
+
+
+def test_E2_auto_caps_window():
+    x = np.arange(0.0, 600.0, 1.0)
+    y = _gauss_line(x, A=150.0, mu=300.0, sigma=15.0, m=0.0, b=30.0)
+    spec = {"signal": "gaussian", "n_components": 1, "background": "poly1"}
+    free = fit_composite_auto(x, y, 300.0, spec)
+    capped = fit_composite_auto(x, y, 300.0, spec, max_half_window=25.0)
+    assert free["ok"] and capped["ok"]
+    assert (capped["win_hi"] - capped["win_lo"]) <= 51.0
+
+
+def test_E2_auto_fits_crystal_ball_spec():
+    rng = np.random.default_rng(3)
+    x = np.arange(0.0, 400.0, 1.0)
+    y = _cb(x, 300.0, 200.0, 6.0, 1.4, 4.0, side="low") + 40.0
+    y = rng.poisson(np.clip(y, 0, None)).astype(float)
+    spec = {"signal": "crystal_ball", "n_components": 1,
+            "background": "poly1", "tail_side": "low"}
+    r = fit_composite_auto(x, y, 200.0, spec)
+    assert r["ok"]
+    assert abs(r["components"][0]["mu"] - 200.0) < 2.0
+    assert r["spec"]["signal"] == "crystal_ball"
+
+
+def test_E2_auto_flat_background_fails_cleanly():
+    x = np.arange(0.0, 200.0, 1.0)
+    y = np.full_like(x, 7.0)
+    spec = {"signal": "gaussian", "n_components": 1, "background": "poly1"}
+    r = fit_composite_auto(x, y, 100.0, spec)
+    assert r["ok"] is False and r["error"]
+
+
+def test_E1_row_single_component_nongaussian_has_no_multiplier():
+    # a single Crystal Ball (or gaussian+quadratic) fit is still one peak — no ×k
+    r = _fit_g1poly1()
+    r["spec"] = {"signal": "crystal_ball", "n_components": 1, "background": "poly1"}
+    row = format_composite_fit_row(5, r)
+    assert row["cells"][0][0] == "5"
+
+
 def test_E1_row_multicomponent_marks_count():
     rng = np.random.default_rng(11)
     x = np.arange(0.0, 400.0, 1.0)

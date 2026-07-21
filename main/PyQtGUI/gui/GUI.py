@@ -127,8 +127,8 @@ from services import geometry_io
 from services.dataframe_export import export_spectrum_csv
 from services.peak_finder import (
     PEAK_ALGORITHMS, find_peaks_in_range, format_peak_labels, format_peak_output,
-    find_duplicate_mu, fit_gaussian_linear_auto, fit_gaussian_linear_range,
-    fix_peak_window, format_gauss_fit_output, format_gauss_fit_row,
+    find_duplicate_mu, fit_composite, fit_composite_auto, fix_peak_window,
+    format_composite_fit_row,
     fwhm_to_sigma, nearest_window_edge, sigma_to_fwhm, validate_gauss_edit,
 )
 from services.figure_overlay import compute_overlay_position, apply_joystick_move, apply_fine_move
@@ -705,6 +705,13 @@ class MainWindow(QMainWindow):
         self.extraPopup.peak.peak2_clear.clicked.connect(lambda: self.peakFit2Clear())
         self.extraPopup.peak.peak2_config.clicked.connect(lambda: self.peakFit2Config())
         self.extraPopup.peak.peak2_table.itemSelectionChanged.connect(self._peak2_row_selected)
+        # shape menus: restore the last-used selection, then persist on change.
+        # E2 only persists here (no self-update yet); E3 extends the slot to
+        # re-fit the selected fit.
+        self._peak2_load_shape_menus()
+        self.extraPopup.peak.peak2_signal.currentIndexChanged.connect(self._peak2_shape_changed)
+        self.extraPopup.peak.peak2_bg.currentIndexChanged.connect(self._peak2_shape_changed)
+        self.extraPopup.peak.peak2_cb_tail.currentIndexChanged.connect(self._peak2_shape_changed)
         # peak-selection list: wired ONCE here (the old per-scan
         # stateChanged.connect on the fixed checkbox grid stacked a duplicate
         # connection on every Scan); lambdas shield from clicked(bool)'s
@@ -3226,7 +3233,8 @@ class MainWindow(QMainWindow):
             canvas.draw_idle()
             return
         xc, y = arrays
-        r = fit_gaussian_linear_range(xc, y, lo, hi, seeds={"mu": prev["mu"]})
+        r = fit_composite(xc, y, lo, hi, prev["spec"],
+                          seeds={"mu1": self._peak2_result_mu(prev)})
         if not r["ok"]:
             self._peak2_status(f"[failed] window edit (Peak {rec['number']}): "
                                f"{r.get('error', 'fit failed')}")
@@ -3240,12 +3248,13 @@ class MainWindow(QMainWindow):
         rec["result"] = r
         rec["artists"] = self._peak2_draw(ax, r)
         self._peak2_update_row(rec["number"], r, tag="edited")
-        self._peak2_status(f"Peak {rec['number']} (window edited): μ = {r['mu']:.6g}")
+        self._peak2_status(f"Peak {rec['number']} (window edited): "
+                           f"μ = {self._peak2_result_mu(r):.6g}")
         canvas.draw_idle()
 
     def _peak2_update_row(self, number, r, tag=None):
         """Refresh the table row for fit `number` in place after a refit."""
-        row = format_gauss_fit_row(number, r, tag=tag)
+        row = format_composite_fit_row(number, r, tag=tag)
         t = self.extraPopup.peak.peak2_table
         for ri in range(t.rowCount()):
             it = t.item(ri, 0)
@@ -3280,13 +3289,14 @@ class MainWindow(QMainWindow):
         fields the user changed become `fixed=` parameters, the rest stay free;
         Apply refits over the same window in place, Cancel does nothing."""
         prev = rec["result"]
-        mu_txt0 = f"{prev['mu']:.6g}"
-        sig_txt0 = f"{prev['sigma']:.6g}"
+        c = prev["components"][0]
+        mu_txt0 = f"{c['mu']:.6g}"
+        sig_txt0 = f"{c['sigma']:.6g}"
         dlg = QDialog(self)
         dlg.setWindowTitle(f"Edit Peak {rec['number']}")
         mu_edit = QLineEdit(mu_txt0)
         sigma_edit = QLineEdit(sig_txt0)
-        fwhm_edit = QLineEdit(f"{prev['fwhm']:.6g}")
+        fwhm_edit = QLineEdit(f"{c['fwhm']:.6g}")
         form = QFormLayout()
         form.addRow("μ", mu_edit)
         form.addRow("σ", sigma_edit)
@@ -3360,7 +3370,11 @@ class MainWindow(QMainWindow):
             self._peak2_status(f"[edit] Peak {rec['number']}: spectrum unavailable.")
             return
         xc, y = arrays
-        r = fit_gaussian_linear_range(xc, y, float(xx[0]), float(xx[-1]), fixed=fixed)
+        # validate uses the flat mu/sigma names; the fit core takes the
+        # suffixed per-component names (single component here → mu1/sigma1)
+        fixed_c = {("mu1" if k == "mu" else "sigma1"): v for k, v in fixed.items()}
+        r = fit_composite(xc, y, float(xx[0]), float(xx[-1]), prev["spec"],
+                          fixed=fixed_c)
         if not r["ok"]:
             self._peak2_status(f"[failed] edit (Peak {rec['number']}): "
                                f"{r.get('error', 'fit failed')}")
@@ -3374,7 +3388,8 @@ class MainWindow(QMainWindow):
         rec["result"] = r
         rec["artists"] = self._peak2_draw(ax, r)
         self._peak2_update_row(rec["number"], r, tag="edited")
-        self._peak2_status(f"Peak {rec['number']} (edited): μ = {r['mu']:.6g}")
+        self._peak2_status(f"Peak {rec['number']} (edited): "
+                           f"μ = {self._peak2_result_mu(r):.6g}")
         ax.figure.canvas.draw_idle()
 
     def peakFit2Toggle(self, checked):
@@ -3423,10 +3438,54 @@ class MainWindow(QMainWindow):
         skip/failed/error)."""
         self.extraPopup.peak.peak2_status.setText(msg)
 
+    _PEAK2_SIGNAL_BY_LABEL = {"Gaussian": "gaussian", "Crystal ball": "crystal_ball"}
+    _PEAK2_BG_BY_LABEL = {"Linear": "poly1", "Quadratic": "poly2", "Cubic": "poly3"}
+
+    def _peak2_current_spec(self):
+        """The fit spec selected in the shape menus. Single component here; a
+        multi-component fit only arises from E5's auto-add-on-drag."""
+        p = self.extraPopup.peak
+        return {
+            "signal": self._PEAK2_SIGNAL_BY_LABEL.get(p.peak2_signal.currentText(),
+                                                      "gaussian"),
+            "n_components": 1,
+            "background": self._PEAK2_BG_BY_LABEL.get(p.peak2_bg.currentText(),
+                                                      "poly1"),
+            "tail_side": p.peak2_cb_tail.currentText(),
+        }
+
+    @staticmethod
+    def _peak2_result_mu(r):
+        """μ of a composite fit's primary (first) component."""
+        return r["components"][0]["mu"]
+
+    def _peak2_load_shape_menus(self):
+        """Restore the last-used shape-menu selections from QSettings (signals
+        blocked so restoring does not trigger the persist/refit slot)."""
+        s = QSettings()
+        p = self.extraPopup.peak
+        for widget, key in ((p.peak2_signal, "signal_shape"),
+                            (p.peak2_bg, "background_shape"),
+                            (p.peak2_cb_tail, "cb_tail_side")):
+            val = s.value(f"PeakFinder2/{key}", "", type=str)
+            if val:
+                widget.blockSignals(True)
+                widget.setCurrentText(val)
+                widget.blockSignals(False)
+
+    def _peak2_shape_changed(self, *_):
+        """A shape menu changed: persist the selection so it reopens the same.
+        (E3 will extend this to re-fit the currently selected fit.)"""
+        s = QSettings()
+        p = self.extraPopup.peak
+        s.setValue("PeakFinder2/signal_shape", p.peak2_signal.currentText())
+        s.setValue("PeakFinder2/background_shape", p.peak2_bg.currentText())
+        s.setValue("PeakFinder2/cb_tail_side", p.peak2_cb_tail.currentText())
+
     def _peak2_add_row(self, peak_no, r, tag=None):
         """Insert one fitted peak as a row in the results table (compact
         columns + numeric sort keys; hover shows the full detail)."""
-        row = format_gauss_fit_row(peak_no, r, tag=tag)
+        row = format_composite_fit_row(peak_no, r, tag=tag)
         t = self.extraPopup.peak.peak2_table
         t.setSortingEnabled(False)     # don't re-sort mid-insert
         ri = t.rowCount()
@@ -3527,9 +3586,11 @@ class MainWindow(QMainWindow):
 
     def _peak2_draw(self, ax, r):
         """Draw one fit result on `ax` (curve + dashed bg + blue net-area fill +
-        square end-handles) and return the artist tuple; the curve is always
-        index 0. Factored out so a fit record can be redrawn from its stored
-        curves at any time (lifecycle safety)."""
+        square end-handles, plus thin dashed per-component curves when the fit
+        has more than one component) and return the artist tuple; the curve is
+        always index 0 and the fill index 2 (drag-grab / edit-hit rely on that).
+        Factored out so a fit record can be redrawn from its stored curves at
+        any time (lifecycle safety)."""
         (curve,) = ax.plot(r["xx"], r["y_fit"], color="tab:red", lw=1.8)
         (bgline,) = ax.plot(r["xx"], r["y_bg"], color="grey", lw=1.0, ls="--")
         fill = ax.fill_between(r["xx"], r["y_bg"], r["y_fit"],
@@ -3540,10 +3601,18 @@ class MainWindow(QMainWindow):
                              [r["y_fit"][0], r["y_fit"][-1]],
                              marker="s", ms=6, ls="None",
                              color="tab:red", mec="black", mew=0.6, zorder=6)
-        for art in (curve, bgline, fill, handles):
+        # per-component overlays (each drawn over the background); only when the
+        # fit is a genuine multi-component one — a single component == the curve
+        comps = []
+        y_comp = r.get("y_comp") or []
+        if len(y_comp) > 1:
+            for yc in y_comp:
+                (ln,) = ax.plot(r["xx"], yc, color="tab:red", lw=0.8, ls=":")
+                comps.append(ln)
+        for art in (curve, bgline, fill, handles, *comps):
             if hasattr(art, "set_gid"):
                 art.set_gid("peakfit2")
-        return (curve, bgline, fill, handles)
+        return (curve, bgline, fill, handles, *comps)
 
     def _peak2_max_window_bins(self):
         """The Config cap (max fit window in bins), or None when unset."""
@@ -3638,6 +3707,7 @@ class MainWindow(QMainWindow):
             max_hw = 0.5 * cap_bins * bw if cap_bins else None
 
             cx = float(event.xdata)
+            spec = self._peak2_current_spec()
             if self.peak2_fix_armed:
                 # Fix Peak: pin μ at the clicked x over a window centred on the
                 # click (cap sizes it, else 50 bins) — never estimate_fit_window,
@@ -3645,15 +3715,15 @@ class MainWindow(QMainWindow):
                 # reported here; the cap only sizes the window, it does not
                 # silence the click.
                 lo, hi = fix_peak_window(cx, bw, cap_bins=cap_bins)
-                r = fit_gaussian_linear_range(xc, np.asarray(ytmp)[1:], lo, hi,
-                                              fixed={"mu": cx})
+                r = fit_composite(xc, np.asarray(ytmp)[1:], lo, hi, spec,
+                                  fixed={"mu1": cx})
                 tag = "fixed μ"
                 if not r["ok"]:
                     self._peak2_status(f"[failed] {r.get('error', 'fit failed')}")
                     return
             else:
-                r = fit_gaussian_linear_auto(xc, np.asarray(ytmp)[1:], cx,
-                                             max_half_window=max_hw)
+                r = fit_composite_auto(xc, np.asarray(ytmp)[1:], cx, spec,
+                                       max_half_window=max_hw)
                 tag = None
                 if not r["ok"]:
                     if cap_bins:
@@ -3667,10 +3737,11 @@ class MainWindow(QMainWindow):
                 # click re-fits an already-fitted peak on the same spectrum;
                 # skip it if the centroid lands within ~1 bin of an existing fit
                 same = [rec for rec in self.peak2_fits if rec.get("name") == name]
-                dup = find_duplicate_mu(r["mu"],
-                                        [rec["result"]["mu"] for rec in same], bw)
+                new_mu = self._peak2_result_mu(r)
+                dup = find_duplicate_mu(
+                    new_mu, [self._peak2_result_mu(rec["result"]) for rec in same], bw)
                 if dup is not None:
-                    self._peak2_status(f"[skip] already fitted near μ = {r['mu']:.6g} "
+                    self._peak2_status(f"[skip] already fitted near μ = {new_mu:.6g} "
                                        f"(Peak {same[dup]['number']}).")
                     return
             self.peak2_count += 1
