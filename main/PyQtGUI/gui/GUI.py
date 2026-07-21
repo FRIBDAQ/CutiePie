@@ -3474,13 +3474,72 @@ class MainWindow(QMainWindow):
                 widget.blockSignals(False)
 
     def _peak2_shape_changed(self, *_):
-        """A shape menu changed: persist the selection so it reopens the same.
-        (E3 will extend this to re-fit the currently selected fit.)"""
+        """A shape menu changed (E3 self-update): persist the selection, then —
+        if a fit row is selected — re-fit THAT fit in place with the new model.
+        With no row selected the menu only sets the default for the next new
+        fit. This slot fires only on a genuine user change: the menu-sync on
+        row-select (`_peak2_sync_menus_to_spec`) blocks the combo signals, so a
+        selection never lands here."""
         s = QSettings()
         p = self.extraPopup.peak
         s.setValue("PeakFinder2/signal_shape", p.peak2_signal.currentText())
         s.setValue("PeakFinder2/background_shape", p.peak2_bg.currentText())
         s.setValue("PeakFinder2/cb_tail_side", p.peak2_cb_tail.currentText())
+        num = self._peak2_selected_number()
+        if num is None:
+            return
+        rec = next((rc for rc in self.peak2_fits if rc.get("number") == num), None)
+        if rec is not None:
+            self._peak2_refit_selected(rec)
+
+    def _peak2_refit_selected(self, rec):
+        """Re-fit `rec` in place over its stored window with the current menu
+        model (keeping the fit's own component count; μ seeded from the fit so
+        it stays on the same peak). Reuses the drag/edit redraw path; on failure
+        the previous fit is kept untouched."""
+        prev = rec["result"]
+        xx = prev["xx"]
+        lo, hi = float(xx[0]), float(xx[-1])
+        spec = self._peak2_current_spec()
+        spec["n_components"] = prev["spec"].get("n_components", 1)
+        seeds = {f"mu{i + 1}": c["mu"] for i, c in enumerate(prev["components"])}
+        arrays = self._peak2_spectrum_arrays(rec["index"])
+        if arrays is None:
+            self._peak2_status(f"[shape] Peak {rec['number']}: spectrum unavailable.")
+            return
+        xc, y = arrays
+        r = fit_composite(xc, y, lo, hi, spec, seeds=seeds)
+        if not r["ok"]:
+            self._peak2_status(f"[shape] Peak {rec['number']}: "
+                               f"{r.get('error', 'refit failed')} — unchanged.")
+            return
+        ax = rec["artists"][0].axes
+        for art in rec.get("artists") or ():
+            try:
+                art.remove()
+            except Exception:
+                pass
+        rec["result"] = r
+        rec["artists"] = self._peak2_draw(ax, r)
+        self._peak2_update_row(rec["number"], r, tag="edited")
+        self._peak2_status(f"Peak {rec['number']} → {spec['signal']}/"
+                           f"{spec['background']}: μ = {self._peak2_result_mu(r):.6g}")
+        ax.figure.canvas.draw_idle()
+
+    def _peak2_sync_menus_to_spec(self, spec):
+        """Write `spec` back into the three shape menus WITH combo signals
+        blocked, so syncing the menus to the selected fit never triggers
+        `_peak2_shape_changed`'s re-fit (the E3 re-entrancy guard)."""
+        p = self.extraPopup.peak
+        sig = next((k for k, v in self._PEAK2_SIGNAL_BY_LABEL.items()
+                    if v == spec.get("signal")), "Gaussian")
+        bg = next((k for k, v in self._PEAK2_BG_BY_LABEL.items()
+                   if v == spec.get("background")), "Linear")
+        for widget, text in ((p.peak2_signal, sig), (p.peak2_bg, bg),
+                             (p.peak2_cb_tail, spec.get("tail_side", "low"))):
+            widget.blockSignals(True)
+            widget.setCurrentText(text)
+            widget.blockSignals(False)
 
     def _peak2_add_row(self, peak_no, r, tag=None):
         """Insert one fitted peak as a row in the results table (compact
@@ -3548,8 +3607,10 @@ class MainWindow(QMainWindow):
 
     def _peak2_row_selected(self):
         """Highlight the selected fit's curve on the pad (thicker + orange);
-        restore the others to the default red."""
+        restore the others to the default red. Also syncs the shape menus to the
+        selected fit's model (E3) so the menus reflect the fit you'd act on."""
         sel = self._peak2_selected_number()
+        sel_rec = None
         canvases = set()
         for rec in self.peak2_fits:
             arts = rec.get("artists") or ()
@@ -3558,6 +3619,7 @@ class MainWindow(QMainWindow):
             curve = arts[0]
             try:
                 if rec.get("number") == sel:
+                    sel_rec = rec
                     curve.set_linewidth(3.2)
                     curve.set_color("tab:orange")
                 else:
@@ -3566,6 +3628,10 @@ class MainWindow(QMainWindow):
                 canvases.add(curve.axes.figure.canvas)
             except Exception:
                 self.logger.debug('_peak2_row_selected - restyle failed', exc_info=True)
+        # sync the menus to the selected fit's spec (signals blocked inside, so
+        # this never triggers _peak2_shape_changed's re-fit)
+        if sel_rec is not None:
+            self._peak2_sync_menus_to_spec(sel_rec["result"].get("spec", {}))
         for c in canvases:
             try:
                 c.draw_idle()

@@ -1010,6 +1010,21 @@ def test_E2_auto_fits_crystal_ball_spec():
     assert r["spec"]["signal"] == "crystal_ball"
 
 
+def test_E2_cb_on_symmetric_peak_still_recovers_mu():
+    # a near-symmetric peak leaves CB's alpha/n unconstrained (the case that
+    # used to grind curve_fit to its iteration cap); the loosened tolerances
+    # must still converge to the right centroid, not just faster
+    rng = np.random.default_rng(1)
+    x = np.arange(0.0, 1024.0, 1.0)
+    y = 120.0 * np.exp(-0.5 * ((x - 512.0) / 8.0) ** 2) + 50.0
+    y = rng.poisson(np.clip(y, 0, None)).astype(float)
+    spec = {"signal": "crystal_ball", "n_components": 1,
+            "background": "poly1", "tail_side": "low"}
+    r = fit_composite_auto(x, y, 512.0, spec)
+    assert r["ok"]
+    assert abs(r["components"][0]["mu"] - 512.0) < 1.0
+
+
 def test_E2_auto_flat_background_fails_cleanly():
     x = np.arange(0.0, 200.0, 1.0)
     y = np.full_like(x, 7.0)

@@ -473,12 +473,18 @@ def fit_composite(x_axis, y_data, lo, hi, spec, fixed=None, seeds=None):
         total, bg_curve = _eval_composite(xv, vals, spec, lo, hi)
         return total + bg_curve
 
+    # crystal ball's shared alpha/n are strongly correlated and go
+    # unconstrained on a peak with little tail, so the solver's default 1e-8
+    # tolerances grind to the iteration cap (~250 ms vs ~5 ms). Loosen to 1e-6
+    # for shapes carrying shared params — ample for counting data — and leave
+    # the well-conditioned gaussian path on the tight default.
+    tol = 1e-6 if sh["shared"] else 1e-8
     try:
         popt, pcov = curve_fit(
             model, xs, ys, p0=[p0[nm] for nm in free],
             sigma=np.sqrt(np.clip(ys, 1.0, None)), absolute_sigma=True,
             bounds=([lb[nm] for nm in free], [ub[nm] for nm in free]),
-            maxfev=5000)
+            ftol=tol, xtol=tol, gtol=tol, maxfev=5000)
     except Exception as e:
         return dict(ok=False, error=f"fit did not converge: {e}")
 
