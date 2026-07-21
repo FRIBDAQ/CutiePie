@@ -695,3 +695,22 @@ def test_grab_ties_to_closer_edge():
 
 def test_grab_exactly_at_tol_grabs():
     assert nearest_window_edge(8.0, lo=0.0, hi=100.0, tol=8.0) == "lo"
+
+
+# ===================== Peak Finder 2: sigma <-> FWHM (edit popup link) =========
+
+from services.peak_finder import sigma_to_fwhm, fwhm_to_sigma
+
+
+def test_sigma_to_fwhm_factor():
+    # FWHM = 2*sqrt(2*ln2) * sigma ~= 2.35482 * sigma
+    assert abs(sigma_to_fwhm(10.0) - 23.5482) < 1e-3
+
+
+def test_fwhm_to_sigma_inverse():
+    assert abs(fwhm_to_sigma(23.5482) - 10.0) < 1e-3
+
+
+def test_sigma_fwhm_roundtrip():
+    for s in (1.0, 6.3, 42.0):
+        assert abs(fwhm_to_sigma(sigma_to_fwhm(s)) - s) < 1e-9

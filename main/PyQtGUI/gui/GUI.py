@@ -129,7 +129,7 @@ from services.peak_finder import (
     PEAK_ALGORITHMS, find_peaks_in_range, format_peak_labels, format_peak_output,
     find_duplicate_mu, fit_gaussian_linear_auto, fit_gaussian_linear_range,
     fix_peak_window, format_gauss_fit_output, format_gauss_fit_row,
-    nearest_window_edge,
+    fwhm_to_sigma, nearest_window_edge, sigma_to_fwhm,
 )
 from services.figure_overlay import compute_overlay_position, apply_joystick_move, apply_fine_move
 from services.thread_workers import RestWorker, AutoUpdateWorker
@@ -3259,9 +3259,119 @@ class MainWindow(QMainWindow):
                 break
 
     def _peak2_try_edit(self, event):
-        """Right-click edit-popup attempt (filled in by the edit popup, step
-        D2). Returns True when the press opened the popup."""
+        """Right-click inside a fit's blue fill opens the edit popup for that
+        fit. Returns True when a popup opened."""
+        ax = event.inaxes
+        for rec in self.peak2_fits:
+            arts = rec.get("artists") or ()
+            if len(arts) < 3 or arts[0].axes is not ax:
+                continue
+            try:
+                hit, _ = arts[2].contains(event)     # the fill (PolyCollection)
+            except Exception:
+                hit = False
+            if hit:
+                self._peak2_open_edit(rec)
+                return True
         return False
+
+    def _peak2_open_edit(self, rec):
+        """Modal μ/σ/FWHM editor for one fit. σ↔FWHM are linked (factor 2.3548);
+        fields the user changed become `fixed=` parameters, the rest stay free;
+        Apply refits over the same window in place, Cancel does nothing."""
+        prev = rec["result"]
+        mu_txt0 = f"{prev['mu']:.6g}"
+        sig_txt0 = f"{prev['sigma']:.6g}"
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Edit Peak {rec['number']}")
+        mu_edit = QLineEdit(mu_txt0)
+        sigma_edit = QLineEdit(sig_txt0)
+        fwhm_edit = QLineEdit(f"{prev['fwhm']:.6g}")
+        form = QFormLayout()
+        form.addRow("μ", mu_edit)
+        form.addRow("σ", sigma_edit)
+        form.addRow("FWHM", fwhm_edit)
+
+        # link σ <-> FWHM live (guard against the re-entrant echo)
+        self._peak2_edit_linking = False
+
+        def _from_sigma(_):
+            if self._peak2_edit_linking:
+                return
+            self._peak2_edit_linking = True
+            try:
+                fwhm_edit.setText(f"{sigma_to_fwhm(sigma_edit.text()):.6g}")
+            except (ValueError, TypeError):
+                pass
+            finally:
+                self._peak2_edit_linking = False
+
+        def _from_fwhm(_):
+            if self._peak2_edit_linking:
+                return
+            self._peak2_edit_linking = True
+            try:
+                sigma_edit.setText(f"{fwhm_to_sigma(fwhm_edit.text()):.6g}")
+            except (ValueError, TypeError):
+                pass
+            finally:
+                self._peak2_edit_linking = False
+
+        sigma_edit.textEdited.connect(_from_sigma)
+        fwhm_edit.textEdited.connect(_from_fwhm)
+
+        apply_btn = QPushButton("Apply")
+        cancel_btn = QPushButton("Cancel")
+        apply_btn.clicked.connect(dlg.accept)
+        cancel_btn.clicked.connect(dlg.reject)
+        btns = QHBoxLayout()
+        btns.addWidget(apply_btn)
+        btns.addWidget(cancel_btn)
+        lay = QVBoxLayout()
+        lay.addLayout(form)
+        lay.addLayout(btns)
+        dlg.setLayout(lay)
+
+        if dlg.exec_() != QDialog.Accepted:
+            return
+
+        # fields whose text changed become fixed (σ text also changes when the
+        # user edits FWHM, via the link — so a width edit either way is caught)
+        fixed = {}
+        try:
+            if mu_edit.text() != mu_txt0:
+                fixed["mu"] = float(mu_edit.text())
+            if sigma_edit.text() != sig_txt0:
+                fixed["sigma"] = float(sigma_edit.text())
+        except ValueError:
+            self._peak2_status(f"[edit] Peak {rec['number']}: invalid number — unchanged.")
+            return
+        if not fixed:
+            self._peak2_status(f"[edit] Peak {rec['number']}: nothing changed.")
+            return
+
+        arrays = self._peak2_spectrum_arrays(rec["index"])
+        if arrays is None:
+            self._peak2_status(f"[edit] Peak {rec['number']}: spectrum unavailable.")
+            return
+        xc, y = arrays
+        xx = prev["xx"]
+        r = fit_gaussian_linear_range(xc, y, float(xx[0]), float(xx[-1]), fixed=fixed)
+        if not r["ok"]:
+            self._peak2_status(f"[failed] edit (Peak {rec['number']}): "
+                               f"{r.get('error', 'fit failed')}")
+            return
+        ax = rec["artists"][0].axes
+        for art in rec.get("artists") or ():
+            try:
+                art.remove()
+            except Exception:
+                pass
+        rec["result"] = r
+        rec["artists"] = self._peak2_draw(ax, r)
+        self._peak2_update_row(rec["number"], r, tag="edited")
+        self._peak2_status(f"Peak {rec['number']} (edited): μ = {r['mu']:.6g}")
+        ax.figure.canvas.draw_idle()
 
     def peakFit2Toggle(self, checked):
         """Start/Stop toggle: arm (or disarm) the current tab's canvas so each

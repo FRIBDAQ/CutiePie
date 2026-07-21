@@ -441,6 +441,17 @@ def fit_gaussian_linear_auto(x_axis, y_data, center, max_half_window=None):
 _FIX_PEAK_DEFAULT_HALF_WINDOW_BINS = 50
 
 
+def sigma_to_fwhm(sigma):
+    """Gaussian FWHM from sigma (``2*sqrt(2*ln2)*sigma``). The single source of
+    the σ↔FWHM factor for the edit popup's linked fields."""
+    return _FWHM_K * float(sigma)
+
+
+def fwhm_to_sigma(fwhm):
+    """Gaussian sigma from FWHM (inverse of :func:`sigma_to_fwhm`)."""
+    return float(fwhm) / _FWHM_K
+
+
 def nearest_window_edge(x, lo, hi, tol):
     """Which fit-window edge the position ``x`` is within ``tol`` of: ``"lo"``,
     ``"hi"``, or ``None``. All four arguments must be in the SAME units (the GUI
