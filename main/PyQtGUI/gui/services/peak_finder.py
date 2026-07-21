@@ -452,6 +452,23 @@ def fwhm_to_sigma(fwhm):
     return float(fwhm) / _FWHM_K
 
 
+def validate_gauss_edit(fixed, lo=None, hi=None):
+    """Reject pinned edit values that would make the fit degenerate before they
+    reach the fit core, which happily accepts them (``fixed=`` bypasses the
+    bounds). σ must be strictly positive. μ is not sign-constrained — a
+    spectrum whose x-axis runs negative has legitimately-negative peak centers —
+    but pinning it outside the fit window ``[lo, hi]`` puts the peak off the
+    fitted data and blows the fit up, so μ must lie within that window when it
+    is supplied. Returns an error message string, or None if all pins are in
+    range."""
+    if "sigma" in fixed and fixed["sigma"] <= 0:
+        return "σ must be positive"
+    if "mu" in fixed and lo is not None and hi is not None:
+        if not (lo <= fixed["mu"] <= hi):
+            return "μ must lie within the fit window"
+    return None
+
+
 def nearest_window_edge(x, lo, hi, tol):
     """Which fit-window edge the position ``x`` is within ``tol`` of: ``"lo"``,
     ``"hi"``, or ``None``. All four arguments must be in the SAME units (the GUI

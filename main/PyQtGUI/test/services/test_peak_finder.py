@@ -714,3 +714,35 @@ def test_fwhm_to_sigma_inverse():
 def test_sigma_fwhm_roundtrip():
     for s in (1.0, 6.3, 42.0):
         assert abs(fwhm_to_sigma(sigma_to_fwhm(s)) - s) < 1e-9
+
+
+# ===================== Peak Finder 2: edit-param validation (K13f) ============
+
+from services.peak_finder import validate_gauss_edit
+
+
+def test_validate_rejects_negative_sigma():
+    assert validate_gauss_edit({"sigma": -2.0}, lo=30.0, hi=70.0) is not None
+
+
+def test_validate_rejects_zero_sigma():
+    assert validate_gauss_edit({"sigma": 0.0}, lo=30.0, hi=70.0) is not None
+
+
+def test_validate_rejects_mu_outside_window():
+    # mu pinned outside the fit window is what makes the fit degenerate
+    assert validate_gauss_edit({"mu": -5.0}, lo=30.0, hi=70.0) is not None
+    assert validate_gauss_edit({"mu": 999.0}, lo=30.0, hi=70.0) is not None
+
+
+def test_validate_accepts_negative_mu_inside_negative_window():
+    # a spectrum whose x-axis runs negative has legitimately-negative peak centers
+    assert validate_gauss_edit({"mu": -40.0}, lo=-100.0, hi=-10.0) is None
+
+
+def test_validate_accepts_mu_inside_window():
+    assert validate_gauss_edit({"mu": 50.0, "sigma": 4.0}, lo=30.0, hi=70.0) is None
+
+
+def test_validate_accepts_empty():
+    assert validate_gauss_edit({}, lo=30.0, hi=70.0) is None

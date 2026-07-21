@@ -129,7 +129,7 @@ from services.peak_finder import (
     PEAK_ALGORITHMS, find_peaks_in_range, format_peak_labels, format_peak_output,
     find_duplicate_mu, fit_gaussian_linear_auto, fit_gaussian_linear_range,
     fix_peak_window, format_gauss_fit_output, format_gauss_fit_row,
-    fwhm_to_sigma, nearest_window_edge, sigma_to_fwhm,
+    fwhm_to_sigma, nearest_window_edge, sigma_to_fwhm, validate_gauss_edit,
 )
 from services.figure_overlay import compute_overlay_position, apply_joystick_move, apply_fine_move
 from services.thread_workers import RestWorker, AutoUpdateWorker
@@ -3349,13 +3349,17 @@ class MainWindow(QMainWindow):
         if not fixed:
             self._peak2_status(f"[edit] Peak {rec['number']}: nothing changed.")
             return
+        xx = prev["xx"]
+        bad = validate_gauss_edit(fixed, lo=float(xx[0]), hi=float(xx[-1]))
+        if bad:
+            self._peak2_status(f"[edit] Peak {rec['number']}: {bad} — unchanged.")
+            return
 
         arrays = self._peak2_spectrum_arrays(rec["index"])
         if arrays is None:
             self._peak2_status(f"[edit] Peak {rec['number']}: spectrum unavailable.")
             return
         xc, y = arrays
-        xx = prev["xx"]
         r = fit_gaussian_linear_range(xc, y, float(xx[0]), float(xx[-1]), fixed=fixed)
         if not r["ok"]:
             self._peak2_status(f"[failed] edit (Peak {rec['number']}): "
