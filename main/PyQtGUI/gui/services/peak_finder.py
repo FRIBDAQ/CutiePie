@@ -42,6 +42,11 @@ import numpy as np
 from scipy.optimize import curve_fit
 from scipy.signal import find_peaks, peak_prominences, peak_widths, savgol_filter
 
+try:                                    # numpy>=2 renamed trapz -> trapezoid
+    from numpy import trapezoid as _trapz
+except ImportError:                     # pragma: no cover - older numpy
+    from numpy import trapz as _trapz
+
 _FWHM_K = 2.0 * np.sqrt(2.0 * np.log(2.0))   # sigma -> FWHM
 
 
@@ -205,11 +210,17 @@ PEAK_ALGORITHMS = {
 # and the drawing (fit curve, dashed background, blue net-area fill).
 # ---------------------------------------------------------------------------
 
-def _gauss_lin(x, A, mu, sigma, m, b):
-    return A * np.exp(-0.5 * ((x - mu) / sigma) ** 2) + m * x + b
+# flat gaussian+linear param names -> composite suffixed/background names, so
+# callers/tests that fix or seed the classic A/mu/sigma/m/b still work through
+# fit_composite (an unrecognized name passes through and errors, as before)
+_GL_FLAT_TO_COMPOSITE = {"A": "A1", "mu": "mu1", "sigma": "sigma1",
+                         "m": "m", "b": "b"}
 
 
-_GL_PARAMS = ("A", "mu", "sigma", "m", "b")
+def _gl_translate(d):
+    if not d:
+        return d
+    return {_GL_FLAT_TO_COMPOSITE.get(k, k): v for k, v in d.items()}
 
 
 def fit_gaussian_linear_range(x_axis, y_data, lo, hi, fixed=None, seeds=None):
@@ -217,12 +228,13 @@ def fit_gaussian_linear_range(x_axis, y_data, lo, hi, fixed=None, seeds=None):
     ``[lo, hi]`` (may be asymmetric about the peak; clipped to the spectrum;
     reversed bounds are swapped).
 
-    ``fixed`` pins parameters by name (e.g. ``{'mu': 662.0}``): the pinned value
-    is substituted into the model and only the remaining parameters vary (pinned
-    uncertainties come back 0.0 and the dof drops accordingly). ``seeds``
-    overrides the automatic starting values by name. Automatic seeds: background
-    from the window's edge bins, mu at the residual maximum, A from peak minus
-    background.
+    Now a pure delegate of :func:`fit_composite` for the gaussian x1 + poly1
+    case, flattened back to the classic result shape so every existing caller
+    is unchanged. ``fixed`` pins parameters by name (e.g. ``{'mu': 662.0}``):
+    the pinned value is substituted and only the remaining parameters vary
+    (pinned uncertainties come back 0.0, dof drops). ``seeds`` overrides the
+    automatic starting values. Automatic seeds: background from the window's
+    edge bins, mu at the residual maximum, A from peak minus background.
 
     Returns a dict. On success (``ok=True``): params ``A/mu/sigma/m/b`` with
     uncertainties ``dA/dmu/dsigma``, ``fwhm``/``dfwhm``, the NET gaussian area
@@ -231,6 +243,172 @@ def fit_gaussian_linear_range(x_axis, y_data, lo, hi, fixed=None, seeds=None):
     sampled curves ``xx``/``y_fit``/``y_bg`` for drawing (the blue fill goes
     between ``y_bg`` and ``y_fit``). On failure (``ok=False``): an ``error``
     message string."""
+    spec = {"signal": "gaussian", "n_components": 1, "background": "poly1"}
+    r = fit_composite(x_axis, y_data, lo, hi, spec,
+                      fixed=_gl_translate(fixed), seeds=_gl_translate(seeds))
+    if not r.get("ok"):
+        return r
+    return _composite_gl_flat(r)
+
+
+# ---------------------------------------------------------------------------
+# Peak Finder 2 — composite shape registry (INTERSPEC Phase E1).
+# One fit engine (`fit_composite`) over a pluggable signal shape (gaussian /
+# crystal ball) times 1..5 components, plus a background shape (poly1/2/3).
+# `fit_gaussian_linear_range` above is a pure gaussian x1 + poly1 delegate of
+# this engine (see the delegate at the bottom of this section).
+#
+# poly1 stays a raw ``m*x + b`` (linear is well-conditioned in raw x, and this
+# keeps the gaussian x1 + poly1 delegate numerically faithful to the original);
+# poly2/poly3 evaluate in the mapped variable ``t = 2(x-lo)/(hi-lo) - 1`` in
+# [-1, 1], where a raw-x quadratic/cubic at x~6000 would be ill-conditioned.
+# ---------------------------------------------------------------------------
+
+_CB_ALPHA_SEED, _CB_N_SEED = 1.5, 3.0
+_SHARED_BOUNDS = {"alpha": (0.1, 10.0), "n": (1.01, 100.0)}
+_SHARED_SEEDS = {"alpha": _CB_ALPHA_SEED, "n": _CB_N_SEED}
+_MAX_COMPONENTS = 5
+
+
+def _gaussian_eval(x, comp, shared, spec):
+    A, mu, sigma = comp
+    return A * np.exp(-0.5 * ((np.asarray(x, dtype=float) - mu) / sigma) ** 2)
+
+
+def _crystal_ball_eval(x, comp, shared, spec):
+    """Crystal Ball: gaussian core + power-law tail on one side. ``tail_side``
+    (``"low"`` default, or ``"high"``) picks which flank carries the tail;
+    ``alpha``/``n`` are the (shared) tail onset and steepness."""
+    A, mu, sigma = comp
+    alpha, n = shared["alpha"], shared["n"]
+    z = (np.asarray(x, dtype=float) - mu) / sigma
+    if spec.get("tail_side", "low") == "high":
+        z = -z
+    aa = abs(alpha)
+    B = n / aa - aa
+    # curve_fit explores alpha->0.1, n->100 where (n/aa)**n overflows; that's a
+    # rejected trial point, not a real evaluation, so silence the transient
+    with np.errstate(over="ignore", invalid="ignore"):
+        D = (n / aa) ** n * np.exp(-0.5 * aa * aa)
+        core = A * np.exp(-0.5 * z * z)
+        tail = A * D * np.power(np.clip(B - z, 1e-300, None), -n)
+    return np.where(z > -aa, core, tail)
+
+
+def _gaussian_area(comp, bw, xs, shared, spec):
+    A, mu, sigma = comp
+    return A * sigma * np.sqrt(2.0 * np.pi) / bw
+
+
+def _crystal_ball_area(comp, bw, xs, shared, spec):
+    # net counts = numeric integral of the component curve over the window / bw
+    # (window-truncated; the tail outside the window is not extrapolated)
+    return float(_trapz(_crystal_ball_eval(xs, comp, shared, spec), xs)) / bw
+
+
+SIGNAL_SHAPES = {
+    "gaussian": {"params": ("A", "mu", "sigma"), "shared": (),
+                 "eval": _gaussian_eval, "area": _gaussian_area},
+    "crystal_ball": {"params": ("A", "mu", "sigma"), "shared": ("alpha", "n"),
+                     "eval": _crystal_ball_eval, "area": _crystal_ball_area},
+}
+
+
+def _poly1_eval(x, coeffs, lo, hi):
+    m, b = coeffs
+    return m * np.asarray(x, dtype=float) + b
+
+
+def _mapped_t(x, lo, hi):
+    span = (float(hi) - float(lo)) or 1.0
+    return 2.0 * (np.asarray(x, dtype=float) - lo) / span - 1.0
+
+
+def _polyN_eval(x, coeffs, lo, hi):
+    t = _mapped_t(x, lo, hi)
+    out = np.zeros_like(t)
+    for i, c in enumerate(coeffs):
+        out = out + c * t ** i
+    return out
+
+
+BACKGROUND_SHAPES = {
+    "poly1": {"params": ("m", "b"), "eval": _poly1_eval},
+    "poly2": {"params": ("c0", "c1", "c2"), "eval": _polyN_eval},
+    "poly3": {"params": ("c0", "c1", "c2", "c3"), "eval": _polyN_eval},
+}
+
+
+def _composite_param_names(spec):
+    """Ordered fit-parameter names: per-component signal params suffixed by the
+    1-based component index (``A1, mu1, sigma1, A2, …``), shared signal params
+    unsuffixed (``alpha``, ``n``), background params last."""
+    sh = SIGNAL_SHAPES[spec["signal"]]
+    k = int(spec.get("n_components", 1))
+    names = [f"{p}{i}" for i in range(1, k + 1) for p in sh["params"]]
+    names += list(sh["shared"])
+    names += list(BACKGROUND_SHAPES[spec["background"]]["params"])
+    return names
+
+
+def _seed_background(bg, edge_x, edge_y, lo, hi):
+    """Seed the background from the window-edge bins: poly1 a raw line, poly2/3 a
+    line in the mapped variable with higher coefficients zero."""
+    params = BACKGROUND_SHAPES[bg]["params"]
+    try:
+        if bg == "poly1":
+            m0, b0 = np.polyfit(edge_x, edge_y, 1)
+            return {"m": float(m0), "b": float(b0)}
+        t = _mapped_t(edge_x, lo, hi)
+        c1, c0 = np.polyfit(t, edge_y, 1)   # polyfit: highest power first
+    except Exception:
+        c0, c1 = float(np.min(edge_y)), 0.0
+        if bg == "poly1":
+            return {"m": 0.0, "b": c0}
+    seed = {p: 0.0 for p in params}
+    seed["c0"] = float(c0)
+    seed["c1"] = float(c1)
+    return seed
+
+
+def _eval_composite(xv, vals, spec, lo, hi):
+    sh = SIGNAL_SHAPES[spec["signal"]]
+    k = int(spec.get("n_components", 1))
+    shared_vals = {p: vals[p] for p in sh["shared"]}
+    total = np.zeros_like(np.asarray(xv, dtype=float))
+    for i in range(1, k + 1):
+        comp = tuple(vals[f"{p}{i}"] for p in sh["params"])
+        total = total + sh["eval"](xv, comp, shared_vals, spec)
+    bgsh = BACKGROUND_SHAPES[spec["background"]]
+    bg = bgsh["eval"](xv, tuple(vals[p] for p in bgsh["params"]), lo, hi)
+    return total, bg
+
+
+def fit_composite(x_axis, y_data, lo, hi, spec, fixed=None, seeds=None):
+    """Fit ``sum_i signal_i(x) + background(x)`` over the window ``[lo, hi]``.
+
+    ``spec = {'signal': 'gaussian'|'crystal_ball', 'n_components': k,
+    'background': 'poly1'|'poly2'|'poly3', 'tail_side': 'low'|'high'}``. The
+    parameter vector is per-component signal params suffixed by index
+    (``A1, mu1, sigma1, A2, …``), shared signal params unsuffixed (``alpha``,
+    ``n`` for crystal ball, one detector response for the whole fit), then the
+    background. ``fixed``/``seeds`` use those suffixed names (``{'mu1': 662.3}``);
+    a fixed param is substituted (0.0 uncertainty, dof drops).
+
+    Returns a dict. On success: ``components`` (a per-peak list of
+    ``A/mu/sigma`` + ``dA/dmu/dsigma``, ``fwhm/dfwhm``, ``area/darea``),
+    ``redchi``, the window ``win_lo``/``win_hi``, drawing curves
+    ``xx``/``y_fit``/``y_bg`` plus per-component ``y_comp[k]`` (each drawn over
+    the background), and an echo of ``spec``. On failure: ``ok=False`` + an
+    ``error`` string."""
+    signal = spec.get("signal")
+    bg = spec.get("background")
+    if signal not in SIGNAL_SHAPES or bg not in BACKGROUND_SHAPES:
+        return dict(ok=False, error=f"unknown shape in spec: {spec}")
+    k = int(spec.get("n_components", 1))
+    if not (1 <= k <= _MAX_COMPONENTS):
+        return dict(ok=False, error=f"n_components must be 1..{_MAX_COMPONENTS}")
+
     x = np.asarray(x_axis, dtype=float)
     y = np.asarray(y_data, dtype=float)
     lo, hi = (float(lo), float(hi)) if lo <= hi else (float(hi), float(lo))
@@ -241,47 +419,65 @@ def fit_gaussian_linear_range(x_axis, y_data, lo, hi, fixed=None, seeds=None):
                                     "widen the window or click inside the spectrum")
 
     bw = float(np.median(np.diff(xs))) if xs.size > 1 else 1.0
-    fixed = {k: float(v) for k, v in (fixed or {}).items()}
-    seeds = {k: float(v) for k, v in (seeds or {}).items()}
-    unknown = (set(fixed) | set(seeds)) - set(_GL_PARAMS)
+    names = _composite_param_names(spec)
+    fixed = {k_: float(v) for k_, v in (fixed or {}).items()}
+    seeds = {k_: float(v) for k_, v in (seeds or {}).items()}
+    unknown = (set(fixed) | set(seeds)) - set(names)
     if unknown:
         return dict(ok=False, error=f"unknown parameter(s): {sorted(unknown)}")
 
-    # automatic seeds: background from the window edges, centroid from the
-    # background-subtracted local maximum
+    sh = SIGNAL_SHAPES[signal]
+    bgsh = BACKGROUND_SHAPES[bg]
+
+    # seeds: background from the window edges, component centroids from the
+    # background-subtracted residual maxima
     n_edge = max(2, xs.size // 10)
     edge_x = np.concatenate([xs[:n_edge], xs[-n_edge:]])
     edge_y = np.concatenate([ys[:n_edge], ys[-n_edge:]])
-    try:
-        m0, b0 = np.polyfit(edge_x, edge_y, 1)
-    except Exception:
-        m0, b0 = 0.0, float(np.min(ys))
-    resid = ys - (m0 * xs + b0)
-    i_pk = int(np.argmax(resid))
-    p0 = {"A": max(float(resid[i_pk]), 1e-3), "mu": float(xs[i_pk]),
-          "sigma": max((hi - lo) / 12.0, bw), "m": float(m0), "b": float(b0)}
-    p0.update(seeds)
-    lb = {"A": 0.0, "mu": float(xs[0]), "sigma": bw * 0.25, "m": -np.inf, "b": -np.inf}
-    ub = {"A": np.inf, "mu": float(xs[-1]), "sigma": float(xs[-1] - xs[0]),
-          "m": np.inf, "b": np.inf}
+    bg_seed = _seed_background(bg, edge_x, edge_y, lo, hi)
+    resid = ys - bgsh["eval"](xs, tuple(bg_seed[p] for p in bgsh["params"]), lo, hi)
+    if k == 1:
+        mu_idx = [int(np.argmax(resid))]
+    else:
+        pk, _ = find_peaks(resid)
+        if len(pk) >= k:
+            mu_idx = sorted(pk[np.argsort(resid[pk])[::-1][:k]].tolist())
+        else:
+            mu_idx = [int(round(v)) for v in
+                      np.linspace(xs.size * 0.2, xs.size * 0.8, k)]
 
-    free = [n for n in _GL_PARAMS if n not in fixed]
+    p0, lb, ub = {}, {}, {}
+    for slot, i in enumerate(range(1, k + 1)):
+        j = min(max(mu_idx[slot], 0), xs.size - 1)
+        p0[f"A{i}"] = max(float(resid[j]), 1e-3)
+        p0[f"mu{i}"] = float(xs[j])
+        p0[f"sigma{i}"] = max((hi - lo) / 12.0, bw)
+        lb[f"A{i}"], ub[f"A{i}"] = 0.0, np.inf
+        lb[f"mu{i}"], ub[f"mu{i}"] = float(xs[0]), float(xs[-1])
+        lb[f"sigma{i}"], ub[f"sigma{i}"] = bw * 0.25, float(xs[-1] - xs[0])
+    for p in sh["shared"]:
+        p0[p] = _SHARED_SEEDS[p]
+        lb[p], ub[p] = _SHARED_BOUNDS[p]
+    for p in bgsh["params"]:
+        p0[p] = bg_seed[p]
+        lb[p], ub[p] = -np.inf, np.inf
+    p0.update(seeds)
+
+    free = [nm for nm in names if nm not in fixed]
     if not free:
         return dict(ok=False, error="every parameter is fixed; nothing to fit")
 
     def model(xv, *free_vals):
         vals = dict(fixed)
         vals.update(zip(free, free_vals))
-        return _gauss_lin(xv, vals["A"], vals["mu"], vals["sigma"],
-                          vals["m"], vals["b"])
+        total, bg_curve = _eval_composite(xv, vals, spec, lo, hi)
+        return total + bg_curve
 
     try:
         popt, pcov = curve_fit(
-            model, xs, ys, p0=[p0[n] for n in free],
-            # Poisson weights for counting data: per-bin variance = the
-            # counts, and pcov reports absolute uncertainties
+            model, xs, ys, p0=[p0[nm] for nm in free],
             sigma=np.sqrt(np.clip(ys, 1.0, None)), absolute_sigma=True,
-            bounds=([lb[n] for n in free], [ub[n] for n in free]),
+            bounds=([lb[nm] for nm in free], [ub[nm] for nm in free]),
             maxfev=5000)
     except Exception as e:
         return dict(ok=False, error=f"fit did not converge: {e}")
@@ -289,29 +485,40 @@ def fit_gaussian_linear_range(x_axis, y_data, lo, hi, fixed=None, seeds=None):
     vals = dict(fixed)
     vals.update(zip(free, (float(v) for v in popt)))
     perr_free = np.sqrt(np.clip(np.diag(pcov), 0.0, np.inf))
-    err = {n: 0.0 for n in _GL_PARAMS}
+    err = {nm: 0.0 for nm in names}
     err.update(zip(free, (float(e) for e in perr_free)))
 
-    A, mu, sigma, m, b = (vals[n] for n in _GL_PARAMS)
-    dA, dmu, dsigma = err["A"], err["mu"], err["sigma"]
+    shared_vals = {p: vals[p] for p in sh["shared"]}
+    components = []
+    for i in range(1, k + 1):
+        A, mu, sigma = (vals[f"A{i}"], vals[f"mu{i}"], vals[f"sigma{i}"])
+        dA, dmu, dsigma = (err[f"A{i}"], err[f"mu{i}"], err[f"sigma{i}"])
+        fwhm = _FWHM_K * sigma
+        area = sh["area"]((A, mu, sigma), bw, xs, shared_vals, spec)
+        darea = area * float(np.hypot(dA / A if A else 0.0,
+                                      dsigma / sigma if sigma else 0.0))
+        components.append(dict(A=A, dA=dA, mu=mu, dmu=dmu, sigma=sigma,
+                               dsigma=dsigma, fwhm=fwhm, dfwhm=_FWHM_K * dsigma,
+                               area=area, darea=darea))
 
-    fwhm = _FWHM_K * sigma
-    dfwhm = _FWHM_K * dsigma
-    area = A * sigma * np.sqrt(2.0 * np.pi) / bw
-    # propagate A and sigma errors (correlation ignored; quoted as estimate)
-    darea = area * float(np.hypot(dA / A if A else 0.0,
-                                  dsigma / sigma if sigma else 0.0))
-
-    yhat = _gauss_lin(xs, A, mu, sigma, m, b)
+    total_s, bg_s = _eval_composite(xs, vals, spec, lo, hi)
+    yhat = total_s + bg_s
     dof = max(xs.size - len(free), 1)
     redchi = float(np.sum((ys - yhat) ** 2 / np.clip(yhat, 1.0, None)) / dof)
 
     xx = np.linspace(xs[0], xs[-1], 400)
-    return dict(ok=True, A=A, dA=dA, mu=mu, dmu=dmu, sigma=sigma,
-                dsigma=dsigma, m=m, b=b, fwhm=fwhm, dfwhm=dfwhm,
-                area=area, darea=darea, redchi=redchi,
-                win_lo=lo, win_hi=hi,
-                xx=xx, y_fit=_gauss_lin(xx, A, mu, sigma, m, b), y_bg=m * xx + b)
+    bg_xx = bgsh["eval"](xx, tuple(vals[p] for p in bgsh["params"]), lo, hi)
+    y_comp = []
+    total_xx = np.zeros_like(xx)
+    for i in range(1, k + 1):
+        comp = tuple(vals[f"{p}{i}"] for p in sh["params"])
+        ci = sh["eval"](xx, comp, shared_vals, spec)
+        total_xx = total_xx + ci
+        y_comp.append(ci + bg_xx)
+    bg_params = {p: vals[p] for p in bgsh["params"]}
+    return dict(ok=True, components=components, redchi=redchi,
+                win_lo=lo, win_hi=hi, xx=xx, y_fit=total_xx + bg_xx,
+                y_bg=bg_xx, y_comp=y_comp, bg_params=bg_params, spec=dict(spec))
 
 
 def fit_gaussian_linear(x_axis, y_data, center, half_window):
@@ -557,6 +764,83 @@ def format_gauss_fit_row(peak_no, r, tag=None):
     ]
     return {"cells": cells, "tag": tag,
             "tooltip": format_gauss_fit_output(peak_no, r, tag=tag)}
+
+
+# ---- Phase E1 composite output --------------------------------------------
+
+_SIGNAL_LABELS = {"gaussian": "gaussian", "crystal_ball": "crystal ball"}
+_BACKGROUND_LABELS = {"poly1": "linear", "poly2": "quadratic", "poly3": "cubic"}
+
+
+def _is_gauss_linear(spec):
+    return (spec.get("signal") == "gaussian"
+            and int(spec.get("n_components", 1)) == 1
+            and spec.get("background") == "poly1")
+
+
+def _composite_gl_flat(r):
+    """Flatten a gaussian x1 + poly1 composite result into the classic flat
+    ``A/mu/sigma/m/b/...`` dict the original gaussian formatters/callers expect."""
+    c = r["components"][0]
+    m, b = r["bg_params"]["m"], r["bg_params"]["b"]
+    return dict(ok=True, A=c["A"], dA=c["dA"], mu=c["mu"], dmu=c["dmu"],
+                sigma=c["sigma"], dsigma=c["dsigma"], m=m, b=b,
+                fwhm=c["fwhm"], dfwhm=c["dfwhm"], area=c["area"], darea=c["darea"],
+                redchi=r["redchi"], win_lo=r["win_lo"], win_hi=r["win_hi"],
+                xx=r["xx"], y_fit=r["y_fit"], y_bg=r["y_bg"])
+
+
+def _spec_label(spec):
+    sig = _SIGNAL_LABELS.get(spec.get("signal"), spec.get("signal"))
+    k = int(spec.get("n_components", 1))
+    bg = _BACKGROUND_LABELS.get(spec.get("background"), spec.get("background"))
+    return f"{sig}{f' x{k}' if k > 1 else ''} + {bg}"
+
+
+def format_composite_fit_output(peak_no, r, tag=None):
+    """Detailed output block for a composite fit. The classic gaussian x1 +
+    poly1 case delegates to :func:`format_gauss_fit_output` (byte-identical,
+    including its ``bg = m·x + b`` line); other shapes get a header line naming
+    the model + window + red-χ² plus one line per component."""
+    label = f"Peak {peak_no}" + (f" ({tag})" if tag else "")
+    if not r.get("ok"):
+        return f"{label}: FAILED — {r.get('error', 'unknown error')}"
+    spec = r.get("spec", {})
+    if _is_gauss_linear(spec):
+        return format_gauss_fit_output(peak_no, _composite_gl_flat(r), tag=tag)
+    header = (f"{label} [{_spec_label(spec)}, "
+              f"window {r['win_lo']:.6g}–{r['win_hi']:.6g}, "
+              f"red-χ² = {r['redchi']:.3g}]")
+    lines = [header]
+    for i, c in enumerate(r["components"], 1):
+        lines.append(f"   #{i}: μ = {c['mu']:.6g} ± {c['dmu']:.2g}, "
+                     f"FWHM = {c['fwhm']:.4g} ± {c['dfwhm']:.2g}, "
+                     f"area = {c['area']:.4g} ± {c['darea']:.2g} counts")
+    return "\n".join(lines)
+
+
+def format_composite_fit_row(peak_no, r, tag=None):
+    """Compact one-row-per-fit view for the results table (composite fits). The
+    gaussian x1 + poly1 case delegates to :func:`format_gauss_fit_row`; a
+    multi-component fit shows its strongest component's μ/FWHM, the summed area,
+    and marks the ``#`` cell ``×k``."""
+    spec = r.get("spec", {})
+    if _is_gauss_linear(spec):
+        return format_gauss_fit_row(peak_no, _composite_gl_flat(r), tag=tag)
+    comps = r["components"]
+    k = len(comps)
+    primary = max(comps, key=lambda c: c["area"])
+    total_area = float(sum(c["area"] for c in comps))
+    marker = " *" if tag else ""
+    cells = [
+        (f"{peak_no}×{k}{marker}", float(peak_no)),
+        (f"{primary['mu']:.6g} ± {primary['dmu']:.2g}", float(primary["mu"])),
+        (f"{primary['fwhm']:.4g} ± {primary['dfwhm']:.2g}", float(primary["fwhm"])),
+        (f"{total_area:.4g}", total_area),
+        (f"{r['redchi']:.3g}", float(r["redchi"])),
+    ]
+    return {"cells": cells, "tag": tag,
+            "tooltip": format_composite_fit_output(peak_no, r, tag=tag)}
 
 
 def format_peak_output(peaks, properties, datax):

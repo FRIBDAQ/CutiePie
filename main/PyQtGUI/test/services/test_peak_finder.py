@@ -746,3 +746,239 @@ def test_validate_accepts_mu_inside_window():
 
 def test_validate_accepts_empty():
     assert validate_gauss_edit({}, lo=30.0, hi=70.0) is None
+
+
+# ===================== INTERSPEC Phase E1: composite shape registry ============
+# Signal shapes gaussian + crystal_ball; background poly1 (raw m*x+b) / poly2 /
+# poly3 (mapped t in [-1,1]); fit_composite is the one engine, and
+# fit_gaussian_linear_range is a pure gaussian x1 + poly1 delegate of it.
+
+from services.peak_finder import (
+    SIGNAL_SHAPES, BACKGROUND_SHAPES, fit_composite,
+)
+
+
+def test_E1_signal_registry_has_gaussian_and_crystal_ball():
+    assert set(SIGNAL_SHAPES) == {"gaussian", "crystal_ball"}
+    assert SIGNAL_SHAPES["gaussian"]["params"] == ("A", "mu", "sigma")
+    assert SIGNAL_SHAPES["gaussian"]["shared"] == ()
+    assert SIGNAL_SHAPES["crystal_ball"]["params"] == ("A", "mu", "sigma")
+    assert SIGNAL_SHAPES["crystal_ball"]["shared"] == ("alpha", "n")
+
+
+def test_E1_background_registry_has_poly1_2_3():
+    assert set(BACKGROUND_SHAPES) == {"poly1", "poly2", "poly3"}
+    assert BACKGROUND_SHAPES["poly1"]["params"] == ("m", "b")
+    assert len(BACKGROUND_SHAPES["poly2"]["params"]) == 3
+    assert len(BACKGROUND_SHAPES["poly3"]["params"]) == 4
+
+
+def test_E1_gaussian_eval_matches_formula():
+    x = np.linspace(0, 100, 51)
+    got = SIGNAL_SHAPES["gaussian"]["eval"](x, (10.0, 50.0, 5.0), {}, {})
+    want = 10.0 * np.exp(-0.5 * ((x - 50.0) / 5.0) ** 2)
+    assert np.allclose(got, want)
+
+
+def test_E1_poly1_eval_is_raw_linear():
+    x = np.array([0.0, 10.0, 20.0])
+    got = BACKGROUND_SHAPES["poly1"]["eval"](x, (2.0, 3.0), 0.0, 20.0)
+    assert np.allclose(got, 2.0 * x + 3.0)
+
+
+def test_E1_poly2_eval_uses_mapped_variable():
+    # t = -1 at lo, 0 at mid, +1 at hi; poly2 = c0 + c1*t + c2*t^2
+    lo, hi = 100.0, 200.0
+    x = np.array([lo, 150.0, hi])
+    got = BACKGROUND_SHAPES["poly2"]["eval"](x, (5.0, 2.0, 1.0), lo, hi)
+    assert np.allclose(got, [5.0 - 2.0 + 1.0, 5.0, 5.0 + 2.0 + 1.0])
+
+
+def test_E1_composite_single_gaussian_recovers_peak():
+    rng = np.random.default_rng(7)
+    x = np.arange(0.0, 400.0, 1.0)
+    y = _gauss_line(x, A=120.0, mu=207.0, sigma=6.0, m=-0.05, b=60.0)
+    y = y + rng.normal(0.0, 1.0, x.size)
+    spec = {"signal": "gaussian", "n_components": 1, "background": "poly1"}
+    r = fit_composite(x, y, 167.0, 247.0, spec)
+    assert r["ok"]
+    assert len(r["components"]) == 1
+    c = r["components"][0]
+    assert abs(c["mu"] - 207.0) < 0.5
+    assert abs(c["sigma"] - 6.0) < 0.5
+    assert abs(c["A"] - 120.0) < 5.0
+    assert abs(c["fwhm"] - 6.0 * 2.3548) < 1.0
+    assert r["xx"].shape == r["y_fit"].shape == r["y_bg"].shape
+    assert len(r["y_comp"]) == 1
+
+
+def test_E1_composite_fixed_mu1_pins_exactly():
+    x = np.arange(0.0, 400.0, 1.0)
+    y = (_gauss_line(x, A=500.0, mu=180.0, sigma=12.0, m=0.0, b=20.0)
+         + 60.0 * np.exp(-0.5 * ((x - 232.0) / 6.0) ** 2))
+    spec = {"signal": "gaussian", "n_components": 1, "background": "poly1"}
+    r = fit_composite(x, y, 205.0, 260.0, spec, fixed={"mu1": 232.0})
+    assert r["ok"]
+    assert r["components"][0]["mu"] == 232.0
+    assert r["components"][0]["dmu"] == 0.0
+
+
+def test_E1_composite_unknown_param_errors():
+    x = np.arange(0.0, 400.0, 1.0)
+    y = _gauss_line(x, A=100.0, mu=200.0, sigma=6.0, m=0.0, b=30.0)
+    spec = {"signal": "gaussian", "n_components": 1, "background": "poly1"}
+    r = fit_composite(x, y, 160.0, 240.0, spec, fixed={"bogus": 1.0})
+    assert r["ok"] is False and r["error"]
+
+
+def test_E1_composite_too_narrow_fails_cleanly():
+    x = np.arange(0.0, 400.0, 1.0)
+    y = _gauss_line(x, A=100.0, mu=200.0, sigma=6.0, m=0.0, b=30.0)
+    spec = {"signal": "gaussian", "n_components": 1, "background": "poly1"}
+    r = fit_composite(x, y, 199.0, 201.0, spec)
+    assert r["ok"] is False and r["error"]
+
+
+def _cb(x, A, mu, sigma, alpha, n, side="low"):
+    return SIGNAL_SHAPES["crystal_ball"]["eval"](
+        x, (A, mu, sigma), {"alpha": alpha, "n": n}, {"tail_side": side})
+
+
+def test_E1_crystal_ball_core_matches_gaussian():
+    # in the core region (the non-tail flank) CB is exactly the gaussian
+    x = np.linspace(150.0, 180.0, 31)   # high side of mu=150, always core for low tail
+    cb = _cb(x, 100.0, 150.0, 5.0, 1.5, 3.0, side="low")
+    g = 100.0 * np.exp(-0.5 * ((x - 150.0) / 5.0) ** 2)
+    assert np.allclose(cb, g)
+
+
+def test_E1_crystal_ball_low_tail_is_heavier_than_gaussian():
+    # far on the low side the power-law tail sits well above the gaussian
+    xlo = 150.0 - 5.0 * 5.0            # z = -5, past alpha=1.5
+    cb = _cb(xlo, 100.0, 150.0, 5.0, 1.5, 3.0, side="low")
+    g = 100.0 * np.exp(-0.5 * (5.0 ** 2))
+    assert cb > 10.0 * g
+
+
+def test_E1_crystal_ball_tail_side_flips():
+    z5_lo = 150.0 - 5.0 * 5.0
+    z5_hi = 150.0 + 5.0 * 5.0
+    g = 100.0 * np.exp(-0.5 * (5.0 ** 2))
+    # low-side tail: heavy below, gaussian-light above
+    assert _cb(z5_lo, 100.0, 150.0, 5.0, 1.5, 3.0, "low") > 10.0 * g
+    assert abs(_cb(z5_hi, 100.0, 150.0, 5.0, 1.5, 3.0, "low") - g) < 1e-6
+    # high-side tail: mirror image
+    assert _cb(z5_hi, 100.0, 150.0, 5.0, 1.5, 3.0, "high") > 10.0 * g
+    assert abs(_cb(z5_lo, 100.0, 150.0, 5.0, 1.5, 3.0, "high") - g) < 1e-6
+
+
+def test_E1_composite_recovers_crystal_ball_peak():
+    rng = np.random.default_rng(3)
+    x = np.arange(0.0, 400.0, 1.0)
+    y = _cb(x, 300.0, 200.0, 6.0, 1.4, 4.0, side="low") + 40.0
+    y = rng.poisson(np.clip(y, 0, None)).astype(float)
+    spec = {"signal": "crystal_ball", "n_components": 1,
+            "background": "poly1", "tail_side": "low"}
+    r = fit_composite(x, y, 160.0, 250.0, spec)
+    assert r["ok"]
+    c = r["components"][0]
+    assert abs(c["mu"] - 200.0) < 1.5
+    assert abs(c["sigma"] - 6.0) < 2.0
+    assert c["area"] > 0.0
+
+
+def test_E1_composite_resolves_a_doublet():
+    rng = np.random.default_rng(11)
+    x = np.arange(0.0, 400.0, 1.0)
+    y = (_gauss_line(x, A=150.0, mu=185.0, sigma=5.0, m=0.0, b=30.0)
+         + 150.0 * np.exp(-0.5 * ((x - 215.0) / 5.0) ** 2))
+    y = rng.poisson(np.clip(y, 0, None)).astype(float)
+    spec = {"signal": "gaussian", "n_components": 2, "background": "poly1"}
+    r = fit_composite(x, y, 160.0, 240.0, spec)
+    assert r["ok"] and len(r["components"]) == 2
+    mus = sorted(c["mu"] for c in r["components"])
+    assert abs(mus[0] - 185.0) < 2.5
+    assert abs(mus[1] - 215.0) < 2.5
+
+
+def test_E1_composite_n_components_out_of_range_errors():
+    x = np.arange(0.0, 400.0, 1.0)
+    y = _gauss_line(x, A=100.0, mu=200.0, sigma=6.0, m=0.0, b=30.0)
+    spec = {"signal": "gaussian", "n_components": 6, "background": "poly1"}
+    assert fit_composite(x, y, 160.0, 240.0, spec)["ok"] is False
+
+
+def test_E1_composite_unknown_shape_errors():
+    x = np.arange(0.0, 400.0, 1.0)
+    y = _gauss_line(x, A=100.0, mu=200.0, sigma=6.0, m=0.0, b=30.0)
+    spec = {"signal": "lorentzian", "n_components": 1, "background": "poly1"}
+    assert fit_composite(x, y, 160.0, 240.0, spec)["ok"] is False
+
+
+# ---- Phase E1 formatters + the gaussian x1 + poly1 delegate pin --------------
+
+from services.peak_finder import (
+    format_composite_fit_output, format_composite_fit_row,
+)
+
+
+def _fit_g1poly1():
+    x = np.arange(0.0, 400.0, 1.0)
+    y = _gauss_line(x, A=120.0, mu=207.0, sigma=6.0, m=-0.05, b=60.0)
+    spec = {"signal": "gaussian", "n_components": 1, "background": "poly1"}
+    return fit_composite(x, y, 167.0, 247.0, spec)
+
+
+def test_E1_output_g1poly1_delegates_to_gauss_formatter():
+    # the classic case prints the linear "bg = m·x + b" line only the gauss
+    # formatter produces — proof the delegation path is taken
+    text = format_composite_fit_output(1, _fit_g1poly1())
+    assert "Peak 1" in text
+    assert "bg =" in text and "·x" in text
+    assert "(auto)" in text
+
+
+def test_E1_output_multicomponent_header_and_component_lines():
+    rng = np.random.default_rng(11)
+    x = np.arange(0.0, 400.0, 1.0)
+    y = (_gauss_line(x, A=150.0, mu=185.0, sigma=5.0, m=0.0, b=30.0)
+         + 150.0 * np.exp(-0.5 * ((x - 215.0) / 5.0) ** 2))
+    y = rng.poisson(np.clip(y, 0, None)).astype(float)
+    spec = {"signal": "gaussian", "n_components": 2, "background": "poly1"}
+    r = fit_composite(x, y, 160.0, 240.0, spec)
+    text = format_composite_fit_output(4, r)
+    assert "Peak 4" in text
+    assert "gaussian x2 + linear" in text
+    assert text.count("μ =") == 2          # one component line per peak
+
+
+def test_E1_output_crystal_ball_and_cubic_labels():
+    r = _fit_g1poly1()
+    r["spec"] = {"signal": "crystal_ball", "n_components": 1, "background": "poly3"}
+    text = format_composite_fit_output(2, r)
+    assert "crystal ball" in text and "cubic" in text
+
+
+def test_E1_output_failed_result():
+    text = format_composite_fit_output(3, {"ok": False, "error": "boom"})
+    assert "Peak 3" in text and "boom" in text
+
+
+def test_E1_row_g1poly1_delegates_and_has_no_multiplier():
+    row = format_composite_fit_row(1, _fit_g1poly1())
+    assert len(row["cells"]) == 5
+    assert row["cells"][0][0] == "1"       # no ×k marker for a single component
+    assert row["tooltip"] == format_composite_fit_output(1, _fit_g1poly1())
+
+
+def test_E1_row_multicomponent_marks_count():
+    rng = np.random.default_rng(11)
+    x = np.arange(0.0, 400.0, 1.0)
+    y = (_gauss_line(x, A=150.0, mu=185.0, sigma=5.0, m=0.0, b=30.0)
+         + 150.0 * np.exp(-0.5 * ((x - 215.0) / 5.0) ** 2))
+    y = rng.poisson(np.clip(y, 0, None)).astype(float)
+    spec = {"signal": "gaussian", "n_components": 2, "background": "poly1"}
+    r = fit_composite(x, y, 160.0, 240.0, spec)
+    row = format_composite_fit_row(7, r)
+    assert "×2" in row["cells"][0][0]
+    assert len(row["cells"]) == 5
