@@ -441,6 +441,19 @@ def fit_gaussian_linear_auto(x_axis, y_data, center, max_half_window=None):
 _FIX_PEAK_DEFAULT_HALF_WINDOW_BINS = 50
 
 
+def nearest_window_edge(x, lo, hi, tol):
+    """Which fit-window edge the position ``x`` is within ``tol`` of: ``"lo"``,
+    ``"hi"``, or ``None``. All four arguments must be in the SAME units (the GUI
+    passes display pixels so the pick radius is uniform). Ties go to ``"lo"``.
+
+    Used by drag-to-refit to decide whether a press grabbed an end-handle."""
+    dlo = abs(float(x) - float(lo))
+    dhi = abs(float(x) - float(hi))
+    if min(dlo, dhi) > float(tol):
+        return None
+    return "lo" if dlo <= dhi else "hi"
+
+
 def find_duplicate_mu(new_mu, existing_mus, tol):
     """Index of the first entry in ``existing_mus`` within ``tol`` (x units) of
     ``new_mu``, else ``None``.

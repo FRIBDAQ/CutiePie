@@ -129,6 +129,7 @@ from services.peak_finder import (
     PEAK_ALGORITHMS, find_peaks_in_range, format_peak_labels, format_peak_output,
     find_duplicate_mu, fit_gaussian_linear_auto, fit_gaussian_linear_range,
     fix_peak_window, format_gauss_fit_output, format_gauss_fit_row,
+    nearest_window_edge,
 )
 from services.figure_overlay import compute_overlay_position, apply_joystick_move, apply_fine_move
 from services.thread_workers import RestWorker, AutoUpdateWorker
@@ -439,6 +440,7 @@ class MainWindow(QMainWindow):
         self.peak2_conns = {}
         self.peak2_armed = False
         self.peak2_fix_armed = False
+        self.peak2_drag = None   # active drag-to-refit context, or None
         self.peak2_fits = []
         self.peak2_count = 0
 
@@ -3125,10 +3127,136 @@ class MainWindow(QMainWindow):
             if canvas not in keep:
                 self._peak2_disconnect(canvas)
 
+    def _peak2_spectrum_arrays(self, index):
+        """(xc, y) — bin-centre x and counts for the spectrum at pad `index`,
+        or None. Mirrors the fit handler's array setup; used by drag-refit."""
+        try:
+            binx = self.getSpectrumStoreInfo("binx", index=index)
+            minx = self.getSpectrumStoreInfo("minx", index=index)
+            maxx = self.getSpectrumStoreInfo("maxx", index=index)
+            xtmp = self.createRange(binx, minx, maxx)
+            ytmp = self.getSpectrumStoreInfo("data", index=index)
+            xc = np.asarray(xtmp[:-1]) + 0.5 * np.diff(np.asarray(xtmp))
+            return xc, np.asarray(ytmp)[1:]
+        except Exception:
+            self.logger.debug('_peak2_spectrum_arrays failed for index %s', index, exc_info=True)
+            return None
+
     def _peak2_try_grab(self, event):
-        """Drag-to-refit grab attempt (filled in by drag-to-refit, step D1).
-        Returns True when the press starts a handle drag."""
+        """Drag-to-refit: if the left-press landed within the pick radius of a
+        fit's end-handle, start dragging that window edge. Returns True when a
+        drag starts. Works whether or not Start is armed."""
+        if self.peak2_drag is not None:
+            return False
+        ax = event.inaxes
+        tol_px = 8.0
+        for rec in self.peak2_fits:
+            arts = rec.get("artists") or ()
+            if not arts or arts[0].axes is not ax:
+                continue
+            xx = rec["result"].get("xx")
+            if xx is None or len(xx) < 2:
+                continue
+            try:
+                lo_px = ax.transData.transform((xx[0], 0.0))[0]
+                hi_px = ax.transData.transform((xx[-1], 0.0))[0]
+            except Exception:
+                continue
+            edge = nearest_window_edge(event.x, lo_px, hi_px, tol_px)
+            if edge is None:
+                continue
+            (guide,) = ax.plot([event.xdata, event.xdata], list(ax.get_ylim()),
+                               color="tab:green", lw=1.0, ls="--", zorder=5)
+            canvas = ax.figure.canvas
+            self.peak2_drag = dict(
+                rec=rec, edge=edge, ax=ax, guide=guide,
+                cid_move=canvas.mpl_connect("motion_notify_event", self._peak2_on_drag_motion),
+                cid_up=canvas.mpl_connect("button_release_event", self._peak2_on_drag_release))
+            self._peak2_status(f"[drag] Peak {rec['number']}: drag the {edge} edge, "
+                               "release to refit.")
+            canvas.draw_idle()
+            return True
         return False
+
+    def _peak2_on_drag_motion(self, event):
+        """Move the dashed guide line to follow the cursor during a drag."""
+        d = self.peak2_drag
+        if d is None or event.inaxes is not d["ax"] or event.xdata is None:
+            return
+        try:
+            d["guide"].set_xdata([event.xdata, event.xdata])
+            d["ax"].figure.canvas.draw_idle()
+        except Exception:
+            self.logger.debug('_peak2_on_drag_motion failed', exc_info=True)
+
+    def _peak2_on_drag_release(self, event):
+        """Release: refit the fit with the dragged edge moved (other edge + μ
+        seed kept). A drag is explicit — its failures are always reported and
+        never cap-silenced; on failure the previous fit is kept untouched."""
+        d = self.peak2_drag
+        if d is None:
+            return
+        ax = d["ax"]
+        canvas = ax.figure.canvas
+        # tear down the drag interaction first
+        for cid in (d["cid_move"], d["cid_up"]):
+            try:
+                canvas.mpl_disconnect(cid)
+            except Exception:
+                pass
+        try:
+            d["guide"].remove()
+        except Exception:
+            pass
+        self.peak2_drag = None
+
+        rec, edge = d["rec"], d["edge"]
+        new_x = event.xdata
+        if new_x is None:
+            self._peak2_status(f"[drag] Peak {rec['number']}: cancelled (released off the pad).")
+            canvas.draw_idle()
+            return
+        prev = rec["result"]
+        xx = prev["xx"]
+        lo, hi = ((float(new_x), float(xx[-1])) if edge == "lo"
+                  else (float(xx[0]), float(new_x)))
+        arrays = self._peak2_spectrum_arrays(rec["index"])
+        if arrays is None:
+            self._peak2_status(f"[drag] Peak {rec['number']}: spectrum unavailable.")
+            canvas.draw_idle()
+            return
+        xc, y = arrays
+        r = fit_gaussian_linear_range(xc, y, lo, hi, seeds={"mu": prev["mu"]})
+        if not r["ok"]:
+            self._peak2_status(f"[failed] window edit (Peak {rec['number']}): "
+                               f"{r.get('error', 'fit failed')}")
+            canvas.draw_idle()
+            return
+        for art in rec.get("artists") or ():
+            try:
+                art.remove()
+            except Exception:
+                pass
+        rec["result"] = r
+        rec["artists"] = self._peak2_draw(ax, r)
+        self._peak2_update_row(rec["number"], r, tag="edited")
+        self._peak2_status(f"Peak {rec['number']} (window edited): μ = {r['mu']:.6g}")
+        canvas.draw_idle()
+
+    def _peak2_update_row(self, number, r, tag=None):
+        """Refresh the table row for fit `number` in place after a refit."""
+        row = format_gauss_fit_row(number, r, tag=tag)
+        t = self.extraPopup.peak.peak2_table
+        for ri in range(t.rowCount()):
+            it = t.item(ri, 0)
+            if it is not None and int(round(float(it.data(QtCore.Qt.UserRole)))) == number:
+                for ci, (text, sortval) in enumerate(row["cells"]):
+                    cell = t.item(ri, ci)
+                    if cell is not None:
+                        cell.setText(text)
+                        cell.setData(QtCore.Qt.UserRole, float(sortval))
+                        cell.setToolTip(row["tooltip"])
+                break
 
     def _peak2_try_edit(self, event):
         """Right-click edit-popup attempt (filled in by the edit popup, step
@@ -3284,18 +3412,24 @@ class MainWindow(QMainWindow):
             return False
 
     def _peak2_draw(self, ax, r):
-        """Draw one fit result on `ax` (curve + dashed bg + blue net-area fill)
-        and return the artist tuple. Factored out so a fit record can be
-        redrawn from its stored curves at any time (lifecycle safety)."""
+        """Draw one fit result on `ax` (curve + dashed bg + blue net-area fill +
+        square end-handles) and return the artist tuple; the curve is always
+        index 0. Factored out so a fit record can be redrawn from its stored
+        curves at any time (lifecycle safety)."""
         (curve,) = ax.plot(r["xx"], r["y_fit"], color="tab:red", lw=1.8)
         (bgline,) = ax.plot(r["xx"], r["y_bg"], color="grey", lw=1.0, ls="--")
         fill = ax.fill_between(r["xx"], r["y_bg"], r["y_fit"],
                                where=r["y_fit"] >= r["y_bg"],
                                color="tab:blue", alpha=0.45)
-        for art in (curve, bgline, fill):
+        # square end-handles (grab targets for drag-to-refit)
+        (handles,) = ax.plot([r["xx"][0], r["xx"][-1]],
+                             [r["y_fit"][0], r["y_fit"][-1]],
+                             marker="s", ms=6, ls="None",
+                             color="tab:red", mec="black", mew=0.6, zorder=6)
+        for art in (curve, bgline, fill, handles):
             if hasattr(art, "set_gid"):
                 art.set_gid("peakfit2")
-        return (curve, bgline, fill)
+        return (curve, bgline, fill, handles)
 
     def _peak2_max_window_bins(self):
         """The Config cap (max fit window in bins), or None when unset."""

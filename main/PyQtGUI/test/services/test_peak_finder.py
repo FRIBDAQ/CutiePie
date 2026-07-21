@@ -667,3 +667,31 @@ def test_row_tooltip_reuses_detailed_formatter():
 def test_row_untagged_has_no_marker():
     row = format_gauss_fit_row(1, _row_result())
     assert row["cells"][0][0] == "1" and row["tag"] is None
+
+
+# ===================== Peak Finder 2: drag-to-refit grab geometry ==============
+
+from services.peak_finder import nearest_window_edge
+
+
+def test_grab_none_when_far_from_both_edges():
+    assert nearest_window_edge(50.0, lo=0.0, hi=100.0, tol=8.0) is None
+
+
+def test_grab_lo_edge_within_tol():
+    assert nearest_window_edge(3.0, lo=0.0, hi=100.0, tol=8.0) == "lo"
+
+
+def test_grab_hi_edge_within_tol():
+    assert nearest_window_edge(96.0, lo=0.0, hi=100.0, tol=8.0) == "hi"
+
+
+def test_grab_ties_to_closer_edge():
+    # x=40 is closer to lo(0) than hi(100)? no — 40 to 0 is 40, to 100 is 60;
+    # but both outside tol → None. Use a case inside tol for both:
+    assert nearest_window_edge(4.0, lo=0.0, hi=8.0, tol=8.0) == "lo"   # dlo=4 < dhi=4? tie→lo
+    assert nearest_window_edge(5.0, lo=0.0, hi=8.0, tol=8.0) == "hi"   # dlo=5 > dhi=3
+
+
+def test_grab_exactly_at_tol_grabs():
+    assert nearest_window_edge(8.0, lo=0.0, hi=100.0, tol=8.0) == "lo"
