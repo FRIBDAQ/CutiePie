@@ -127,8 +127,8 @@ from services import geometry_io
 from services.dataframe_export import export_spectrum_csv
 from services.peak_finder import (
     PEAK_ALGORITHMS, find_peaks_in_range, format_peak_labels, format_peak_output,
-    find_duplicate_mu, fit_composite, fit_composite_auto, fix_peak_window,
-    format_composite_fit_row,
+    autocomponent_refit, find_duplicate_mu, fit_composite, fit_composite_auto,
+    fix_peak_window, format_composite_fit_row,
     fwhm_to_sigma, nearest_window_edge, sigma_to_fwhm, validate_gauss_edit,
 )
 from services.figure_overlay import compute_overlay_position, apply_joystick_move, apply_fine_move
@@ -3233,8 +3233,9 @@ class MainWindow(QMainWindow):
             canvas.draw_idle()
             return
         xc, y = arrays
-        r = fit_composite(xc, y, lo, hi, prev["spec"],
-                          seeds={"mu1": self._peak2_result_mu(prev)})
+        # auto-components: the new window may now cover extra peaks (add) or
+        # have dropped some (shrink) — refit the component set to match it
+        r = autocomponent_refit(xc, y, lo, hi, prev)
         if not r["ok"]:
             self._peak2_status(f"[failed] window edit (Peak {rec['number']}): "
                                f"{r.get('error', 'fit failed')}")
@@ -3248,7 +3249,9 @@ class MainWindow(QMainWindow):
         rec["result"] = r
         rec["artists"] = self._peak2_draw(ax, r)
         self._peak2_update_row(rec["number"], r, tag="edited")
-        self._peak2_status(f"Peak {rec['number']} (window edited): "
+        ncomp = len(r["components"])
+        extra = f" ({ncomp} components)" if ncomp > 1 else ""
+        self._peak2_status(f"Peak {rec['number']} (window edited){extra}: "
                            f"μ = {self._peak2_result_mu(r):.6g}")
         canvas.draw_idle()
 

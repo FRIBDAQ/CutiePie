@@ -524,7 +524,109 @@ def fit_composite(x_axis, y_data, lo, hi, spec, fixed=None, seeds=None):
     bg_params = {p: vals[p] for p in bgsh["params"]}
     return dict(ok=True, components=components, redchi=redchi,
                 win_lo=lo, win_hi=hi, xx=xx, y_fit=total_xx + bg_xx,
-                y_bg=bg_xx, y_comp=y_comp, bg_params=bg_params, spec=dict(spec))
+                y_bg=bg_xx, y_comp=y_comp, bg_params=bg_params,
+                shared_params=dict(shared_vals), spec=dict(spec))
+
+
+def eval_composite_result(x, result):
+    """Evaluate a fitted composite model (a :func:`fit_composite` result) at
+    ``x``. Reconstructs signal components (with the shared params, e.g. a CB's
+    ``alpha``/``n``) + background from the stored parameters — used to compute
+    the residual on the data bins for the auto-add loop."""
+    spec = result["spec"]
+    sh = SIGNAL_SHAPES[spec["signal"]]
+    shared = result.get("shared_params", {})
+    total = np.zeros_like(np.asarray(x, dtype=float))
+    for c in result["components"]:
+        total = total + sh["eval"](x, (c["A"], c["mu"], c["sigma"]), shared, spec)
+    bgsh = BACKGROUND_SHAPES[spec["background"]]
+    bg = bgsh["eval"](x, tuple(result["bg_params"][p] for p in bgsh["params"]),
+                      result["win_lo"], result["win_hi"])
+    return total + bg
+
+
+def autocomponent_refit(x, y, lo, hi, prev_result, max_components=5):
+    """Re-fit ``prev_result``'s model over the new window ``[lo, hi]``, matching
+    the component set to what the window now covers (INTERSPEC feature 6).
+
+    (1) **shrink-drop**: components of the previous fit whose μ fell outside the
+    new window are dropped (renumbered implicitly). (2) refit the reduced spec.
+    (3) **auto-add loop**: while under ``max_components``, scan the residual on
+    the data bins (:func:`find_residual_component`); if a significant unmodeled
+    peak is found, add a component seeded there (same signal shape; a CB extra
+    inherits the shared ``alpha``/``n``/``tail_side``) and refit; stop when no
+    candidate remains, the cap is hit, or a refit fails (keeping the last good
+    fit). Returns a :func:`fit_composite` result."""
+    lo, hi = (float(lo), float(hi)) if lo <= hi else (float(hi), float(lo))
+    spec = dict(prev_result["spec"])
+    kept = [c for c in prev_result["components"] if lo <= c["mu"] <= hi]
+
+    if kept:
+        spec["n_components"] = len(kept)
+        seeds = {f"mu{i + 1}": c["mu"] for i, c in enumerate(kept)}
+    else:
+        # window moved off every previous peak — fall back to one fresh auto fit
+        spec["n_components"] = 1
+        seeds = None
+    r = fit_composite(x, y, lo, hi, spec, seeds=seeds)
+    if not r["ok"]:
+        return r
+
+    xa = np.asarray(x, dtype=float)
+    ya = np.asarray(y, dtype=float)
+    mask = (xa >= lo) & (xa <= hi)
+    xs, ys = xa[mask], ya[mask]
+    while len(r["components"]) < max_components:
+        ym = eval_composite_result(xs, r)
+        mus = [c["mu"] for c in r["components"]]
+        sigs = [c["sigma"] for c in r["components"]]
+        cand = find_residual_component(xs, ys, ym, mus, sigs)
+        if cand is None:
+            break
+        spec["n_components"] = len(r["components"]) + 1
+        seeds = {f"mu{i + 1}": m for i, m in enumerate(mus)}
+        seeds[f"mu{len(mus) + 1}"] = cand["mu"]
+        r2 = fit_composite(x, y, lo, hi, spec, seeds=seeds)
+        if not r2["ok"]:
+            break                       # keep the last good fit
+        r = r2
+    return r
+
+
+def find_residual_component(x, y, y_model, existing_mus, existing_sigmas,
+                            snr=5.0, neighbour_snr=2.0, sep_sigmas=2.0):
+    """Seed for the most significant unmodeled peak in the residual, or None.
+
+    Scans ``resid = y - y_model`` scaled by the Poisson noise of the model
+    (``sqrt(max(y_model, 1))``). A candidate bin must (1) exceed ``snr``, (2)
+    have both ±1 neighbours above ``neighbour_snr`` (a real peak, not a single
+    noisy bin), and (3) lie more than ``sep_sigmas`` × the matching existing σ
+    from every existing μ — a residual bump closer than that is a mismodeled
+    shape on an existing peak, not a new one. Returns the highest-``snr``
+    qualifying bin as ``{'mu', 'A', 'sigma'}`` (A = residual height there, σ =
+    the median existing σ), else None. The core of E4's auto-add-on-drag loop."""
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    ym = np.asarray(y_model, dtype=float)
+    resid = y - ym
+    signif = resid / np.sqrt(np.clip(ym, 1.0, None))
+    n = x.size
+    existing_sigmas = list(existing_sigmas)
+    sigma_seed = (float(np.median(existing_sigmas)) if existing_sigmas
+                  else max((float(x[-1]) - float(x[0])) / 12.0, 1.0))
+    for i in np.argsort(signif)[::-1]:
+        if signif[i] <= snr:
+            break                       # sorted desc — nothing else qualifies
+        if i == 0 or i == n - 1:
+            continue                    # need both neighbours
+        if signif[i - 1] <= neighbour_snr or signif[i + 1] <= neighbour_snr:
+            continue
+        mu = float(x[i])
+        if any(abs(mu - float(m)) <= sep_sigmas * float(sg)
+               for m, sg in zip(existing_mus, existing_sigmas)):
+            continue
+        return {"mu": mu, "A": max(float(resid[i]), 1e-3), "sigma": sigma_seed}
+    return None
 
 
 def fit_composite_auto(x_axis, y_data, center, spec, max_half_window=None):

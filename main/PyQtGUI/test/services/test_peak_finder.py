@@ -1052,3 +1052,120 @@ def test_E1_row_multicomponent_marks_count():
     row = format_composite_fit_row(7, r)
     assert "×2" in row["cells"][0][0]
     assert len(row["cells"]) == 5
+
+
+# ===================== INTERSPEC Phase E4.1: residual-scan component finder =====
+
+from services.peak_finder import find_residual_component
+
+
+def test_E41_finds_a_clear_second_peak_in_residual():
+    x = np.arange(0.0, 400.0, 1.0)
+    y_model = np.full_like(x, 100.0)                # model predicts a flat 100
+    y = y_model + 80.0 * np.exp(-0.5 * ((x - 250.0) / 5.0) ** 2)  # real bump at 250
+    cand = find_residual_component(x, y, y_model,
+                                   existing_mus=[150.0], existing_sigmas=[6.0])
+    assert cand is not None
+    assert abs(cand["mu"] - 250.0) < 3.0
+    assert cand["A"] > 0.0
+    assert cand["sigma"] == 6.0                     # median of existing sigmas
+
+
+def test_E41_none_on_pure_noise_residual():
+    rng = np.random.default_rng(4)
+    x = np.arange(0.0, 400.0, 1.0)
+    y_model = np.full_like(x, 100.0)
+    y = y_model + rng.normal(0.0, 3.0, x.size)      # << sqrt(100)=10 noise floor
+    assert find_residual_component(x, y, y_model,
+                                   existing_mus=[200.0], existing_sigmas=[6.0]) is None
+
+
+def test_E41_rejects_bump_within_2sigma_of_existing_mu():
+    # a residual bump on top of an existing peak is a mismodel, not a new peak
+    x = np.arange(0.0, 400.0, 1.0)
+    y_model = np.full_like(x, 100.0)
+    y = y_model + 80.0 * np.exp(-0.5 * ((x - 253.0) / 5.0) ** 2)
+    assert find_residual_component(x, y, y_model,
+                                   existing_mus=[250.0], existing_sigmas=[6.0]) is None
+
+
+def test_E41_rejects_single_bin_spike_low_neighbours():
+    x = np.arange(0.0, 400.0, 1.0)
+    y_model = np.full_like(x, 100.0)
+    y = y_model.copy()
+    y[250] += 200.0                                 # one-bin delta, neighbours flat
+    assert find_residual_component(x, y, y_model,
+                                   existing_mus=[150.0], existing_sigmas=[6.0]) is None
+
+
+def test_E41_picks_highest_snr_when_two_candidates():
+    x = np.arange(0.0, 500.0, 1.0)
+    y_model = np.full_like(x, 100.0)
+    y = (y_model + 60.0 * np.exp(-0.5 * ((x - 200.0) / 5.0) ** 2)
+                 + 120.0 * np.exp(-0.5 * ((x - 350.0) / 5.0) ** 2))
+    cand = find_residual_component(x, y, y_model,
+                                   existing_mus=[50.0], existing_sigmas=[6.0])
+    assert cand is not None and abs(cand["mu"] - 350.0) < 3.0   # the taller one
+
+
+# ===================== INTERSPEC Phase E4.2: autocomponent_refit ===============
+
+from services.peak_finder import autocomponent_refit, eval_composite_result
+
+
+def _two_peaks(a1=200.0, mu1=180.0, a2=150.0, mu2=250.0, sig=5.0, bg=30.0):
+    x = np.arange(0.0, 400.0, 1.0)
+    y = (a1 * np.exp(-0.5 * ((x - mu1) / sig) ** 2)
+         + a2 * np.exp(-0.5 * ((x - mu2) / sig) ** 2) + bg)
+    return x, y
+
+
+def test_E42_eval_result_matches_fit_curve():
+    x, y = _two_peaks()
+    spec = {"signal": "gaussian", "n_components": 1, "background": "poly1"}
+    r = fit_composite(x, y, 150.0, 290.0, spec)
+    # evaluating the result at its own sample grid reproduces y_fit
+    got = eval_composite_result(r["xx"], r)
+    assert np.allclose(got, r["y_fit"], rtol=1e-6, atol=1e-6)
+
+
+def test_E42_add_on_extend_grows_to_two_components():
+    x, y = _two_peaks()
+    spec = {"signal": "gaussian", "n_components": 1, "background": "poly1"}
+    prev = fit_composite(x, y, 150.0, 290.0, spec)          # single fit, both peaks in window
+    assert len(prev["components"]) == 1
+    r = autocomponent_refit(x, y, 150.0, 290.0, prev)
+    assert r["ok"] and len(r["components"]) == 2
+    mus = sorted(c["mu"] for c in r["components"])
+    assert abs(mus[0] - 180.0) < 2.0 and abs(mus[1] - 250.0) < 2.0
+
+
+def test_E42_shrink_drops_out_of_window_component():
+    x, y = _two_peaks()
+    spec = {"signal": "gaussian", "n_components": 2, "background": "poly1"}
+    prev = fit_composite(x, y, 150.0, 290.0, spec,
+                         seeds={"mu1": 180.0, "mu2": 250.0})
+    assert len(prev["components"]) == 2
+    r = autocomponent_refit(x, y, 150.0, 215.0, prev)       # window now excludes mu=250
+    assert r["ok"] and len(r["components"]) == 1
+    assert abs(r["components"][0]["mu"] - 180.0) < 2.0
+
+
+def test_E42_no_add_for_a_single_clean_peak():
+    x = np.arange(0.0, 400.0, 1.0)
+    y = 200.0 * np.exp(-0.5 * ((x - 200.0) / 6.0) ** 2) + 30.0
+    spec = {"signal": "gaussian", "n_components": 1, "background": "poly1"}
+    prev = fit_composite(x, y, 160.0, 240.0, spec)
+    r = autocomponent_refit(x, y, 160.0, 240.0, prev)
+    assert r["ok"] and len(r["components"]) == 1
+
+
+def test_E42_respects_component_cap():
+    x = np.arange(0.0, 600.0, 1.0)
+    y = np.full_like(x, 30.0)
+    for mu in (120.0, 220.0, 320.0, 420.0):
+        y = y + 180.0 * np.exp(-0.5 * ((x - mu) / 5.0) ** 2)
+    spec = {"signal": "gaussian", "n_components": 1, "background": "poly1"}
+    prev = fit_composite(x, y, 80.0, 460.0, spec)
+    r = autocomponent_refit(x, y, 80.0, 460.0, prev, max_components=2)
+    assert r["ok"] and len(r["components"]) == 2
