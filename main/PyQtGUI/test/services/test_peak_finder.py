@@ -1206,3 +1206,28 @@ def test_E44_output_labels_multicomponent_crystal_ball():
     text = format_composite_fit_output(1, r)
     assert "crystal ball x2" in text
     assert text.count("μ =") == 2
+
+
+# ===================== INTERSPEC Phase E5.1: nearest component ==================
+
+from services.peak_finder import nearest_component_index
+
+
+def test_E51_single_component_is_index_0():
+    assert nearest_component_index([{"mu": 200.0}], 999.0) == 0
+
+
+def test_E51_picks_nearest_mu():
+    comps = [{"mu": 180.0}, {"mu": 250.0}, {"mu": 400.0}]
+    assert nearest_component_index(comps, 190.0) == 0
+    assert nearest_component_index(comps, 240.0) == 1
+    assert nearest_component_index(comps, 390.0) == 2
+
+
+def test_E51_tie_goes_to_lower_index():
+    comps = [{"mu": 100.0}, {"mu": 200.0}]
+    assert nearest_component_index(comps, 150.0) == 0
+
+
+def test_E51_empty_is_none():
+    assert nearest_component_index([], 100.0) is None

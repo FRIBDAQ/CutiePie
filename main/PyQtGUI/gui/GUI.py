@@ -128,7 +128,7 @@ from services.dataframe_export import export_spectrum_csv
 from services.peak_finder import (
     PEAK_ALGORITHMS, find_peaks_in_range, format_peak_labels, format_peak_output,
     autocomponent_refit, find_duplicate_mu, fit_composite, fit_composite_auto,
-    fix_peak_window, format_composite_fit_row,
+    fix_peak_window, format_composite_fit_row, nearest_component_index,
     fwhm_to_sigma, nearest_window_edge, sigma_to_fwhm, validate_gauss_edit,
 )
 from services.figure_overlay import compute_overlay_position, apply_joystick_move, apply_fine_move
@@ -3283,20 +3283,29 @@ class MainWindow(QMainWindow):
             except Exception:
                 hit = False
             if hit:
-                self._peak2_open_edit(rec)
+                self._peak2_open_edit(rec, event.xdata)
                 return True
         return False
 
-    def _peak2_open_edit(self, rec):
-        """Modal μ/σ/FWHM editor for one fit. σ↔FWHM are linked (factor 2.3548);
-        fields the user changed become `fixed=` parameters, the rest stay free;
-        Apply refits over the same window in place, Cancel does nothing."""
+    def _peak2_open_edit(self, rec, click_x):
+        """Modal μ/σ/FWHM editor for one fit. On a multi-component fit the edited
+        component is the one whose μ is nearest the right-clicked x (named in the
+        dialog title). σ↔FWHM are linked (factor 2.3548); fields the user changed
+        become `fixed=` on that component, the rest stay free; Apply refits over
+        the same window in place, Cancel does nothing."""
         prev = rec["result"]
-        c = prev["components"][0]
+        comps = prev["components"]
+        if click_x is None:                       # right-click without an x → first
+            click_x = comps[0]["mu"]
+        ci = nearest_component_index(comps, click_x) or 0
+        c = comps[ci]
         mu_txt0 = f"{c['mu']:.6g}"
         sig_txt0 = f"{c['sigma']:.6g}"
         dlg = QDialog(self)
-        dlg.setWindowTitle(f"Edit Peak {rec['number']}")
+        title = f"Edit Peak {rec['number']}"
+        if len(comps) > 1:
+            title += f" — component {ci + 1}/{len(comps)} (μ≈{c['mu']:.4g})"
+        dlg.setWindowTitle(title)
         mu_edit = QLineEdit(mu_txt0)
         sigma_edit = QLineEdit(sig_txt0)
         fwhm_edit = QLineEdit(f"{c['fwhm']:.6g}")
@@ -3374,10 +3383,15 @@ class MainWindow(QMainWindow):
             return
         xc, y = arrays
         # validate uses the flat mu/sigma names; the fit core takes the
-        # suffixed per-component names (single component here → mu1/sigma1)
-        fixed_c = {("mu1" if k == "mu" else "sigma1"): v for k, v in fixed.items()}
+        # suffixed per-component names (mu{k}/sigma{k} of the edited component),
+        # while the other components are seeded on their current centroids so
+        # they stay put through the refit
+        suffix = ci + 1
+        fixed_c = {(f"mu{suffix}" if k == "mu" else f"sigma{suffix}"): v
+                   for k, v in fixed.items()}
+        seeds = {f"mu{i + 1}": comp["mu"] for i, comp in enumerate(comps)}
         r = fit_composite(xc, y, float(xx[0]), float(xx[-1]), prev["spec"],
-                          fixed=fixed_c)
+                          fixed=fixed_c, seeds=seeds)
         if not r["ok"]:
             self._peak2_status(f"[failed] edit (Peak {rec['number']}): "
                                f"{r.get('error', 'fit failed')}")

@@ -826,6 +826,16 @@ def nearest_window_edge(x, lo, hi, tol):
     return "lo" if dlo <= dhi else "hi"
 
 
+def nearest_component_index(components, x):
+    """Index of the component whose ``mu`` is nearest ``x`` (ties → lower index),
+    or None for an empty list. Used by the edit popup to pick which component of
+    a multi-component fit a right-click targets."""
+    if not components:
+        return None
+    return min(range(len(components)),
+               key=lambda i: abs(float(components[i]["mu"]) - float(x)))
+
+
 def find_duplicate_mu(new_mu, existing_mus, tol):
     """Index of the first entry in ``existing_mus`` within ``tol`` (x units) of
     ``new_mu``, else ``None``.
