@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QObject, QSettings, QEventLoop, pyqtSignal
 
 from alpha_filter_dialog import AlphaChainIsoFilterDialog
+from services import shape_file
 
 FIT_PREFIX = "fit-_-"
 
@@ -1332,16 +1333,30 @@ class FitManager(QObject):
     # ------------------------------------------------------------------
 
     def load_calibration_any(self, path):
+        # Swap guard: a shape file dropped in the calibration slot would
+        # otherwise be accepted as its first two stray numbers (a garbage
+        # calibration, silently). Reject it up front with a clear message.
+        if shape_file.looks_like_shape_file(path):
+            raise ValueError(
+                f"This looks like a shape file, not a calibration file:\n{path}")
+
         with open(path, "r") as f:
             txt = f.read()
 
+        def _finite_pair(a, b):
+            a, b = float(a), float(b)
+            if not (np.isfinite(a) and np.isfinite(b)):
+                raise ValueError(f"Non-finite calibration coefficients in: {path}")
+            return a, b
+
         try:
             obj = json.loads(txt)
+        except Exception:
+            obj = None
+        if isinstance(obj, dict):
             for key_a, key_b in (("a", "b"), ("calib_a", "calib_b")):
                 if key_a in obj and key_b in obj:
-                    return float(obj[key_a]), float(obj[key_b])
-        except Exception:
-            pass
+                    return _finite_pair(obj[key_a], obj[key_b])
 
         a = b = None
         for m in re.finditer(r'^\s*([ab]|calib_a|calib_b)\s*=\s*([+-]?\d+(\.\d+)?([eE][+-]?\d+)?)\s*$', txt, re.M):
@@ -1350,11 +1365,11 @@ class FitManager(QObject):
             if k in ("a", "calib_a"): a = v
             elif k in ("b", "calib_b"): b = v
         if a is not None and b is not None:
-            return a, b
+            return _finite_pair(a, b)
 
         nums = re.findall(r'[+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?', txt)
         if len(nums) >= 2:
-            return float(nums[0]), float(nums[1])
+            return _finite_pair(nums[0], nums[1])
 
         raise ValueError(f"Could not parse calibration from: {path}")
 
@@ -1380,6 +1395,17 @@ class FitManager(QObject):
                     raise ValueError(f"Shape file not found:\n{shape_path}")
                 config["shape_file"] = shape_path
                 s.setValue(key_shape, shape_path)
+
+            # Format guard: a wrong file (a calibration file, a geometry .win,
+            # junk) parses to zero shapes and the fit would run with no
+            # components. Abort with a clear message naming what was picked.
+            problems = shape_file.validate_shape_file(shape_path)
+            if problems:
+                QMessageBox.warning(
+                    self._parent_widget, "Shape file",
+                    f"This does not look like a shape file:\n{shape_path}\n\n"
+                    f"{problems[0]}\n\nThe fit was not run.")
+                raise ValueError(f"Invalid shape file: {problems[0]}")
 
             per_model_key = f"{fit_funct}/calibration_file"
 

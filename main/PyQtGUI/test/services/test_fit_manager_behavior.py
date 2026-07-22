@@ -172,6 +172,24 @@ def test_load_calibration_unparseable_raises(env, tmp_path):
         env.fm.load_calibration_any(str(p))
 
 
+def test_load_calibration_rejects_shape_file(env, tmp_path):
+    # the swap hazard: a shape file dropped in the calibration slot used to be
+    # accepted as its first two stray numbers — now it is rejected outright.
+    p = tmp_path / "shapes.txt"
+    p.write_text("Bi211, 2.14m, 6623, 0.836, 6.5, 8.0, 40.0, 0.7, s, A227\n"
+                 "Po215, 1.78ms, 7386, 1.0, 6.5, 8.0, 40.0, 0.7, *, A227\n")
+    with pytest.raises(ValueError):
+        env.fm.load_calibration_any(str(p))
+
+
+def test_load_calibration_rejects_nonfinite(env, tmp_path):
+    # json.loads accepts Infinity/NaN — a non-finite calibration must be rejected
+    p = tmp_path / "cal.json"
+    p.write_text('{"a": Infinity, "b": 2.0}')
+    with pytest.raises(ValueError):
+        env.fm.load_calibration_any(str(p))
+
+
 def test_prepare_fit_config_non_emg_is_factory_copy(env):
     env.factory._configs["Gaus"] = {"amp": 1}
     config = env.fm.prepare_fit_config("Gaus")

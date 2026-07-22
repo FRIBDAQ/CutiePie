@@ -490,6 +490,17 @@ class AlphaMultiEMGSigmaFit:
     def start(self, x, y, xmin, xmax, fitpar, axis, fit_results):
         self._isotopes, self._pulses = _load_shapes(self.shape_file, self.calib_a, self.calib_b, self.normalize_chains)
 
+        # Defense-in-depth: _load_shapes silently skips malformed rows, so a
+        # wrong file yields zero shapes. The GUI validates the file up front
+        # (fit_manager.prepare_fit_config), but a direct API call reaches here —
+        # abort with a clear message instead of fitting zero components.
+        if not self._isotopes or not self._pulses:
+            fit_results.setPlainText(
+                "Shape file has no valid rows — check the file format "
+                "(isotope, half_life, energy_keV, intensity, sigma, tau1, "
+                "tau2, eta, flag, chain).")
+            return None
+
         # Clean & window
         mfin = np.isfinite(x) & np.isfinite(y)
         x = np.asarray(x)[mfin]
