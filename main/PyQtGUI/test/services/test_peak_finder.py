@@ -1169,3 +1169,40 @@ def test_E42_respects_component_cap():
     prev = fit_composite(x, y, 80.0, 460.0, spec)
     r = autocomponent_refit(x, y, 80.0, 460.0, prev, max_components=2)
     assert r["ok"] and len(r["components"]) == 2
+
+
+# ===================== INTERSPEC Phase E4.4: Crystal Ball multi-component =======
+
+def test_E44_cb_doublet_auto_adds_and_shares_alpha_n():
+    rng = np.random.default_rng(5)
+    x = np.arange(0.0, 600.0, 1.0)
+    y = (_cb(x, 320.0, 200.0, 6.0, 1.4, 4.0, "low")
+         + _cb(x, 260.0, 320.0, 6.0, 1.4, 4.0, "low") + 40.0)
+    y = rng.poisson(np.clip(y, 0, None)).astype(float)
+    spec = {"signal": "crystal_ball", "n_components": 1,
+            "background": "poly1", "tail_side": "low"}
+    prev = fit_composite(x, y, 150.0, 380.0, spec)
+    r = autocomponent_refit(x, y, 150.0, 380.0, prev)
+    assert r["ok"] and len(r["components"]) == 2
+    # ONE shared alpha/n for the whole fit (one detector response), never per component
+    assert set(r["shared_params"]) == {"alpha", "n"}
+    for c in r["components"]:
+        assert "alpha" not in c and "n" not in c
+        assert c["area"] > 0.0 and c["fwhm"] > 0.0
+    mus = sorted(c["mu"] for c in r["components"])
+    assert abs(mus[0] - 200.0) < 4.0 and abs(mus[1] - 320.0) < 4.0
+    assert r["spec"]["tail_side"] == "low"
+
+
+def test_E44_output_labels_multicomponent_crystal_ball():
+    rng = np.random.default_rng(5)
+    x = np.arange(0.0, 600.0, 1.0)
+    y = (_cb(x, 320.0, 200.0, 6.0, 1.4, 4.0, "low")
+         + _cb(x, 260.0, 320.0, 6.0, 1.4, 4.0, "low") + 40.0)
+    y = rng.poisson(np.clip(y, 0, None)).astype(float)
+    spec = {"signal": "crystal_ball", "n_components": 2,
+            "background": "poly1", "tail_side": "low"}
+    r = fit_composite(x, y, 150.0, 380.0, spec, seeds={"mu1": 200.0, "mu2": 320.0})
+    text = format_composite_fit_output(1, r)
+    assert "crystal ball x2" in text
+    assert text.count("μ =") == 2
