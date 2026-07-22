@@ -175,6 +175,23 @@ def validate_session(obj):
     return errors
 
 
+def validate_single_geometry(obj):
+    """Return a list of human-readable problems with a parsed single-tab
+    geometry object; empty list = valid. Never raises. Used to reject a
+    multi-tab session (or any malformed dict) that reached the single-tab
+    loader — the shape ``_applyGeometryToCurrentTab`` requires is
+    ``{"row": int>=1, "col": int>=1, "geo": dict}``."""
+    if not isinstance(obj, dict):
+        return ["geometry file is not a dict literal"]
+    errors = []
+    row, col = obj.get("row"), obj.get("col")
+    if not (isinstance(row, int) and row >= 1 and isinstance(col, int) and col >= 1):
+        errors.append("row/col must be integers >= 1")
+    if not isinstance(obj.get("geo"), dict):
+        errors.append("missing/invalid geo dict")
+    return errors
+
+
 def read_geometry_any(filename, logger=None):
     """Read any geometry vintage. Returns ("session", payload) for a v2
     multi-tab file, ("single", payload) for a v1/native or legacy .win file
@@ -207,6 +224,11 @@ def read_geometry_any(filename, logger=None):
                             filename, "; ".join(errors))
                 return None
             return ("session", obj)
+        errors = validate_single_geometry(obj)
+        if errors:
+            log.warning('read_geometry_any - invalid single geometry %s: %s',
+                        filename, "; ".join(errors))
+            return None
         return ("single", obj)
     result = read_geometry(filename, log)
     return ("single", result) if result is not None else None

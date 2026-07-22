@@ -2105,12 +2105,6 @@ class MainWindow(QMainWindow):
     def findHistoName(self, w):
         return re.findall('"([^"]*)"', w)
 
-    # definition for both legacy and not window defs
-    def openGeo(self, filename):
-        # Format-sniff + parse now lives in the Qt-free services.geometry_io module
-        # (legacy .win vs native dict literal); MainWindow keeps only orchestration.
-        return geometry_io.read_geometry(filename, self.logger)
-
     def saveGeo(self):
         fileName = self.saveFileDialog()
         self.logger.info('saveGeo - fileName: %s', fileName)
@@ -2267,13 +2261,27 @@ class MainWindow(QMainWindow):
     def loadGeo(self):
         fileName = self.openFileNameDialog()
         self.logger.info('loadGeo - fileName: %s', fileName)
-        try:
-            infoGeo = self.openGeo(fileName)
-            if infoGeo is None:
-                return
-            self._applyGeometryToCurrentTab(infoGeo)
-        except TypeError:
-            self.logger.debug('loadGeo - TypeError exception', exc_info=True)
+        if not fileName:
+            return
+        # Detect the format instead of assuming a single-tab file: a multi-tab
+        # session dropped here used to crash with KeyError 'row'.
+        tagged = geometry_io.read_geometry_any(fileName, self.logger)
+        if tagged is None:
+            QMessageBox.warning(self, "Load Geometry",
+                                "Not a readable geometry file — nothing was changed.")
+            return
+        kind, payload = tagged
+        if kind == "session":
+            nTabs = len(payload.get("tabs") or [])
+            reply = QMessageBox.question(
+                self, "Load Geometry",
+                f"This file is a multi-tab session ({nTabs} tabs). "
+                "Load all tabs? This replaces your current tabs.",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                self._applySession(payload["tabs"])
+            return
+        self._applyGeometryToCurrentTab(payload)
 
 
     def loadGeoAll(self):
@@ -2302,6 +2310,15 @@ class MainWindow(QMainWindow):
                                 "Geometry file is missing required fields — nothing was changed.")
             return
 
+        self._applySession(tabsInfo)
+
+
+    def _applySession(self, tabsInfo):
+        """Replace ALL tabs with the parsed session `tabsInfo` (a list of
+        {"name","row","col","geo"}). Shared by loadGeoAll and loadGeo's
+        session branch. Callers must have parsed + validated the file first —
+        this only mutates the workspace, so it can never half-destroy it on a
+        bad file."""
         # quiesce: same guards clickedTab uses, then stop the auto-update tick
         if self.currentPlot.toCreateGate or self.currentPlot.toEditGate or self.gatePopup.isVisible():
             self.cancelGate()
@@ -2326,7 +2343,7 @@ class MainWindow(QMainWindow):
             try:
                 notFound = self._applyGeometryToCurrentTab(infoGeo)
             except TypeError:
-                self.logger.debug('loadGeoAll - TypeError applying tab %s', k, exc_info=True)
+                self.logger.debug('_applySession - TypeError applying tab %s', k, exc_info=True)
                 notFound = []
             if notFound:
                 notFoundByTab[str(tabInfo.get("name") or f"Tab {k+1}")] = notFound

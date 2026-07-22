@@ -203,3 +203,38 @@ def test_read_any_rejects_code_execution(tmp_path):
 def test_validate_session_happy_path():
     obj = {"version": 2, "kind": "cutiepie-session", "tabs": _session_tabs()}
     assert geometry_io.validate_session(obj) == []
+
+
+# --------------------------- single-geometry validation / mis-load safety
+
+def test_validate_single_geometry_happy_path():
+    obj = {"row": 2, "col": 2, "geo": {0: {"name": "h1"}}}
+    assert geometry_io.validate_single_geometry(obj) == []
+
+
+def test_validate_single_geometry_rejects_session_dict():
+    # a v2 session file is NOT a valid single geometry (this is the mis-load bug)
+    obj = {"version": 2, "kind": "cutiepie-session", "tabs": _session_tabs()}
+    assert geometry_io.validate_single_geometry(obj) != []
+
+
+def test_validate_single_geometry_rejects_junk_and_bad_rowcol():
+    assert geometry_io.validate_single_geometry("not a dict") != []
+    assert geometry_io.validate_single_geometry({"row": 0, "col": 1, "geo": {}}) != []
+    assert geometry_io.validate_single_geometry({"row": 2, "col": 2}) != []          # no geo
+    assert geometry_io.validate_single_geometry({"row": 2, "col": 2, "geo": []}) != []
+
+
+def test_read_any_rejects_session_shaped_dict_as_single(tmp_path):
+    # the reported crash: a session file must never come back tagged "single"
+    p = tmp_path / "sess.win"
+    p.write_text(geometry_io.serialize_session(_session_tabs()))
+    kind, _ = geometry_io.read_geometry_any(str(p))
+    assert kind == "session"
+
+
+def test_read_any_rejects_malformed_single_dict(tmp_path):
+    # a native dict that is neither a session nor a valid single geometry
+    p = tmp_path / "junk.win"
+    p.write_text(str({"foo": 1, "bar": 2}))
+    assert geometry_io.read_geometry_any(str(p)) is None
