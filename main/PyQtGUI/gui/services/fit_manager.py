@@ -238,14 +238,19 @@ class FitManager(QObject):
     # Save / load a fit curve (total + per-isotope components <-> CSV)
     # ------------------------------------------------------------------
 
-    def _stash_fit_curve(self, fitln, fit_funct, spectrumName):
+    def _stash_fit_curve(self, fitln, fit_funct, spectrumName,
+                         xdata=None, ydata=None):
         """Remember the last drawn fit so it can be saved.
 
         Always captures the sampled total (``fitln.component_data`` for the
         AlphaEMG* creators, else the line's own x/y). When the creator also
         stashes per-isotope series (``component_series``) it captures those plus
         the isotope→chain map and per-component colors, enabling a full
-        multi-component save."""
+        multi-component save.
+
+        ``xdata``/``ydata`` are the raw histogram bin centers and their counts
+        (the data the fit was run against). Stashing them lets Save Fit write a
+        ``y_data`` column at one-row-per-bin resolution."""
         if fitln is None:
             return
         try:
@@ -274,6 +279,13 @@ class FitManager(QObject):
                          y=np.asarray(p["y"], dtype=float),
                          params={k: float(v) for k, v in (p.get("params") or {}).items()})
                     for p in ps]
+
+            if xdata is not None and ydata is not None:
+                dx = np.asarray(xdata, dtype=float)
+                dy = np.asarray(ydata, dtype=float)
+                if dx.size and dx.size == dy.size:
+                    curve["xdata"] = dx
+                    curve["ydata"] = dy
             self._lastFitCurve = curve
         except Exception:
             self.logger.debug('could not stash fit curve', exc_info=True)
@@ -303,11 +315,17 @@ class FitManager(QObject):
             if not path.lower().endswith(".csv"):
                 path += ".csv"
 
+        # When the raw histogram data is available, re-sample the fit onto the
+        # data bin centers and carry the counts as a y_data column so the saved
+        # file is one row per bin: bin center, raw count, fit.
+        curve, data_col = self._resample_curve_to_bins(curve)
+
         peaks = curve.get("peaks")
         if peaks:
             self._write_fit_peaks_csv(
                 path, curve["x"], curve["y"], peaks,
-                model=curve.get("model", ""), name=curve.get("name", ""))
+                model=curve.get("model", ""), name=curve.get("name", ""),
+                y_data=data_col)
             self.logger.info('save_fit_curve - wrote %d peaks to %s', len(peaks), path)
             return path
 
@@ -316,27 +334,66 @@ class FitManager(QObject):
             self._write_fit_components_csv(
                 path, curve["x"], comps,
                 model=curve.get("model", ""), name=curve.get("name", ""),
-                chains=curve.get("chains"), colors=curve.get("colors"))
+                chains=curve.get("chains"), colors=curve.get("colors"),
+                y_data=data_col)
             self.logger.info('save_fit_curve - wrote %d components to %s', len(comps), path)
             return path
 
         # total-only fallback (non-multi models, or a fit with a single component)
         x = np.asarray(curve["x"], dtype=float)
         y = np.asarray(curve["y"], dtype=float)
+        if data_col is not None:
+            cols, col_hdr = np.column_stack([x, data_col, y]), "x,y_data,y_fit"
+        else:
+            cols, col_hdr = np.column_stack([x, y]), "x,y_total"
         header = (
             "CutiePie fit curve\n"
             f"model = {curve.get('model', '')}\n"
             f"spectrum = {curve.get('name', '')}\n"
             f"saved = {datetime.now().isoformat(timespec='seconds')}\n"
             f"npoints = {x.size}\n"
-            "x,y_total"
+            + col_hdr
         )
-        np.savetxt(path, np.column_stack([x, y]), delimiter=",",
-                   header=header, comments="# ")
+        np.savetxt(path, cols, delimiter=",", header=header, comments="# ")
         self.logger.info('save_fit_curve - wrote %d points to %s', x.size, path)
         return path
 
-    def _write_fit_peaks_csv(self, path, x, total_y, peaks, model="", name=""):
+    def _resample_curve_to_bins(self, curve):
+        """If the curve carries the raw histogram data (``xdata`` bin centers +
+        ``ydata`` counts), return a copy re-sampled onto those bins — the fit
+        total, components and peaks linearly interpolated from the fine curve
+        grid onto the bin centers — plus the counts as the data column. Falls
+        back to ``(curve, None)`` when no raw data was stashed."""
+        xdata = curve.get("xdata")
+        ydata = curve.get("ydata")
+        if xdata is None or ydata is None:
+            return curve, None
+
+        xb = np.asarray(xdata, dtype=float)
+        yb = np.asarray(ydata, dtype=float)
+        m = np.isfinite(xb) & np.isfinite(yb)
+        xb, yb = xb[m], yb[m]
+        if xb.size == 0:
+            return curve, None
+        o = np.argsort(xb)
+        xb, yb = xb[o], yb[o]
+
+        src_x = np.asarray(curve["x"], dtype=float)
+
+        def rs(y):
+            return np.interp(xb, src_x, np.asarray(y, dtype=float))
+
+        out = dict(curve)
+        out["x"] = xb
+        out["y"] = rs(curve["y"])
+        if curve.get("components"):
+            out["components"] = [(n, rs(y)) for n, y in curve["components"]]
+        if curve.get("peaks"):
+            out["peaks"] = [dict(p, y=rs(p["y"])) for p in curve["peaks"]]
+        return out, yb
+
+    def _write_fit_peaks_csv(self, path, x, total_y, peaks, model="", name="",
+                             y_data=None):
         """Write the grouped per-peak / per-chain file (Version 2, self-describing
         via column names — no JSON). The file holds TWO CSV tables:
 
@@ -359,8 +416,13 @@ class FitManager(QObject):
             by_chain.setdefault(ch, {}).setdefault(iso, []).append(p)
             iso_order.setdefault((ch, iso), len(iso_order))
 
-        columns = ["x", "fit total"]
-        col_arrays = [x, np.asarray(total_y, dtype=float)]
+        columns = ["x"]
+        col_arrays = [x]
+        if y_data is not None:
+            columns.append("y_data")
+            col_arrays.append(np.asarray(y_data, dtype=float))
+        columns.append("fit total")
+        col_arrays.append(np.asarray(total_y, dtype=float))
         param_rows = []
         seen = set(columns)
 
@@ -406,25 +468,33 @@ class FitManager(QObject):
         return path
 
     def _write_fit_components_csv(self, path, x, comps, model="", name="",
-                                  chains=None, colors=None):
+                                  chains=None, colors=None, y_data=None):
         """Write x + one column per component, with a `# meta` JSON header that
-        records column names, the isotope→chain map, and per-component colors."""
+        records column names, the isotope→chain map, and per-component colors.
+        When ``y_data`` is given it is written as a ``y_data`` column right after
+        ``x`` (one row per data bin) and recorded in the meta columns."""
         x = np.asarray(x, dtype=float)
         names = [n for n, _ in comps]
-        data = np.column_stack([x] + [np.asarray(y, dtype=float) for _, y in comps])
+        lead_cols = ["x"]
+        lead_arrays = [x]
+        if y_data is not None:
+            lead_cols.append("y_data")
+            lead_arrays.append(np.asarray(y_data, dtype=float))
+        data = np.column_stack(
+            lead_arrays + [np.asarray(y, dtype=float) for _, y in comps])
         chains = chains or {}
         colors = colors or {}
         meta = {
             "model": model,
             "spectrum": name,
             "saved": datetime.now().isoformat(timespec="seconds"),
-            "columns": ["x"] + names,
+            "columns": lead_cols + names,
             "chains": {n: chains.get(n, "") for n in names if n != "fit total"},
             "colors": {n: colors[n] for n in names if colors.get(n) is not None},
         }
         header = ("CutiePie fit curve (multi-component)\n"
                   "meta = " + json.dumps(meta) + "\n"
-                  + ",".join(["x"] + names))
+                  + ",".join(lead_cols + names))
         np.savetxt(path, data, delimiter=",", header=header, comments="# ")
         return path
 
@@ -530,8 +600,11 @@ class FitManager(QObject):
         ncols = arr.shape[1]
         if len(names) != ncols - 1:            # keep names aligned with the data
             names = (list(names) + [f"col{j}" for j in range(ncols)])[:ncols - 1]
-        components = [(names[j], arr[:, j + 1].astype(float)) for j in range(len(names))]
-        structure = [self._parse_component_name(n) for n in names]
+        # the raw-data column is not a fit series — never draw it as a component
+        keep = [j for j, n in enumerate(names) if n != "y_data"]
+        comp_names = [names[j] for j in keep]
+        components = [(names[j], arr[:, j + 1].astype(float)) for j in keep]
+        structure = [self._parse_component_name(n) for n in comp_names]
 
         # legacy meta carried the isotope→chain map explicitly; fold it in
         meta_chains = {}
@@ -544,7 +617,7 @@ class FitManager(QObject):
                     d["kind"] = "isotope"
 
         chains = {d["name"]: d["chain"] for d in structure if d.get("chain")}
-        multi = len(names) > 1
+        multi = len(comp_names) > 1
         return dict(x=x, components=components, structure=structure,
                     chains=chains, colors=colors, multi=multi)
 
@@ -1049,7 +1122,8 @@ class FitManager(QObject):
                     fitResultsText.resize(900, 700)
                     fitResultsText.show()
                     self._lastFitResultsText = fitResultsText
-                    self._stash_fit_curve(fitln, fit_funct, spectrumName)
+                    self._stash_fit_curve(fitln, fit_funct, spectrumName,
+                                          xdata=x, ydata=y)
 
                 else:
                     QMessageBox.about(self._parent_widget, "Warning", "Sorry 2D fitting is not implemented yet")

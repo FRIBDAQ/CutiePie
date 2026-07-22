@@ -690,6 +690,104 @@ def test_load_version2_returns_editable_group(env, tmp_path, monkeypatch):
     assert len(ax.lines) == 0
 
 
+# ------------------------------ raw data bin column (one row per data bin)
+
+def test_save_total_only_adds_data_column(env, tmp_path):
+    # a curve carrying the raw histogram data (xdata bins + ydata counts) saves
+    # at bin resolution with x, y_data, y_fit — the fit interpolated onto bins.
+    xf = np.linspace(0.0, 10.0, 41)                 # fine fit-curve grid
+    yf = xf ** 2                                     # fit total on that grid
+    xb = np.linspace(0.0, 10.0, 11)                  # 11 data bins (grid subset)
+    yb = xb ** 2 + 3.0                               # raw counts (differ from fit)
+    env.fm._lastFitCurve = {"x": xf, "y": yf, "model": "Gaus", "name": "h1",
+                            "xdata": xb, "ydata": yb}
+    p = tmp_path / "total.csv"
+    env.fm.save_fit_curve(path=str(p))
+
+    text = p.read_text()
+    assert "x,y_data,y_fit" in text
+    arr = np.genfromtxt(str(p), delimiter=",", comments="#")
+    assert arr.shape == (11, 3)                       # one row per bin
+    assert np.allclose(arr[:, 0], xb)                 # bin centers
+    assert np.allclose(arr[:, 1], yb)                 # raw data counts
+    assert np.allclose(arr[:, 2], xb ** 2)            # fit, interp'd onto bins
+
+
+def test_save_total_only_without_data_is_unchanged(env, tmp_path):
+    # no xdata/ydata -> the legacy two-column x,y_total file, verbatim.
+    env.fm._lastFitCurve = {"x": np.arange(5.0), "y": np.arange(5.0),
+                            "model": "Gaus", "name": "h1"}
+    p = tmp_path / "total.csv"
+    env.fm.save_fit_curve(path=str(p))
+    text = p.read_text()
+    assert "x,y_total" in text
+    assert "y_data" not in text
+
+
+def test_save_multi_component_adds_data_column(env, tmp_path):
+    curve = _components_curve()
+    xb = curve["x"][::4]                              # 10 bins (grid subset)
+    yb = np.arange(xb.size, dtype=float) + 0.5        # raw counts
+    curve["xdata"] = xb
+    curve["ydata"] = yb
+    env.fm._lastFitCurve = curve
+    p = tmp_path / "multi.csv"
+    env.fm.save_fit_curve(path=str(p))
+
+    arr = np.genfromtxt(str(p), delimiter=",", comments="#")
+    # x + y_data + total + 2 isotopes, one row per bin
+    assert arr.shape == (xb.size, 5)
+    assert np.allclose(arr[:, 0], xb)
+    assert np.allclose(arr[:, 1], yb)
+    # reload skips the data column -> only fit components come back
+    struct = env.fm._read_fit_curve_file(str(p))
+    assert [n for n, _ in struct["components"]] == ["fit total", "Bi211", "Po215"]
+    assert np.allclose(struct["x"], xb)
+
+
+def test_save_peaks_adds_data_column(env, tmp_path):
+    curve = _peaks_curve()
+    xb = curve["x"][::2]                              # 11 bins (grid subset)
+    yb = np.arange(xb.size, dtype=float) * 10.0       # raw counts
+    curve["xdata"] = xb
+    curve["ydata"] = yb
+    env.fm._lastFitCurve = curve
+    p = tmp_path / "peaks.csv"
+    env.fm.save_fit_curve(path=str(p))
+
+    lines = p.read_text().splitlines()
+    header = [ln for ln in lines if ln.startswith("x,")][0].split(",")
+    assert header[:3] == ["x", "y_data", "fit total"]
+    di = header.index("y_data")
+    first = [ln for ln in lines[lines.index(",".join(header)) + 1:]
+             if ln and not ln.startswith("#")][0].split(",")
+    assert float(first[0]) == xb[0]
+    assert float(first[di]) == yb[0]
+    # reload excludes the data column from the drawn components
+    struct = env.fm._read_fit_curve_file(str(p))
+    names = [n for n, _ in struct["components"]]
+    assert "y_data" not in names
+    assert "fit total" in names
+    assert np.allclose(struct["x"], xb)
+
+
+def test_reload_of_data_file_draws_only_fit_lines(env, tmp_path, monkeypatch):
+    curve = _components_curve()
+    xb = curve["x"][::4]
+    curve["xdata"] = xb
+    curve["ydata"] = np.arange(xb.size, dtype=float)
+    env.fm._lastFitCurve = curve
+    p = tmp_path / "multi.csv"
+    env.fm.save_fit_curve(path=str(p))
+
+    monkeypatch.setattr(env.fm, "_open_loaded_fit_panel",
+                        lambda ax, structure, group: None)
+    ax = make_ax()
+    env.fm.load_fit_curve(ax=ax, path=str(p))
+    # 3 fit components drawn; the y_data column is NOT drawn as a line
+    assert len(ax.lines) == 3
+
+
 # ---------------------------------------------- LoadedFitGroup (live add/remove)
 
 def _group(fm_mod, env, ax):
