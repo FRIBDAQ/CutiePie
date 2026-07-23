@@ -160,6 +160,22 @@ SETTING_EXECUTABLE = "exec"
 DEBUG = False
 
 
+def cutiepie_version():
+    """CutiePie version from the project's configure.ac AC_INIT line
+    (e.g. 'v1.6-002'). configure.ac lives two levels up from this gui/ folder.
+    Returns '' when the file is missing or unparseable, so the window title
+    still renders."""
+    try:
+        cfg = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "..", "..", "configure.ac")
+        with open(cfg, encoding="utf-8") as f:
+            m = re.search(r"AC_INIT\(\s*\[?\s*CutiePie\s*\]?\s*,\s*\[?\s*([^,\]\)\s]+)",
+                          f.read())
+        return m.group(1) if m else ""
+    except Exception:
+        return ""
+
+
 class _NumericItem(QTableWidgetItem):
     """Peak Finder 2 results-table cell that sorts by a stored numeric value
     (Qt.UserRole) rather than its displayed '<value> ± <err>' string."""
@@ -245,7 +261,9 @@ class MainWindow(QMainWindow):
 
         self._abort_fit = False # Bashir added for aborting fit
 
-        self.setWindowTitle("CutiePie - (QtPy) - It's not a bug, it's a feature (cit.) Qt5 and PyQty5 used under open source terms.")
+        _version = cutiepie_version()
+        _version_tag = (" " + _version) if _version else ""
+        self.setWindowTitle("CutiePie" + _version_tag + " - (QtPy) - It's not a bug, it's a feature (cit.) Qt5 and PyQty5 used under open source terms.")
         #### Bashir added for lightgrey visualization #######
         # self.setStyleSheet("background-color: lightgrey;")
         # self.setStyleSheet("QWidget { background-color: #dcdcdc; }")  # light grey everywhere
