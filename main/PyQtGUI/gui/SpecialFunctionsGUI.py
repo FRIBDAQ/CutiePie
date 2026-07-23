@@ -33,8 +33,12 @@ class SpecialFunctions(QWidget):
         self.v.addWidget(self.peak.create_jupBox())
 
         self.layout.addLayout(self.v)
-        # Peak Finder 2 (click-to-fit) column, right of the Peak Finder stack
-        self.layout.addWidget(self.peak.create_peakBox2())
+        # Peak Finder 2 (click-to-fit) column, right of the Peak Finder stack.
+        # Temporarily hidden — built (so its GUI.py signal wiring stays valid)
+        # but not shown. Delete the _pf2.hide() line to restore it.
+        _pf2 = self.peak.create_peakBox2()
+        _pf2.hide()
+        self.layout.addWidget(_pf2)
         self.layout.addWidget(self.imaging.create_liseBox())
         self.layout.addWidget(self.options.create_options())
         # fillpoints has issues with speed
