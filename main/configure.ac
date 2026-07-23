@@ -326,7 +326,6 @@ AC_OUTPUT(Makefile
 	  PyQtGUI/sip/Makefile
 	  PyQtGUI/gui/Makefile
 	  PyQtGUI/gui/_CutiePie
-	  PyQtGUI/gui/_version.py
 	  PyQtGUI/test/Makefile
 	  PyQtGUI/standalone/Makefile
 	  PyQtGUI/standalone/CutiePie
