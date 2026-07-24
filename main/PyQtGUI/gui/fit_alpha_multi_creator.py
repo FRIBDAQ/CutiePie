@@ -505,6 +505,9 @@ class AlphaMultiEMGFit:
         fitln_total.components = sub_lines
         fitln_total.component_data = {'x': xx, 'ytot': ytot}
         fitln_total._isotopes = [iso['name'] for iso in self._isotopes]
+        fitln_total.chi2 = float(getattr(res, "chisqr", np.nan))
+        fitln_total.redchi = float(getattr(res, "redchi", np.nan))
+        fitln_total.ndof = int(getattr(res, "nfree", 0))
         return fitln_total
 
 

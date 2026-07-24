@@ -1176,6 +1176,9 @@ class AlphaMultiEMGSigmaFit:
         }
         # per-peak sampled curves + params for the per-peak-per-chain save
         fitln_total.peak_series = peak_series
+        fitln_total.chi2 = float(getattr(res, "chisqr", np.nan))
+        fitln_total.redchi = float(getattr(res, "redchi", np.nan))
+        fitln_total.ndof = int(getattr(res, "nfree", 0))
         fitln_total._isotopes = [iso['name'] for iso in self._isotopes]
         #### for peak plot selection
         fitln_total._iso_lines = iso_lines

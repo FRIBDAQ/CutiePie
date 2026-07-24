@@ -649,7 +649,7 @@ def test_save_peaks_writes_version2_layout(env, tmp_path):
     assert "meta =" not in text
     # the per-peak parameters section is now a CSV table, NOT a comment block
     assert "# per-peak parameters:" not in text
-    assert "chain,isotope,E_keV,A,mu,sigma,tau1,tau2,eta" in lines
+    assert "chain,isotope,E_keV,A,mu,sigma,tau1,tau2,eta,redchi_local" in lines
     assert any(ln.startswith("A227,Bi211,6623,") for ln in lines)   # a param row
     assert any(ln.startswith("A227,Po215,7386,") for ln in lines)
 
@@ -858,3 +858,128 @@ def test_peaks_save_supersedes_component_save(env, tmp_path):
     p = tmp_path / "both.csv"
     env.fm.save_fit_curve(path=str(p))
     assert "meta =" not in p.read_text()            # chose v2, not the meta file
+
+
+# ------------------------------------------ chi2 goodness-of-fit in the CSV
+
+def test_stash_captures_chi2_from_fitln(env):
+    ax = make_ax()
+    (ln,) = ax.plot(np.arange(5.0), np.arange(5.0))
+    ln.chi2, ln.redchi, ln.ndof = 12.5, 1.25, 10
+    env.fm._stash_fit_curve(ln, "Gaus", "h1")
+    c = env.fm._lastFitCurve
+    assert c["chi2"] == 12.5
+    assert c["redchi"] == 1.25
+    assert c["ndof"] == 10
+
+
+def test_stash_chi2_absent_stashes_none(env):
+    ax = make_ax()
+    (ln,) = ax.plot(np.arange(5.0), np.arange(5.0))
+    env.fm._stash_fit_curve(ln, "Gaus", "h1")
+    c = env.fm._lastFitCurve
+    assert c.get("chi2") is None
+    assert c.get("redchi") is None
+    assert c.get("ndof") is None
+
+
+def test_save_total_only_writes_chi2_header(env, tmp_path):
+    env.fm._lastFitCurve = {"x": np.arange(5.0), "y": np.arange(5.0),
+                            "model": "Gaus", "name": "h1",
+                            "chi2": 12.5, "redchi": 1.25, "ndof": 10}
+    p = tmp_path / "total.csv"
+    env.fm.save_fit_curve(path=str(p))
+    text = p.read_text()
+    assert "chi2 = 12.5" in text
+    assert "reduced_chi2 = 1.25" in text
+    assert "ndof = 10" in text
+    # still loads through the plain numeric loader
+    arr = np.genfromtxt(str(p), delimiter=",", comments="#")
+    assert arr.shape[0] == 5
+
+
+def test_save_total_only_chi2_nan_when_absent(env, tmp_path):
+    env.fm._lastFitCurve = {"x": np.arange(5.0), "y": np.arange(5.0),
+                            "model": "Gaus", "name": "h1"}
+    p = tmp_path / "total.csv"
+    env.fm.save_fit_curve(path=str(p))
+    text = p.read_text()
+    assert "chi2 = nan" in text
+    assert "reduced_chi2 = nan" in text
+    assert "ndof = nan" in text
+
+
+def _components_curve_with_data():
+    c = _components_curve()
+    c["chi2"], c["redchi"], c["ndof"] = 100.0, 1.1, 90
+    # perfect data (counts == total) → every windowed local redchi is 0
+    c["xdata"] = c["x"].copy()
+    c["ydata"] = c["y"].copy()
+    return c
+
+
+def test_save_components_writes_chi2_and_redchi_local(env, tmp_path):
+    env.fm._lastFitCurve = _components_curve_with_data()
+    p = tmp_path / "multi.csv"
+    env.fm.save_fit_curve(path=str(p))
+    struct = env.fm._read_fit_curve_file(str(p))
+    meta = struct["meta"]
+    assert meta["chi2"] == 100.0
+    assert meta["reduced_chi2"] == 1.1
+    assert meta["ndof"] == 90
+    rl = meta["redchi_local"]
+    # a genuine per-component number for each isotope; perfect data → ~0
+    assert abs(rl["Bi211"]) < 1e-9
+    assert abs(rl["Po215"]) < 1e-9
+
+
+def test_save_components_redchi_local_nan_without_raw_data(env, tmp_path):
+    c = _components_curve()
+    c["chi2"], c["redchi"], c["ndof"] = 100.0, 1.1, 90   # no xdata/ydata
+    env.fm._lastFitCurve = c
+    p = tmp_path / "multi.csv"
+    env.fm.save_fit_curve(path=str(p))
+    meta = env.fm._read_fit_curve_file(str(p))["meta"]
+    assert meta["chi2"] == 100.0
+    assert all(v != v for v in meta["redchi_local"].values())   # all NaN
+
+
+def _peaks_curve_with_data():
+    c = _peaks_curve()
+    c["chi2"], c["redchi"], c["ndof"] = 200.0, 1.05, 15
+    c["xdata"] = c["x"].copy()
+    c["ydata"] = c["y"].copy()      # perfect data
+    return c
+
+
+def test_save_peaks_writes_chi2_header_and_redchi_local_column(env, tmp_path):
+    env.fm._lastFitCurve = _peaks_curve_with_data()
+    p = tmp_path / "peaks.csv"
+    env.fm.save_fit_curve(path=str(p))
+    lines = p.read_text().splitlines()
+
+    # overall chi2 in the leading comment block
+    assert any("chi2 = 200" in ln and "reduced_chi2 = 1.05" in ln
+               and "ndof = 15" in ln for ln in lines)
+
+    # the per-peak parameter table gains a redchi_local column
+    assert "chain,isotope,E_keV,A,mu,sigma,tau1,tau2,eta,redchi_local" in lines
+    param_rows = [ln for ln in lines if ln.startswith("A227,")]
+    assert param_rows
+    for ln in param_rows:
+        cells = ln.split(",")
+        assert len(cells) == 10
+        val = float(cells[-1])          # perfect data → ~0 in every window
+        assert abs(val) < 1e-6
+
+
+def test_save_peaks_redchi_local_nan_without_raw_data(env, tmp_path):
+    c = _peaks_curve()
+    c["chi2"], c["redchi"], c["ndof"] = 200.0, 1.05, 15   # no xdata/ydata
+    env.fm._lastFitCurve = c
+    p = tmp_path / "peaks.csv"
+    env.fm.save_fit_curve(path=str(p))
+    lines = p.read_text().splitlines()
+    param_rows = [ln for ln in lines if ln.startswith("A227,")]
+    for ln in param_rows:
+        assert ln.split(",")[-1].lower() == "nan"

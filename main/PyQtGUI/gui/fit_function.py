@@ -58,8 +58,30 @@ class FitFunction:
         if not result.success:
             print(f"WARNING: fit did not terminate successfully:\n{result}")
 
+        # Remember the fitted parameters so callers (and tests) can re-evaluate
+        # the model at the solution.
+        self._last_params = result.x
+
+        # Pearson goodness-of-fit on the fitted bins. These models are fit by
+        # Poisson MLE (no chi2 falls out of the optimizer), so compute one here
+        # for reporting parity with the Alpha* fits and so Save Fit can carry it.
+        chi2 = redchi = float('nan')
+        ndof = 0
+        try:
+            pred = np.maximum(self.model(np.asarray(x, dtype=float), result.x),
+                              1e-10)
+            resid = np.asarray(y, dtype=float) - pred
+            chi2 = float(np.sum(resid**2 / pred))
+            ndof = int(len(x) - len(result.x))
+            redchi = chi2 / max(ndof, 1)
+            fit_results.append(
+                f'[stats] chi-square={chi2:.3f} ; '
+                f'reduced chi-square={redchi:.3f} ; ndof={ndof}')
+        except Exception:
+            pass  # goodness-of-fit is best-effort; never block the fit
+
         fitln = None # Data to plot
-        
+
         try:
             x_fit = np.linspace(x[0],x[-1], 10000)
             y_fit = self.model(x_fit, result.x)
@@ -70,5 +92,10 @@ class FitFunction:
                 fit_results.append(s)
         except Exception:
             pass # Can't plot, ignored
-        
+
+        if fitln is not None:
+            fitln.chi2 = chi2
+            fitln.redchi = redchi
+            fitln.ndof = ndof
+
         return fitln

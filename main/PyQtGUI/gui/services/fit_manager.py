@@ -264,6 +264,11 @@ class FitManager(QObject):
                 cy = np.asarray(fitln.get_ydata(), dtype=float)
             curve = {"x": cx, "y": cy, "model": fit_funct, "name": spectrumName}
 
+            # goodness-of-fit, when the creator attached it to the line
+            curve["chi2"] = getattr(fitln, "chi2", None)
+            curve["redchi"] = getattr(fitln, "redchi", None)
+            curve["ndof"] = getattr(fitln, "ndof", None)
+
             series = getattr(fitln, "component_series", None)
             if series:
                 curve["components"] = [(str(n), np.asarray(y, dtype=float))
@@ -326,7 +331,8 @@ class FitManager(QObject):
             self._write_fit_peaks_csv(
                 path, curve["x"], curve["y"], peaks,
                 model=curve.get("model", ""), name=curve.get("name", ""),
-                y_data=data_col)
+                y_data=data_col, chi2=curve.get("chi2"),
+                redchi=curve.get("redchi"), ndof=curve.get("ndof"))
             self.logger.info('save_fit_curve - wrote %d peaks to %s', len(peaks), path)
             return path
 
@@ -336,7 +342,9 @@ class FitManager(QObject):
                 path, curve["x"], comps,
                 model=curve.get("model", ""), name=curve.get("name", ""),
                 chains=curve.get("chains"), colors=curve.get("colors"),
-                y_data=data_col)
+                y_data=data_col, chi2=curve.get("chi2"),
+                redchi=curve.get("redchi"), ndof=curve.get("ndof"),
+                total=curve.get("y"))
             self.logger.info('save_fit_curve - wrote %d components to %s', len(comps), path)
             return path
 
@@ -353,6 +361,9 @@ class FitManager(QObject):
             f"spectrum = {curve.get('name', '')}\n"
             f"saved = {datetime.now().isoformat(timespec='seconds')}\n"
             f"npoints = {x.size}\n"
+            f"chi2 = {self._fmt_gof(curve.get('chi2'))}\n"
+            f"reduced_chi2 = {self._fmt_gof(curve.get('redchi'))}\n"
+            f"ndof = {self._fmt_gof(curve.get('ndof'))}\n"
             + col_hdr
         )
         np.savetxt(path, cols, delimiter=",", header=header, comments="# ")
@@ -393,8 +404,62 @@ class FitManager(QObject):
             out["peaks"] = [dict(p, y=rs(p["y"])) for p in curve["peaks"]]
         return out, yb
 
+    @staticmethod
+    def _fmt_gof(v):
+        """Format a goodness-of-fit scalar for a CSV header cell: ``nan`` when
+        the value is missing or non-finite, else a compact number."""
+        if v is None:
+            return "nan"
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            return "nan"
+        return f"{fv:.6g}" if np.isfinite(fv) else "nan"
+
+    @staticmethod
+    def _gof_num(v):
+        """Coerce a goodness-of-fit scalar to a float (``nan`` when missing) so
+        it can live in a JSON meta block."""
+        if v is None:
+            return float("nan")
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return float("nan")
+
+    @staticmethod
+    def _windowed_redchi(x, y_data, total, comp_y, k=3.0):
+        """Local Pearson reduced-chi2 for one component: the raw counts vs the
+        TOTAL model over the window the component occupies (``mu +/- k*sigma``,
+        with mu/sigma estimated from the component's own moments). Returns
+        ``nan`` when no raw data is available or the window is empty — per-peak
+        goodness is a where-does-it-fit diagnostic, never a hard failure."""
+        if y_data is None or total is None:
+            return float("nan")
+        x = np.asarray(x, dtype=float)
+        yd = np.asarray(y_data, dtype=float)
+        tot = np.asarray(total, dtype=float)
+        w = np.clip(np.asarray(comp_y, dtype=float), 0.0, None)
+        sw = float(np.sum(w))
+        if x.size == 0 or not np.isfinite(sw) or sw <= 0:
+            return float("nan")
+        mu = float(np.sum(x * w) / sw)
+        var = float(np.sum(w * (x - mu) ** 2) / sw)
+        sigma = np.sqrt(var) if var > 0 else 0.0
+        if sigma > 0 and np.isfinite(sigma):
+            mask = np.abs(x - mu) <= k * sigma
+        else:
+            mask = np.ones(x.shape, dtype=bool)
+        n = int(np.count_nonzero(mask))
+        if n < 1:
+            return float("nan")
+        pred = np.maximum(tot[mask], 1e-10)
+        resid = yd[mask] - pred
+        chi2 = float(np.sum(resid ** 2 / pred))
+        return chi2 / max(n - 1, 1)
+
     def _write_fit_peaks_csv(self, path, x, total_y, peaks, model="", name="",
-                             y_data=None):
+                             y_data=None, chi2=None, redchi=None, ndof=None):
         """Write the grouped per-peak / per-chain file (Version 2, self-describing
         via column names — no JSON). The file holds TWO CSV tables:
 
@@ -446,7 +511,8 @@ class FitManager(QObject):
                     ename = f"{p['E']:.0f}" if p.get("E") is not None else "NA"
                     columns.append(_uniq(f"{ch}/{iso}/{ename}"))
                     col_arrays.append(np.asarray(p["y"], dtype=float))
-                    param_rows.append((ch, iso, ename, p.get("params") or {}))
+                    rl = self._windowed_redchi(x, y_data, total_y, p["y"])
+                    param_rows.append((ch, iso, ename, p.get("params") or {}, rl))
 
         def _num(pr, k):
             v = pr.get(k)
@@ -456,12 +522,16 @@ class FitManager(QObject):
         with open(path, "w", newline="") as f:
             f.write(f"# CutiePie fit curve — {model} : {name}   "
                     f"(saved {datetime.now().isoformat(timespec='seconds')})\n")
-            # per-peak parameters as a CSV table (was a comment block)
-            f.write("chain,isotope,E_keV,A,mu,sigma,tau1,tau2,eta\n")
-            for ch, iso, ename, pr in param_rows:
+            f.write(f"# chi2 = {self._fmt_gof(chi2)} ; "
+                    f"reduced_chi2 = {self._fmt_gof(redchi)} ; "
+                    f"ndof = {self._fmt_gof(ndof)}\n")
+            # per-peak parameters as a CSV table (was a comment block); the
+            # trailing redchi_local is a local data-vs-total goodness per peak
+            f.write("chain,isotope,E_keV,A,mu,sigma,tau1,tau2,eta,redchi_local\n")
+            for ch, iso, ename, pr, rl in param_rows:
                 f.write(f"{ch},{iso},{ename},{_num(pr,'A')},{_num(pr,'mu')},"
                         f"{_num(pr,'sigma')},{_num(pr,'tau1')},{_num(pr,'tau2')},"
-                        f"{_num(pr,'eta')}\n")
+                        f"{_num(pr,'eta')},{self._fmt_gof(rl)}\n")
             f.write("\n")
             # sampled data table
             f.write(",".join(columns) + "\n")
@@ -469,11 +539,14 @@ class FitManager(QObject):
         return path
 
     def _write_fit_components_csv(self, path, x, comps, model="", name="",
-                                  chains=None, colors=None, y_data=None):
+                                  chains=None, colors=None, y_data=None,
+                                  chi2=None, redchi=None, ndof=None, total=None):
         """Write x + one column per component, with a `# meta` JSON header that
         records column names, the isotope→chain map, and per-component colors.
         When ``y_data`` is given it is written as a ``y_data`` column right after
-        ``x`` (one row per data bin) and recorded in the meta columns."""
+        ``x`` (one row per data bin) and recorded in the meta columns. The meta
+        also carries the overall chi2/reduced_chi2/ndof and a per-component
+        ``redchi_local`` (local data-vs-total goodness)."""
         x = np.asarray(x, dtype=float)
         names = [n for n, _ in comps]
         lead_cols = ["x"]
@@ -485,6 +558,8 @@ class FitManager(QObject):
             lead_arrays + [np.asarray(y, dtype=float) for _, y in comps])
         chains = chains or {}
         colors = colors or {}
+        redchi_local = {n: self._windowed_redchi(x, y_data, total, y)
+                        for n, y in comps}
         meta = {
             "model": model,
             "spectrum": name,
@@ -492,6 +567,10 @@ class FitManager(QObject):
             "columns": lead_cols + names,
             "chains": {n: chains.get(n, "") for n in names if n != "fit total"},
             "colors": {n: colors[n] for n in names if colors.get(n) is not None},
+            "chi2": self._gof_num(chi2),
+            "reduced_chi2": self._gof_num(redchi),
+            "ndof": self._gof_num(ndof),
+            "redchi_local": redchi_local,
         }
         header = ("CutiePie fit curve (multi-component)\n"
                   "meta = " + json.dumps(meta) + "\n"
@@ -620,7 +699,7 @@ class FitManager(QObject):
         chains = {d["name"]: d["chain"] for d in structure if d.get("chain")}
         multi = len(comp_names) > 1
         return dict(x=x, components=components, structure=structure,
-                    chains=chains, colors=colors, multi=multi)
+                    chains=chains, colors=colors, multi=multi, meta=meta)
 
     def _next_fit_index(self, ax):
         """Lowest free fit index on this axis (fills gaps)."""

@@ -351,6 +351,9 @@ class AlphaEMGLinearFit:
         fitln_total.components = sub_lines
         fitln_total.component_data = {'x': xx, 'ytot': ytot}
         fitln_total._isotopes = [iso['name'] for iso in self._isotopes]
+        fitln_total.chi2 = float(chisq)
+        fitln_total.redchi = float(redchi)
+        fitln_total.ndof = int(dof)
 
         return fitln_total
 
