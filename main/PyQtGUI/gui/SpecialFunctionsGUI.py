@@ -37,11 +37,14 @@ class SpecialFunctions(QWidget):
         _pf1_checks = self.peak.create_peakChecks()
         _pf1_checks.hide()
         self.v.addWidget(_pf1_checks)
-        self.v.addWidget(self.peak.create_jupBox())
 
         self.layout.addLayout(self.v)
-        # Peak Finder 2 (click-to-fit) column, right of the Peak Finder stack
-        self.layout.addWidget(self.peak.create_peakBox2())
+        # Peak Finder 2 (click-to-fit) column, with the Jupyter Notebook box
+        # sitting under it
+        self.v2 = QVBoxLayout()
+        self.v2.addWidget(self.peak.create_peakBox2())
+        self.v2.addWidget(self.peak.create_jupBox())
+        self.layout.addLayout(self.v2)
         self.layout.addWidget(self.imaging.create_liseBox())
         self.layout.addWidget(self.options.create_options())
         # fillpoints has issues with speed
