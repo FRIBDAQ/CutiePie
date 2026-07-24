@@ -28,17 +28,20 @@ class SpecialFunctions(QWidget):
         self.layout.addWidget(self.create_fitBox())
 
         self.v = QVBoxLayout()
-        self.v.addWidget(self.peak.create_peakBox())
-        self.v.addWidget(self.peak.create_peakChecks())
+        # The original scan-based Peak Finder and its Peak Selection list are
+        # temporarily hidden: both are still built (so GUI.py's signal wiring
+        # stays valid) but not shown. Delete the .hide() calls to restore them.
+        _pf1 = self.peak.create_peakBox()
+        _pf1.hide()
+        self.v.addWidget(_pf1)
+        _pf1_checks = self.peak.create_peakChecks()
+        _pf1_checks.hide()
+        self.v.addWidget(_pf1_checks)
         self.v.addWidget(self.peak.create_jupBox())
 
         self.layout.addLayout(self.v)
-        # Peak Finder 2 (click-to-fit) is temporarily hidden: built (so GUI.py's
-        # signal wiring stays valid) but not shown. Delete the .hide() line to
-        # restore it.
-        _pf2 = self.peak.create_peakBox2()
-        _pf2.hide()
-        self.layout.addWidget(_pf2)
+        # Peak Finder 2 (click-to-fit) column, right of the Peak Finder stack
+        self.layout.addWidget(self.peak.create_peakBox2())
         self.layout.addWidget(self.imaging.create_liseBox())
         self.layout.addWidget(self.options.create_options())
         # fillpoints has issues with speed
