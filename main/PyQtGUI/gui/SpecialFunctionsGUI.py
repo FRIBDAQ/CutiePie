@@ -39,8 +39,8 @@ class SpecialFunctions(QWidget):
         self.v.addWidget(_pf1_checks)
 
         self.layout.addLayout(self.v)
-        # Peak Finder 2 (click-to-fit) column, with the Jupyter Notebook box
-        # sitting under it
+        # The click-to-fit peak finder (titled "Peak Finder" in the UI), with
+        # the Jupyter Notebook box sitting under it
         self.v2 = QVBoxLayout()
         self.v2.addWidget(self.peak.create_peakBox2())
         self.v2.addWidget(self.peak.create_jupBox())

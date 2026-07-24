@@ -3755,7 +3755,7 @@ class MainWindow(QMainWindow):
         self.logger.info('peakFit2Config')
         current = self._peak2_max_window_bins()
         text, ok = QInputDialog.getText(
-            self, "Peak Finder 2 — Config",
+            self, "Peak Finder — Config",
             "Max fit window (in bins), empty = no cap:\n"
             "With a cap set, clicks that can't be fitted are skipped silently.",
             text="" if current is None else str(current))
@@ -3815,7 +3815,7 @@ class MainWindow(QMainWindow):
                 self._peak2_status("[skip] Clicked pad holds no spectrum.")
                 return
             if self.getSpectrumStoreInfo("dim", index=index) != 1:
-                self._peak2_status("[skip] Peak Finder 2 works on 1D spectra only.")
+                self._peak2_status("[skip] Peak Finder works on 1D spectra only.")
                 return
 
             binx     = self.getSpectrumStoreInfo("binx", index=index)

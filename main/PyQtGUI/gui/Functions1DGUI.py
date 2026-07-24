@@ -42,7 +42,10 @@ class Fncts1D(QDialog):
         return pCheck
 
     def create_peakBox(self):
-        peakBox = QGroupBox("Peak Finder")
+        # The older scan-based finder, hidden in SpecialFunctionsGUI. The
+        # "(scan)" suffix keeps it apart from the click-to-fit box, which now
+        # holds the plain "Peak Finder" title.
+        peakBox = QGroupBox("Peak Finder (scan)")
 
         self.peak_width_label = QLabel("Peak Width (in bins)")
         self.peak_width = QLineEdit()
@@ -84,9 +87,11 @@ class Fncts1D(QDialog):
         return peakBox
 
     def create_peakBox2(self):
-        # Peak Finder 2: click-to-fit. Start toggles an armed mode (wired in
+        # The click-to-fit peak finder. Start toggles an armed mode (wired in
         # GUI.py) where each pad click fits gaussian+linear around the click.
-        peakBox2 = QGroupBox("Peak Finder 2")
+        # Titled just "Peak Finder" in the UI now that the older scan-based box
+        # is hidden; the attribute names keep the peak2/peakBox2 prefix.
+        peakBox2 = QGroupBox("Peak Finder")
 
         self.peak2_start = QPushButton("Start", self)
         self.peak2_start.setCheckable(True)
