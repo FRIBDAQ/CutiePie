@@ -3192,6 +3192,13 @@ class MainWindow(QMainWindow):
         index again would hand back a different spectrum's counts. The store is
         name-keyed and tab-independent, so this stays correct either way; an
         unknown name yields None and the callers report 'spectrum unavailable'."""
+        # Ask the store outright rather than inferring absence from the TypeError
+        # a None binx would raise downstream: a removed spectrum is an expected
+        # state, not an error, and the explicit test cannot be defeated by a
+        # record that survives removal with some fields still readable.
+        if not self.spectra.contains(name):
+            self.logger.debug('_peak2_spectrum_arrays - %s is no longer in the store', name)
+            return None
         try:
             binx = self.getSpectrumStoreInfo("binx", name=name)
             minx = self.getSpectrumStoreInfo("minx", name=name)
@@ -3203,6 +3210,27 @@ class MainWindow(QMainWindow):
         except Exception:
             self.logger.debug('_peak2_spectrum_arrays failed for %s', name, exc_info=True)
             return None
+
+    @staticmethod
+    def _peak2_live_axes(rec):
+        """The axes this fit is still drawn on, or None once the pad went away
+        under it.
+
+        Two teardowns have to be caught and they leave different wreckage.
+        Removing a spectrum clears its pad (`_on_spectrum_removed_rest` calls
+        `ax.clear()`), which sets every cleared artist's `.axes` to None.
+        Applying a new geometry instead DETACHES the old axes
+        (`InitializeCanvas` runs `figure.delaxes`), which leaves both
+        `artist.axes` and `axes.figure` pointing at real objects and only drops
+        the axes out of `figure.axes`. So a plain None test waves the geometry
+        case straight through, and the refit then draws onto a pad that is no
+        longer part of the figure — invisible, and reported as success.
+        Attachment is the test that catches both."""
+        arts = rec.get("artists") or ()
+        ax = arts[0].axes if arts else None
+        if ax is None or ax.figure is None:
+            return None
+        return ax if ax in ax.figure.axes else None
 
     def _peak2_try_grab(self, event):
         """Drag-to-refit: if the left-press landed within the pick radius of a
@@ -3432,7 +3460,8 @@ class MainWindow(QMainWindow):
             self._peak2_status(f"[edit] Peak {rec['number']}: {bad} — unchanged.")
             return
 
-        arrays = self._peak2_spectrum_arrays(rec["name"])
+        ax = self._peak2_live_axes(rec)
+        arrays = None if ax is None else self._peak2_spectrum_arrays(rec["name"])
         if arrays is None:
             self._peak2_status(f"[edit] Peak {rec['number']}: spectrum unavailable.")
             return
@@ -3451,7 +3480,6 @@ class MainWindow(QMainWindow):
             self._peak2_status(f"[failed] edit (Peak {rec['number']}): "
                                f"{r.get('error', 'fit failed')}")
             return
-        ax = rec["artists"][0].axes
         for art in rec.get("artists") or ():
             try:
                 art.remove()
@@ -3575,7 +3603,8 @@ class MainWindow(QMainWindow):
         spec = self._peak2_current_spec()
         spec["n_components"] = prev["spec"].get("n_components", 1)
         seeds = {f"mu{i + 1}": c["mu"] for i, c in enumerate(prev["components"])}
-        arrays = self._peak2_spectrum_arrays(rec["name"])
+        ax = self._peak2_live_axes(rec)
+        arrays = None if ax is None else self._peak2_spectrum_arrays(rec["name"])
         if arrays is None:
             self._peak2_status(f"[shape] Peak {rec['number']}: spectrum unavailable.")
             return
@@ -3585,7 +3614,6 @@ class MainWindow(QMainWindow):
             self._peak2_status(f"[shape] Peak {rec['number']}: "
                                f"{r.get('error', 'refit failed')} — unchanged.")
             return
-        ax = rec["artists"][0].axes
         for art in rec.get("artists") or ():
             try:
                 art.remove()
