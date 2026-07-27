@@ -3178,19 +3178,30 @@ class MainWindow(QMainWindow):
             if canvas not in keep:
                 self._peak2_disconnect(canvas)
 
-    def _peak2_spectrum_arrays(self, index):
-        """(xc, y) — bin-centre x and counts for the spectrum at pad `index`,
-        or None. Mirrors the fit handler's array setup; used by drag-refit."""
+    def _peak2_spectrum_arrays(self, name):
+        """(xc, y) — bin-centre x and counts for the spectrum called `name`, or
+        None. Mirrors the fit handler's array setup; used by drag-refit, the
+        edit popup and the shape-menu refit.
+
+        Keyed by NAME, never by pad index: a pad index only means anything
+        against the tab that is currently showing (nameFromIndex reads
+        currentPlot.h_dict_geo, and answers with the enlarged spectrum for any
+        index while a pad is enlarged). A fit records the spectrum it was made
+        on, and a refit triggered from the popup can happen while a different
+        tab is up or after the geometry moved that spectrum, so resolving the
+        index again would hand back a different spectrum's counts. The store is
+        name-keyed and tab-independent, so this stays correct either way; an
+        unknown name yields None and the callers report 'spectrum unavailable'."""
         try:
-            binx = self.getSpectrumStoreInfo("binx", index=index)
-            minx = self.getSpectrumStoreInfo("minx", index=index)
-            maxx = self.getSpectrumStoreInfo("maxx", index=index)
+            binx = self.getSpectrumStoreInfo("binx", name=name)
+            minx = self.getSpectrumStoreInfo("minx", name=name)
+            maxx = self.getSpectrumStoreInfo("maxx", name=name)
             xtmp = self.createRange(binx, minx, maxx)
-            ytmp = self.getSpectrumStoreInfo("data", index=index)
+            ytmp = self.getSpectrumStoreInfo("data", name=name)
             xc = np.asarray(xtmp[:-1]) + 0.5 * np.diff(np.asarray(xtmp))
             return xc, np.asarray(ytmp)[1:]
         except Exception:
-            self.logger.debug('_peak2_spectrum_arrays failed for index %s', index, exc_info=True)
+            self.logger.debug('_peak2_spectrum_arrays failed for %s', name, exc_info=True)
             return None
 
     def _peak2_try_grab(self, event):
@@ -3271,7 +3282,7 @@ class MainWindow(QMainWindow):
         xx = prev["xx"]
         lo, hi = ((float(new_x), float(xx[-1])) if edge == "lo"
                   else (float(xx[0]), float(new_x)))
-        arrays = self._peak2_spectrum_arrays(rec["index"])
+        arrays = self._peak2_spectrum_arrays(rec["name"])
         if arrays is None:
             self._peak2_status(f"[drag] Peak {rec['number']}: spectrum unavailable.")
             canvas.draw_idle()
@@ -3421,7 +3432,7 @@ class MainWindow(QMainWindow):
             self._peak2_status(f"[edit] Peak {rec['number']}: {bad} — unchanged.")
             return
 
-        arrays = self._peak2_spectrum_arrays(rec["index"])
+        arrays = self._peak2_spectrum_arrays(rec["name"])
         if arrays is None:
             self._peak2_status(f"[edit] Peak {rec['number']}: spectrum unavailable.")
             return
@@ -3564,7 +3575,7 @@ class MainWindow(QMainWindow):
         spec = self._peak2_current_spec()
         spec["n_components"] = prev["spec"].get("n_components", 1)
         seeds = {f"mu{i + 1}": c["mu"] for i, c in enumerate(prev["components"])}
-        arrays = self._peak2_spectrum_arrays(rec["index"])
+        arrays = self._peak2_spectrum_arrays(rec["name"])
         if arrays is None:
             self._peak2_status(f"[shape] Peak {rec['number']}: spectrum unavailable.")
             return
