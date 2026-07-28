@@ -70,6 +70,9 @@ class PlotController(QObject):
         # fingerprint, the redundant full-figure redraw is skipped. None = always
         # draw the next tick.
         self._last_tick_signature = None
+        # per-pad fingerprints of the last frame actually drawn, so an unforced
+        # tick can re-render only the pads whose counts moved
+        self._last_pad_signatures = None
 
     # ------------------------------------------------------------------
     # Canvas / layout
@@ -915,27 +918,32 @@ class PlotController(QObject):
         and a clear resets it to 0 (also a change). Interactions (zoom/log/gate/
         colormap/hide) either self-draw or route through the forced `updatePlot`
         path, so between two unforced ticks only live counts can change the frame.
-        Returns None on any error so the caller always redraws (never skip on doubt).
+        Returns ``(signature, pad_signatures)``: the whole-frame fingerprint for
+        the skip-everything case, and the per-pad fingerprints keyed by index so
+        a partly-changed frame can re-render only the pads that moved. Both are
+        None on any error, so the caller always redraws (never skip on doubt).
         """
         try:
             indices = [0] if cp.isEnlarged else list(self._get_geo().keys())
-            pad_sigs = []
+            pad_sigs = {}
             for index in indices:
                 name   = self._name_from_index(index)
                 log    = self._get_spectrum_info("log", index=index)
                 cutoff = self._get_spectrum_info("cutoff", index=index)
                 w = self._spectra.get(name, "data") if name is not None else None
                 data_sig = float(np.ma.sum(w)) if w is not None and len(w) > 0 else None
-                pad_sigs.append((
-                    index, name,
+                pad_sigs[index] = (
+                    name,
                     tuple(log)    if isinstance(log, list)    else log,
                     tuple(cutoff) if isinstance(cutoff, list) else cutoff,
                     data_sig,
-                ))
-            return (id(cp), bool(cp.isEnlarged), bool(auto_scale_status), tuple(pad_sigs))
+                )
+            signature = (id(cp), bool(cp.isEnlarged), bool(auto_scale_status),
+                         tuple(sorted(pad_sigs.items(), key=lambda kv: repr(kv[0]))))
+            return signature, pad_sigs
         except Exception:
             self.logger.debug('_tick_signature - exception; forcing redraw', exc_info=True)
-            return None
+            return None, None
 
     def updatePlot(self, force=True):
         cp = self._get_current_plot()
@@ -946,12 +954,20 @@ class PlotController(QObject):
         # on an unforced (auto-update timer) tick, skip the whole redraw when
         # the frame is byte-identical to the last one we drew. Forced calls (the
         # hide-gates toggle, gate/sum-region/geometry updates) always render.
-        signature = self._tick_signature(cp, auto_scale_status)
+        signature, pad_sigs = self._tick_signature(cp, auto_scale_status)
         if (not force
                 and signature is not None
                 and signature == self._last_tick_signature):
             self.logger.debug('updatePlot - unchanged since last tick; skipping redraw')
             return
+
+        # Whatever changed, it was not every pad. On an unforced tick, re-render
+        # only the pads whose fingerprint moved: a live session usually has one
+        # filling spectrum beside several idle ones, and re-masking + re-setting
+        # an idle 2-D pad's data costs as much as the live one's. A forced call
+        # ignores this — that is how a log/cutoff/gate/colormap change reaches
+        # every pad.
+        last_pads = None if force else self._last_pad_signatures
 
         self._clean_popup_exit(False)
 
@@ -991,13 +1007,20 @@ class PlotController(QObject):
                         # this loop, so a per-tick blocking dialog freezes the GUI.
                         self.logger.debug('updatePlot - ax is None for index %s; skipping slot', index)
                         continue
-                    self.plotPlot(index)
-                    dim = self._spectra.get(self._name_from_index(index), "dim")
-                    if auto_scale_status:
-                        if dim == 1:
-                            self.setAxisScale(ax, index, "x", "y")
-                        elif dim == 2:
-                            self.setAxisScale(ax, index, "x", "y", "z")
+                    unchanged = (last_pads is not None and pad_sigs is not None
+                                 and index in last_pads
+                                 and pad_sigs.get(index) == last_pads[index])
+                    if not unchanged:
+                        self.plotPlot(index)
+                        dim = self._spectra.get(self._name_from_index(index), "dim")
+                        if auto_scale_status:
+                            if dim == 1:
+                                self.setAxisScale(ax, index, "x", "y")
+                            elif dim == 2:
+                                self.setAxisScale(ax, index, "x", "y", "z")
+                    # gates are redrawn for every pad either way: their cost is
+                    # not what this skip measured, and a gate edit routes through
+                    # a forced tick whose artists must land on every pad
                     self._draw_gate(index)
 
             if self._layout_dirty:
@@ -1005,6 +1028,7 @@ class PlotController(QObject):
                 self._layout_dirty = False
             cp.canvas.draw_idle()
             self._last_tick_signature = signature
+            self._last_pad_signatures = pad_sigs
         except Exception:
             self.logger.debug('updatePlot - exception', exc_info=True)
 

@@ -583,3 +583,72 @@ def test_set_cmap_norm_log_coerces_zero_zmin(rig):
     rig.pc.setCmapNorm("log", 0)
     assert art.norm.vmin > 0                 # pre-fix: 0.0
     assert art.norm.vmax == pytest.approx(100.0)
+
+
+# ------------------------------------------------- per-pad dirty redraw (PERF_2 #3)
+
+def _two_pad_rig(pc_mod, monkeypatch):
+    """Two 1-D pads, both primed with a drawn frame. Returns (rig, replotted)
+    where `replotted` records which pad indices plotPlot touched."""
+    r = Rig(pc_mod, monkeypatch, nrows=1, ncols=2)
+    for index, name in ((0, 'h1'), (1, 'h2')):
+        ax = r.add_1d(name=name, index=index)
+        r.set_info(index=index, spectrum=make_line(ax))
+    r.pc._layout_dirty = False
+    replotted = []
+    original = r.pc.plotPlot
+    monkeypatch.setattr(r.pc, 'plotPlot',
+                        lambda index, cmap=None: (replotted.append(index),
+                                                  original(index, cmap))[1])
+    return r, replotted
+
+
+def test_unchanged_pad_is_not_replotted_on_a_timer_tick(pc_mod, monkeypatch):
+    """The point of the per-pad skip: one live spectrum must not cost a
+    re-mask + set_data on every idle pad beside it."""
+    r, replotted = _two_pad_rig(pc_mod, monkeypatch)
+    r.pc._updatePlotOnGui()                       # first tick draws both
+    assert sorted(replotted) == [0, 1]
+    replotted.clear()
+
+    w = r.store.get('h1', 'data')                 # only pad 0's counts move
+    w[:] = w + 1
+    r.pc._updatePlotOnGui()
+    assert replotted == [0], "the idle pad was replotted anyway"
+
+
+def test_changed_pad_is_still_replotted(pc_mod, monkeypatch):
+    r, replotted = _two_pad_rig(pc_mod, monkeypatch)
+    r.pc._updatePlotOnGui()
+    replotted.clear()
+    w = r.store.get('h2', 'data')                 # the OTHER pad this time
+    w[:] = w + 1
+    r.pc._updatePlotOnGui()
+    assert replotted == [1]
+
+
+def test_forced_updateplot_replots_every_pad(pc_mod, monkeypatch):
+    """A forced call is how a log/cutoff/gate/colormap change reaches the pads;
+    it must never consult the per-pad cache."""
+    r, replotted = _two_pad_rig(pc_mod, monkeypatch)
+    r.pc._updatePlotOnGui()
+    replotted.clear()
+    r.pc.updatePlot()                             # force=True, nothing changed
+    assert sorted(replotted) == [0, 1]
+
+
+def test_first_tick_replots_every_pad(pc_mod, monkeypatch):
+    r, replotted = _two_pad_rig(pc_mod, monkeypatch)
+    r.pc._updatePlotOnGui()
+    assert sorted(replotted) == [0, 1]
+
+
+def test_cutoff_change_on_one_pad_replots_only_that_pad(pc_mod, monkeypatch):
+    """A cutoff edit changes what the pad renders without touching counts, so
+    the per-pad fingerprint has to carry it or the edit would not show."""
+    r, replotted = _two_pad_rig(pc_mod, monkeypatch)
+    r.pc._updatePlotOnGui()
+    replotted.clear()
+    r.set_info(index=1, cutoff=[2.0, 5.0])
+    r.pc._updatePlotOnGui()
+    assert replotted == [1]
