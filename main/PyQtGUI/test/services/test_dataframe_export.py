@@ -143,3 +143,121 @@ def test_export_writes_readable_gzip_csv(tmp_path):
     assert back['xoverflow'].iloc[0] == 9
     assert np.isnan(back['yunderflow'].iloc[0])
     assert np.isnan(back['xunderflow'].iloc[1])
+
+
+def test_export_uses_fast_gzip_level(tmp_path):
+    """The export must compress at the fast level, not the default 9.
+
+    Pinned via the gzip header's XFL byte (offset 8), which the deflate spec
+    sets to 2 for "best compression" and 4 for "fastest" — the only in-artifact
+    evidence of the level, since the decompressed bytes are identical either
+    way. Level 9 spent most of the export wall clock for a file a couple of MB
+    smaller, which nobody was waiting on."""
+    d = {'h1': _spectrum(2, np.arange(4096).reshape(64, 64))}
+    out = str(tmp_path / 'spectra.csv')
+    export_spectrum_csv(d, out)
+    with open(out, 'rb') as fh:
+        header = fh.read(10)
+    assert header[:2] == b'\x1f\x8b'          # gzip magic
+    assert header[8] == 4, "expected XFL=4 (fastest); 2 means level 9 is back"
+    # and it is still a readable gzip CSV
+    assert list(pd.read_csv(out, compression='gzip')['name']) == ['h1']
+
+
+# ------------------------------------------------- counts sidecar (PERF_2 #2)
+
+from services.dataframe_export import counts_sidecar_path, read_spectrum_export
+
+
+def test_export_writes_a_counts_sidecar_next_to_the_csv(tmp_path):
+    d = {'h1': _spectrum(1, np.array([1., 2., 3.]))}
+    out = str(tmp_path / 'df-run.gzip')
+    export_spectrum_csv(d, out)
+    side = counts_sidecar_path(out)
+    assert os.path.exists(side)
+    assert side.endswith('-counts.npz')
+
+
+def test_csv_no_longer_carries_stringified_counts(tmp_path):
+    """The whole point of the sidecar: the counts must not be re-rendered as
+    digits into a CSV cell, which is where the export spent its time."""
+    d = {'h1': _spectrum(2, np.arange(2500).reshape(50, 50))}
+    out = str(tmp_path / 'df-run.gzip')
+    export_spectrum_csv(d, out)
+    cell = str(pd.read_csv(out, compression='gzip')['data'].iloc[0])
+    assert not cell.startswith('['), "counts were stringified into the CSV"
+    assert '2499' not in cell
+
+
+def test_round_trip_returns_the_original_arrays(tmp_path):
+    one = np.array([1., 2., 3., 4.])
+    two = np.arange(12.).reshape(3, 4)
+    d = {'h1': _spectrum(1, one), 'h2': _spectrum(2, two)}
+    out = str(tmp_path / 'df-run.gzip')
+    export_spectrum_csv(d, out)
+    back = read_spectrum_export(out)
+    assert list(back['name']) == ['h1', 'h2']
+    assert np.array_equal(back['data'].iloc[0], one)
+    assert np.array_equal(back['data'].iloc[1], two)
+    assert back['data'].iloc[1].shape == (3, 4)
+
+
+def test_round_trip_survives_hostile_spectrum_names(tmp_path):
+    """Names carry spaces, brackets and slashes in the field (SMOKE A9). The
+    sidecar keys off the row position, never the name, so a name that is not a
+    legal archive member cannot corrupt the mapping."""
+    d = {'my spec': _spectrum(1, np.array([1., 2.])),
+         'raw[0]': _spectrum(1, np.array([3., 4.])),
+         'a/b': _spectrum(1, np.array([5., 6.]))}
+    out = str(tmp_path / 'df-run.gzip')
+    export_spectrum_csv(d, out)
+    back = read_spectrum_export(out)
+    assert list(back['name']) == ['my spec', 'raw[0]', 'a/b']
+    assert np.array_equal(back['data'].iloc[2], np.array([5., 6.]))
+
+
+def test_metadata_columns_are_unchanged_by_the_sidecar(tmp_path):
+    d = {'h1': _spectrum(1, np.array([1., 2.]))}
+    out = str(tmp_path / 'df-run.gzip')
+    export_spectrum_csv(d, out, statistics_fetcher={'h1': {'xunderflow': 4}}.get)
+    back = read_spectrum_export(out)
+    assert back['binx'].iloc[0] == 10
+    assert back['type'].iloc[0] == 1 or back['type'].iloc[0] == '1'
+    assert back['xunderflow'].iloc[0] == 4
+
+
+def test_reader_still_opens_a_pre_sidecar_export(tmp_path):
+    """Old artifacts stay readable. Their counts sit in the CSV cell as a
+    stringified list and are handed back exactly as pandas read them — the same
+    thing an old notebook saw — rather than being parsed into an array, so
+    nothing about reading an old file changes."""
+    out = str(tmp_path / 'old.gzip')
+    df = build_spectrum_dataframe({'h1': _spectrum(1, np.array([1., 2., 3.]))})
+    df.to_csv(out, index=False, compression='gzip')
+    back = read_spectrum_export(out)
+    assert back['data'].iloc[0] == '[1.0, 2.0, 3.0]'
+    assert back['binx'].iloc[0] == 10
+
+
+def test_reader_reports_a_missing_sidecar_clearly(tmp_path):
+    d = {'h1': _spectrum(1, np.array([1., 2.]))}
+    out = str(tmp_path / 'df-run.gzip')
+    export_spectrum_csv(d, out)
+    os.unlink(counts_sidecar_path(out))
+    with pytest.raises(FileNotFoundError, match='counts sidecar'):
+        read_spectrum_export(out)
+
+
+def test_builder_can_keep_arrays_as_arrays():
+    """The sidecar path has no use for the list form: `tolist()` on a 2048^2
+    spectrum inflates 34 MB of counts into ~16.7M Python floats (measured 191 MB
+    peak) only for the export to convert them straight back. Callers that write
+    the counts as binary opt out; the default stays lists so the CSV shape and
+    every existing caller are unchanged."""
+    arr = np.arange(6.).reshape(2, 3)
+    d = {'h1': _spectrum(2, arr)}
+    as_lists = build_spectrum_dataframe(d)
+    assert isinstance(as_lists['data'].iloc[0], list)
+    kept = build_spectrum_dataframe(d, arrays_as_lists=False)
+    assert isinstance(kept['data'].iloc[0], np.ndarray)
+    assert np.array_equal(kept['data'].iloc[0], arr)
