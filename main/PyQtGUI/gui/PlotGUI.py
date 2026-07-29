@@ -36,7 +36,6 @@ class Tabs(QTabWidget):
         #   click_bound  - whether the tab's widgets already have dynamic bind
         self._wPlot_view = self.sessions.mapping_view("widget")
         self._spectrum_dict_view = self.sessions.mapping_view("slots")
-        self._selected_bak_view = self.sessions.sequence_view("selected_bak")
         self.createTabs()
         self.setTabsClosable(True)
 
@@ -61,9 +60,11 @@ class Tabs(QTabWidget):
     def setZoomInfo(self, index, info):
         self.sessions[index].zoom_info = info
 
-    @property
-    def selected_plot_index_bak(self):
-        return self._selected_bak_view
+    def selectedPad(self, index):
+        return self.sessions[index].selected_bak
+
+    def setSelectedPad(self, index, pad):
+        self.sessions[index].selected_bak = pad
 
     def tabLayout(self, index):
         return self.sessions[index].layout

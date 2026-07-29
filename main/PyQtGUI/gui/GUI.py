@@ -1036,7 +1036,7 @@ class MainWindow(QMainWindow):
         index = list(self.currentPlot.figure.axes).index(event.inaxes)
 
         if self.currentPlot.isEnlarged:
-            index = self.wTab.selected_plot_index_bak[self.wTab.currentIndex()]
+            index = self.wTab.selectedPad(self.wTab.currentIndex())
         self.currentPlot.selected_plot_index = index
 
         ##### Bashir added for energy calibration ####################
@@ -1199,8 +1199,8 @@ class MainWindow(QMainWindow):
                 # enabling gate creation
                 self.wConf.createGate.setEnabled(True)
                 # plot corresponding histogram
-                self.wTab.selected_plot_index_bak[self.wTab.currentIndex()]= deepcopy(idx)
-                self.logger.debug('on_dblclick - selected_plot_index_bak: %s', self.wTab.selected_plot_index_bak[self.wTab.currentIndex()])
+                self.wTab.setSelectedPad(self.wTab.currentIndex(), deepcopy(idx))
+                self.logger.debug('on_dblclick - selectedPad: %s', self.wTab.selectedPad(self.wTab.currentIndex()))
                 
                 # t1 = time.time()
                 ############### Bashir ##################################################
@@ -1532,7 +1532,7 @@ class MainWindow(QMainWindow):
         nCol = int(self.wConf.histo_geo_col.currentText())
         self.wTab.setTabLayout(indexTab, [nRow, nCol])
         self.wTab.wPlot[indexTab].InitializeCanvas(nRow, nCol)
-        self.wTab.selected_plot_index_bak[indexTab] = None
+        self.wTab.setSelectedPad(indexTab, None)
         self.currentPlot.selected_plot_index = None
         self.currentPlot.next_plot_index     = -1
         self.plot_controller.markGeometryApplied()
@@ -1813,8 +1813,8 @@ class MainWindow(QMainWindow):
                 plotVal.isEnlarged = False
                 plotVal.selected_plot_index = None
                 plotVal.next_plot_index     = -1
-                if tabIdx < len(self.wTab.selected_plot_index_bak):
-                    self.wTab.selected_plot_index_bak[tabIdx] = None
+                if tabIdx in self.wTab.sessions:
+                    self.wTab.setSelectedPad(tabIdx, None)
                 self.wTab.setZoomInfo(tabIdx, None)
             except Exception:
                 self.logger.exception('_on_shm_views_invalidated - tab %s reset failed', tabIdx)
@@ -2275,7 +2275,7 @@ class MainWindow(QMainWindow):
                 self.logger.warning('loadGeo - definition not found for: %s', notFound)
 
             self.currentPlot.isLoaded = True
-            self.wTab.selected_plot_index_bak[self.wTab.currentIndex()] = None
+            self.wTab.setSelectedPad(self.wTab.currentIndex(), None)
             self.currentPlot.selected_plot_index = None
             self.currentPlot.next_plot_index = -1
 
@@ -2572,13 +2572,13 @@ class MainWindow(QMainWindow):
     def autoIndex(self):
         self.logger.info('autoIndex')
         if self.currentPlot.isSelected == False or self.currentPlot.selected_plot_index is None:
-            if self.wTab.selected_plot_index_bak[self.wTab.currentIndex()] is not None:
-                self.currentPlot.index = self.wTab.selected_plot_index_bak[self.wTab.currentIndex()]
+            if self.wTab.selectedPad(self.wTab.currentIndex()) is not None:
+                self.currentPlot.index = self.wTab.selectedPad(self.wTab.currentIndex())
             else :
                 self.currentPlot.index = self.check_index()
         else:
             self.currentPlot.index = self.currentPlot.selected_plot_index
-            self.wTab.selected_plot_index_bak[self.wTab.currentIndex()]= self.currentPlot.selected_plot_index
+            self.wTab.setSelectedPad(self.wTab.currentIndex(), self.currentPlot.selected_plot_index)
 
         return self.currentPlot.index
 
@@ -2604,17 +2604,17 @@ class MainWindow(QMainWindow):
         #Try to deal with all cases... not elegant
         #first case when ex: coming back from zoom mode or if no plot selected
         if self.currentPlot.selected_plot_index is None:
-            if self.wTab.selected_plot_index_bak[tabIndex] is not None:
+            if self.wTab.selectedPad(tabIndex) is not None:
                 self.forNextIndex(tabIndex,self.currentPlot.next_plot_index)
             else :
                 self.currentPlot.index = self.check_index()
-                self.wTab.selected_plot_index_bak[tabIndex]= self.currentPlot.index
+                self.wTab.setSelectedPad(tabIndex, self.currentPlot.index)
                 self.currentPlot.next_plot_index = self.setIndex(self.currentPlot.next_plot_index)
 
         #second case when select a plot before clicking "Add"
         elif self.currentPlot.selected_plot_index == self.currentPlot.next_plot_index:
             self.currentPlot.index = self.currentPlot.selected_plot_index
-            self.wTab.selected_plot_index_bak[tabIndex]= self.currentPlot.selected_plot_index
+            self.wTab.setSelectedPad(tabIndex, self.currentPlot.selected_plot_index)
             self.currentPlot.next_plot_index = self.setIndex(self.currentPlot.next_plot_index)
 
         #third case when click "Add" without selecting a plot, will draw in the next frame
@@ -2629,7 +2629,7 @@ class MainWindow(QMainWindow):
         self.logger.info('forNextIndex')
         self.currentPlot.index = index
         self.currentPlot.selected_plot_index = index
-        self.wTab.selected_plot_index_bak[tabIndex]= self.currentPlot.selected_plot_index
+        self.wTab.setSelectedPad(tabIndex, self.currentPlot.selected_plot_index)
         self.currentPlot.next_plot_index = self.setIndex(index)
 
     #called in nextIndex and forNextIndex
@@ -3847,7 +3847,7 @@ class MainWindow(QMainWindow):
             # resolve the clicked pad (same rule as on_press)
             index = list(self.currentPlot.figure.axes).index(event.inaxes)
             if self.currentPlot.isEnlarged:
-                index = self.wTab.selected_plot_index_bak[self.wTab.currentIndex()]
+                index = self.wTab.selectedPad(self.wTab.currentIndex())
 
             name = self.nameFromIndex(index)
             if not name:
