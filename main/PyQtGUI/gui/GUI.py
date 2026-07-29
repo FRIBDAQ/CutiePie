@@ -509,12 +509,10 @@ class MainWindow(QMainWindow):
         self.connection_manager.connectionStateChanged.connect(self._render_connect_state)
         self.connection_manager.connectAttemptBusy.connect(self._on_connect_attempt_busy)
         self.connection_manager.spectrumListUpdated.connect(self._render_spectrum_list)
-        self.fit_manager.fitBusyChanged.connect(self._on_fit_busy)
-        self.fit_manager.abortEnabledChanged.connect(self._on_abort_enabled)
-        self.fit_manager.fitResultsAppended.connect(self._append_fit_results)
-        self.fit_manager.fitLabelsTextChanged.connect(self._set_fit_labels_text)
-        self.plot_controller.cutoffPopupPrepared.connect(self._show_cutoff_popup)
-        self.plot_controller.cutoffPopupCloseRequested.connect(self.cutoffp.close)
+        from gui.adapters.fit_adapter import FitAdapter
+        self._fit_adapter = FitAdapter(
+            self.fit_manager, self.plot_controller,
+            self.extraPopup, self.cutoffp, self.logger)
 
         ### Bashir added to auto select connect button if ports are default
         rest_text   = self.connectConfig.rest.text().strip()
@@ -706,10 +704,8 @@ class MainWindow(QMainWindow):
         # (the service takes plain arguments, never widget references)
         self.extraPopup.fit_button.clicked.connect(
             lambda: self.fit_manager.fit(*self._current_plot_ctx(), *self._fit_inputs()))
-        self.extraPopup.plot_csv_button.clicked.connect(self.fit_manager.on_plot_csv_clicked)
         self.extraPopup.fit_csv_button.clicked.connect(
             lambda: self.fit_manager.on_fit_csv_clicked(*self._fit_inputs()))
-        self.extraPopup.abort_button.clicked.connect(self.fit_manager.on_abort_clicked)
         # lambdas shield the slots from clicked(bool)'s checked arg (the E17 trap:
         # a bare connect would pass False as the path/context)
         self.extraPopup.save_fit_button.clicked.connect(
@@ -1865,48 +1861,6 @@ class MainWindow(QMainWindow):
             self.wConf.histo_list.setInsertPolicy(QComboBox.NoInsert)
             self.wConf.histo_list.completer().setCompletionMode(QCompleter.PopupCompletion)
             self.wConf.histo_list.completer().setFilterMode(QtCore.Qt.MatchContains)
-
-    @pyqtSlot(bool)
-    def _on_fit_busy(self, busy):
-        """adapter: while a fit runs, the fit button is off and abort is on."""
-        self.extraPopup.fit_button.setEnabled(not busy)
-        self.extraPopup.abort_button.setEnabled(busy)
-
-    @pyqtSlot(bool)
-    def _on_abort_enabled(self, enabled):
-        """adapter: FitManager acknowledges an abort request."""
-        self.extraPopup.abort_button.setEnabled(enabled)
-
-    @pyqtSlot(str)
-    def _append_fit_results(self, text):
-        """adapter: FitManager publishes fit-result lines for the popup box."""
-        self.extraPopup.fit_results.append(text)
-
-    @pyqtSlot(str)
-    def _set_fit_labels_text(self, text):
-        """adapter: FitManager publishes the current fit-line label list."""
-        self.extraPopup.delete_fitIdx_list.setText(text)
-
-    @pyqtSlot(dict)
-    def _show_cutoff_popup(self, info):
-        """adapter: PlotController prepared the cutoff/zoom popup payload;
-        only this window touches the popup widget."""
-        name = info.get("name")
-        self.cutoffp.setWindowTitle("Set zoom range for: " + (name if name is not None else "???"))
-        self.cutoffp.setGeometry(300, 100, 300, 100)
-        if self.cutoffp.isVisible():
-            self.cutoffp.close()
-        self.cutoffp.lineeditXMin.setText(f"{info['xmin']:.1f}")
-        self.cutoffp.lineeditXMax.setText(f"{info['xmax']:.1f}")
-        self.cutoffp.lineeditYMin.setText(f"{info['ymin']:.1f}")
-        self.cutoffp.lineeditYMax.setText(f"{info['ymax']:.1f}")
-        if info["dim"] == 2:
-            self.cutoffp.lineeditZMin.setText(f"{info['zmin']:.1f}")
-            self.cutoffp.lineeditZMax.setText(f"{info['zmax']:.1f}")
-            self.cutoffp.layout2d()
-        elif info["dim"] == 1:
-            self.cutoffp.layout1d()
-        self.cutoffp.show()
 
     @pyqtSlot(str)
     def _on_spectrum_removed_rest(self, name):
