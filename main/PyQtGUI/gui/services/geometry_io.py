@@ -23,6 +23,34 @@ import logging
 _module_logger = logging.getLogger(__name__)
 
 
+def _sniff_first_line(filename, log, who):
+    """Return the first non-blank, non-comment line of a geometry file.
+
+    ``None`` means "do not try to parse this": the file is empty, or it cannot
+    be read at all — a stale path, a directory, or bytes that are not text. An
+    empty string means the file was readable but held nothing meaningful, which
+    the callers report as an unrecognized format.
+
+    Both public readers promise ``None`` for an unreadable file and both of
+    their callers in ``GUI.py`` act on that ``None`` with no ``try`` of their
+    own, so an exception escaping here reaches the Qt slot and the user gets no
+    dialog at all. The file dialog offers "All Files (*)".
+    """
+    try:
+        if os.stat(filename).st_size == 0:
+            log.warning('%s - empty geometry file: %s', who, filename)
+            return None
+        with open(filename) as f:
+            for line in f:
+                stripped = line.strip()
+                if stripped and not stripped.startswith('#'):
+                    return stripped
+    except (OSError, UnicodeDecodeError):
+        log.warning('%s - unreadable geometry file: %s', who, filename, exc_info=True)
+        return None
+    return ""
+
+
 def read_geometry(filename, logger=None):
     """Read a geometry file and return the normalized structure::
 
@@ -32,37 +60,36 @@ def read_geometry(filename, logger=None):
                              "y": [min, max] | None,
                              "scale": bool}}}
 
-    Returns ``None`` for an empty file or an unrecognized format. The format is
+    Returns ``None`` for an empty file, an unreadable one (missing path,
+    directory, non-text bytes) or an unrecognized format. The format is
     sniffed from the first non-blank, non-comment line: ``Geometry ...`` → legacy
     ``.win`` parser; ``{`` → native dict literal.
     """
     log = logger or _module_logger
     log.info('read_geometry - filename: %s', filename)
-    if os.stat(filename).st_size == 0:
-        log.warning('read_geometry - empty geometry file: %s', filename)
+    firstMeaningful = _sniff_first_line(filename, log, 'read_geometry')
+    if firstMeaningful is None:
         return None
 
-    firstMeaningful = ""
-    with open(filename) as f:
-        for line in f:
-            stripped = line.strip()
-            if stripped and not stripped.startswith('#'):
-                firstMeaningful = stripped
-                break
-
-    if firstMeaningful.lower().startswith("geometry"):
-        return _parse_old_geo(filename, log)
-    if firstMeaningful.startswith("{"):
-        # ast.literal_eval replaces the historical eval(): equivalent for every
-        # legitimate dict-literal geometry, inert for hostile file contents
-        # (decision taken 2026-07-08, was deferred).
-        with open(filename, "r") as fh:
-            text = fh.read()
-        try:
-            return ast.literal_eval(text)
-        except (ValueError, SyntaxError, TypeError, RecursionError):
-            log.warning('read_geometry - invalid geometry dict literal in %s', filename)
-            return None
+    # The sniff read only as far as the first meaningful line, so the reads
+    # below can still hit undecodable bytes further in.
+    try:
+        if firstMeaningful.lower().startswith("geometry"):
+            return _parse_old_geo(filename, log)
+        if firstMeaningful.startswith("{"):
+            # ast.literal_eval replaces the historical eval(): equivalent for every
+            # legitimate dict-literal geometry, inert for hostile file contents
+            # (decision taken 2026-07-08, was deferred).
+            with open(filename, "r") as fh:
+                text = fh.read()
+            try:
+                return ast.literal_eval(text)
+            except (ValueError, SyntaxError, TypeError, RecursionError):
+                log.warning('read_geometry - invalid geometry dict literal in %s', filename)
+                return None
+    except (OSError, UnicodeDecodeError):
+        log.warning('read_geometry - unreadable geometry file: %s', filename, exc_info=True)
+        return None
     log.warning('read_geometry - unrecognized geometry file format: %s', filename)
     return None
 
@@ -199,19 +226,17 @@ def read_geometry_any(filename, logger=None):
     unreadable/invalid files. Sessions are validated here so callers can
     replace the workspace only after a fully-good parse."""
     log = logger or _module_logger
-    if os.stat(filename).st_size == 0:
-        log.warning('read_geometry_any - empty geometry file: %s', filename)
+    firstMeaningful = _sniff_first_line(filename, log, 'read_geometry_any')
+    if firstMeaningful is None:
         return None
-    firstMeaningful = ""
-    with open(filename) as f:
-        for line in f:
-            stripped = line.strip()
-            if stripped and not stripped.startswith('#'):
-                firstMeaningful = stripped
-                break
     if firstMeaningful.startswith("{"):
-        with open(filename, "r") as fh:
-            text = fh.read()
+        try:
+            with open(filename, "r") as fh:
+                text = fh.read()
+        except (OSError, UnicodeDecodeError):
+            log.warning('read_geometry_any - unreadable geometry file: %s',
+                        filename, exc_info=True)
+            return None
         try:
             obj = ast.literal_eval(text)
         except (ValueError, SyntaxError, TypeError, RecursionError):

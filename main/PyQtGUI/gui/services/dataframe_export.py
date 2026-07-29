@@ -59,12 +59,21 @@ def build_spectrum_dataframe(spectrum_dict, statistics_fetcher=None,
     back into an array before it is written.
     """
     formated_dict = {col: [] for col in _COLUMNS}
+    # Walk the SCHEMA, not the record. Appending whatever keys a record happens
+    # to carry leaves the columns ragged when one is missing (pandas then
+    # refuses to build the frame) and raises outright on a key the schema does
+    # not know. Both are reachable from a hand-built or drifted record, and the
+    # caller only logs, so the visible symptom is an export that never appears.
     for spectrum_name, info_dict in spectrum_dict.items():
         formated_dict["name"].append(spectrum_name)
         stats = statistics_fetcher(spectrum_name) if statistics_fetcher else None
-        for col in _STAT_COLUMNS:
-            formated_dict[col].append(stats.get(col, np.nan) if stats else np.nan)
-        for key_info, val_info in info_dict.items():
+        for col in _COLUMNS:
+            if col == "name":
+                continue
+            if col in _STAT_COLUMNS:
+                formated_dict[col].append(stats.get(col, np.nan) if stats else np.nan)
+                continue
+            val_info = info_dict.get(col, np.nan)
             # ndarray data is parsed to a list (1d) or list of lists (2d) so the
             # data parsing is easier from the csv file.
             if isinstance(val_info, np.ndarray) and arrays_as_lists:
@@ -74,7 +83,7 @@ def build_spectrum_dataframe(spectrum_dict, statistics_fetcher=None,
                 if len(val_info.shape) == 2:
                     to_list = [[item for item in row] for row in val_info]
                 val_info = to_list
-            formated_dict[key_info].append(val_info)
+            formated_dict[col].append(val_info)
     return pd.DataFrame.from_dict(formated_dict)
 
 

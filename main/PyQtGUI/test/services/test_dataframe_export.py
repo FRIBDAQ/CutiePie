@@ -261,3 +261,38 @@ def test_builder_can_keep_arrays_as_arrays():
     kept = build_spectrum_dataframe(d, arrays_as_lists=False)
     assert isinstance(kept['data'].iloc[0], np.ndarray)
     assert np.array_equal(kept['data'].iloc[0], arr)
+
+
+# ---- B10: a partial or unexpected store record must not raise ---------------
+
+def test_record_missing_a_column_does_not_raise():
+    """The builder appended per-record values into fixed columns, so a record
+    missing any key left the columns ragged and pandas raised `ValueError: All
+    arrays must be of the same length`. `createDf` catches and logs, so the
+    live symptom was a silently missing export."""
+    d = {'full': _spectrum(1, np.array([1., 2.])), 'partial': {'dim': 1}}
+    df = build_spectrum_dataframe(d)
+    assert list(df['name']) == ['full', 'partial']
+    assert df['binx'].iloc[0] == 10
+    assert pd.isna(df['binx'].iloc[1])          # absent value reads as NaN
+
+
+def test_record_with_an_unexpected_key_does_not_raise():
+    """An unknown key used to raise KeyError against the fixed column dict."""
+    d = {'h1': _spectrum(1, np.array([1., 2.]), gate=None, surprise='x')}
+    df = build_spectrum_dataframe(d)
+    assert list(df.columns) == list(_EXPECTED_COLUMNS)
+    assert 'surprise' not in df.columns         # dropped, not crashed
+
+
+def test_export_survives_a_partial_record(tmp_path):
+    d = {'full': _spectrum(2, np.arange(4.).reshape(2, 2)), 'partial': {'dim': 2}}
+    out = str(tmp_path / 'df-partial.gzip')
+    export_spectrum_csv(d, out)
+    back = read_spectrum_export(out)
+    assert list(back['name']) == ['full', 'partial']
+
+
+_EXPECTED_COLUMNS = ('name', 'dim', 'binx', 'minx', 'maxx', 'biny', 'miny',
+                     'maxy', 'xunderflow', 'yunderflow', 'data', 'xoverflow',
+                     'yoverflow', 'parameters', 'type')

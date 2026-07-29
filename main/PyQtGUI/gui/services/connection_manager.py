@@ -279,7 +279,17 @@ class ConnectionManager(QtCore.QObject):
         for name, spec_info in pending:
             if self._spectra.contains(name):
                 continue
-            self._process_spectrum_add(name, spec_info, s)
+            # Guard per spectrum, not per batch: the pending queue was cleared
+            # above, so an exception escaping here strands every spectrum still
+            # to be processed with nothing left to retry — they stay missing
+            # from the histogram list until a full reconnect. Skip the offender
+            # and keep the batch.
+            try:
+                self._process_spectrum_add(name, spec_info, s)
+            except Exception:
+                self.logger.exception(
+                    '_flush_spectrum_adds - skipping %s; the rest of the batch continues',
+                    name)
         self.updateSpectrumList()
 
     def _process_spectrum_add(self, name, spec_info, s):
@@ -323,6 +333,17 @@ class ConnectionManager(QtCore.QObject):
             except Exception:
                 self.logger.debug('_process_spectrum_add - name not in shmem for %s', name, exc_info=True)
         else:
+            # Everything that is not recognised as 1-D lands here and is read as
+            # 2-D, which needs a second axis. The type test above is
+            # case-sensitive, so a one-axis spectrum whose type differs only in
+            # case (SpecTcl's strip-chart "S") arrives with a single axis; say
+            # so and skip it rather than failing on the subscript.
+            axes = spec_info.get("axes") or []
+            if len(axes) < 2:
+                self.logger.warning(
+                    '_process_spectrum_add - %s has type %r and %d axis/axes; '
+                    'cannot read it as 2-D, skipping', name, spec_type, len(axes))
+                return
             dim  = 2
             biny = spec_info["axes"][1]["bins"]
             miny = spec_info["axes"][1]["low"]

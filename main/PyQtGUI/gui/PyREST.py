@@ -287,7 +287,11 @@ class PyREST:
             url += "&parameter="+self._q(parameters)+"&value="+self._q(maskval)
         #want + gate here for c and b gates on m2 spectrum (for cutiepie)
         elif str(types) == "+":
-            url = self._build_url("spectcl/gate/edit", name=str(name), type="%2B")
+            # Pass the type RAW and let _build_url's urlencode encode it once.
+            # Pre-encoding it here was correct while the URLs were concatenated
+            # by hand; once _build_url took over the encoding, the "%" in "%2B"
+            # got encoded again and the server received the text "%2B".
+            url = self._build_url("spectcl/gate/edit", name=str(name), type="+")
             for i in parameters:
                 url +="&gate="+self._q(i)
         elif str(types) == "vs+":
@@ -308,13 +312,16 @@ class PyREST:
             Create/edit a generic vector slice in SpecTcl:
             Parameters
               name -name of the new condition.
-              type -type of the condition ('vs%2B' or 'vs*' only)
+              type -type of the condition ('vs+' or 'vs*' only)
               vector -name of a vector parameter.
               low, high - slice limits.
-            Note that the type for vs+ is vs%2B because substitutions
-            are not getting done by  the HTTTP client methods.
+            The pre-encoded spelling 'vs%2B' is still accepted for callers
+            written against the older signature; it is normalised to 'vs+' so
+            the value is percent-encoded exactly once on the way out.
         '''
-        if type not in ['vs%2B', 'vs*'] :
+        if type == 'vs%2B':
+            type = 'vs+'
+        if type not in ['vs+', 'vs*'] :
             raise Exception(f'Invalid gate type: {type} must be either "vs+ or "vs*"')
         url = self._build_url("spectcl/gate/edit", name=name, type=type, parameter=vector, low=low, high=high)
         self.sendRequest(url)
@@ -322,7 +329,7 @@ class PyREST:
     def createVectorAndSlice(self, name, vector, low, high):
         self.createVectorSlice(name, 'vs*', vector, low, high)
     def createVectorOrSlice(self, name, vector, low, high):
-        self.createVectorSlice(name, 'vs%2B', vector, low, high)
+        self.createVectorSlice(name, 'vs+', vector, low, high)
 
 
     # Creates a simple 2d gate. This must be of type c/b or gc/gb. The query parameters are:
@@ -729,7 +736,9 @@ class PyREST:
     def integrate2D(self, name, points):
         url = self._build_url("spectcl/integrate", spectrum=str(name))
         for point in points:
-            url += "&xcoord="+str(point[0])+"&ycoord="+str(point[1])
+            # encoded like every other appended value; these are floats today,
+            # so this is consistency rather than a live fix
+            url += "&xcoord="+self._q(point[0])+"&ycoord="+self._q(point[1])
         response = self.sendRequest(url)
         if response is None :
             return {}

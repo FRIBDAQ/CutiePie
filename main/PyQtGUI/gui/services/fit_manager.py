@@ -645,13 +645,31 @@ class FitManager(QObject):
                         break
                     continue
                 try:
-                    rows.append([float(c) for c in s.split(",")])
+                    values = [float(c) for c in s.split(",")]
                 except ValueError:
                     break
+                # Guard the row's SHAPE as well as its contents: a row that is
+                # numeric but has lost or gained a comma leaves `rows` ragged,
+                # and numpy refuses to stack that. The caller's only error path
+                # is "parser returned None", so raising here escapes into the
+                # button's slot instead of showing its dialog.
+                if len(values) != len(header_names):
+                    self.logger.warning(
+                        '_read_fit_curve_file - %s line %d has %d field(s), '
+                        'header has %d; not a usable table',
+                        path, data_start + len(rows) + 1, len(values),
+                        len(header_names))
+                    return None
+                rows.append(values)
             if not rows:
                 return dict(x=np.array([]), components=[], structure=[],
                             chains={}, colors={}, multi=False)
-            arr = np.array(rows, dtype=float)
+            try:
+                arr = np.array(rows, dtype=float)
+            except ValueError:
+                self.logger.warning('_read_fit_curve_file - %s has an unstackable '
+                                    'data block', path, exc_info=True)
+                return None
             names = [str(n) for n in header_names[1:]]
         else:
             # legacy: commented column header (# meta …) or plain total-only

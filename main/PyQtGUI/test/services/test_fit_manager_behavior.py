@@ -983,3 +983,35 @@ def test_save_peaks_redchi_local_nan_without_raw_data(env, tmp_path):
     param_rows = [ln for ln in lines if ln.startswith("A227,")]
     for ln in param_rows:
         assert ln.split(",")[-1].lower() == "nan"
+
+
+# ---- M25: a ragged CSV must reach the caller's dialog, not the slot ---------
+
+def _ragged_v2(tmp_path, body):
+    """A Version-2 file — the parser picks that branch off a header row whose
+    first field is exactly `x` — with a malformed data block."""
+    p = tmp_path / "ragged.csv"
+    p.write_text("x,total\n" + body)
+    return str(p)
+
+
+def test_row_with_too_few_fields_returns_none_not_valueerror(env, tmp_path):
+    """`float(c) for c in ...` guards cell CONTENT, not row SHAPE: a row that is
+    perfectly numeric but short leaves `rows` ragged, and numpy >= 1.24 raises
+    rather than building an object array. The caller's whole error story is
+    `if struct is None`, so a raise escapes into the Qt slot instead."""
+    path = _ragged_v2(tmp_path, "0,1\n1,2\n3\n4,5\n")
+    assert env.fm._read_fit_curve_file(path) is None
+
+
+def test_row_with_too_many_fields_returns_none(env, tmp_path):
+    path = _ragged_v2(tmp_path, "0,1\n1,2\n3,4,5\n6,7\n")
+    assert env.fm._read_fit_curve_file(path) is None
+
+
+def test_well_formed_v2_file_still_parses(env, tmp_path):
+    """The shape check must not reject good files."""
+    path = _ragged_v2(tmp_path, "0,1\n1,2\n2,3\n")
+    struct = env.fm._read_fit_curve_file(path)
+    assert struct is not None
+    assert [n for n, _ in struct["components"]] == ["total"]

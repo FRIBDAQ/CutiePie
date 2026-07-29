@@ -515,3 +515,57 @@ def test_auto_update_resume_clears_skip(env):
     env.skip_auto.set()
     env.cm.autoUpdateResume()
     assert not env.skip_auto.is_set()
+
+
+# ---- B8: one malformed spectrum must not take the batch down --------------
+
+def _strip_chart_info():
+    """A SpecTcl strip chart: ONE axis, type "S". The dimension test in
+    _process_spectrum_add is case-sensitive, so "S" misses the "s" branch and
+    falls through to the 2-D branch, which reads axes[1]."""
+    return {"axes": [{"bins": 8, "low": 0.0, "high": 10.0}],
+            "parameters": ["p1"], "type": "S"}
+
+
+def _batch_shm(*names):
+    return make_shm(*[(n, 1, 8, 0.0, 10.0, 0, 0.0, 0.0, np.arange(1, 7))
+                      for n in names])
+
+
+def test_malformed_spectrum_does_not_lose_the_rest_of_the_batch(env, monkeypatch):
+    """The queue is cleared before the loop runs, so an exception mid-batch
+    used to strand every spectrum after it with nothing left to retry — they
+    stayed missing until a full reconnect."""
+    timer = qt_stubs.RecordingTimer()
+    monkeypatch.setattr(env.mod, "QTimer", timer)
+    env.cm._on_spectrum_added("good1", spec_info_1d())
+    env.cm._on_spectrum_added("strip", _strip_chart_info())
+    env.cm._on_spectrum_added("good2", spec_info_1d())
+    monkeypatch.setattr(env.mod, "cpy", types.SimpleNamespace(
+        CPyConverter=lambda: types.SimpleNamespace(
+            Update=lambda *a: _batch_shm("good1", "strip", "good2"))))
+    env.cm._last_connect_params = ("h", "1", "2", "u")
+
+    timer.scheduled[0][1]()                    # must not raise
+
+    assert env.store.contains("good1")
+    assert env.store.contains("good2"), "spectrum queued after the bad one was lost"
+    assert not env.store.contains("strip")     # the malformed one is skipped
+    assert env.cm._pending_adds == []
+
+
+def test_one_axis_spectrum_is_skipped_not_indexerror(env, monkeypatch):
+    """The 2-D branch assumes a second axis exists. A one-axis spectrum that
+    misses the 1-D type test must be skipped explicitly rather than by
+    IndexError."""
+    timer = qt_stubs.RecordingTimer()
+    monkeypatch.setattr(env.mod, "QTimer", timer)
+    env.cm._on_spectrum_added("strip", _strip_chart_info())
+    monkeypatch.setattr(env.mod, "cpy", types.SimpleNamespace(
+        CPyConverter=lambda: types.SimpleNamespace(Update=lambda *a: _batch_shm("strip"))))
+    env.cm._last_connect_params = ("h", "1", "2", "u")
+
+    timer.scheduled[0][1]()
+
+    assert not env.store.contains("strip")
+    assert env.cm._pending_adds == []

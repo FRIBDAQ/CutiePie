@@ -238,3 +238,42 @@ def test_read_any_rejects_malformed_single_dict(tmp_path):
     p = tmp_path / "junk.win"
     p.write_text(str({"foo": 1, "bar": 2}))
     assert geometry_io.read_geometry_any(str(p)) is None
+
+
+# ------------------------------------------------- unreadable files (not raises)
+#
+# Both readers promise None for an unreadable file, and both callers in GUI.py
+# act on that None alone -- they have no try, so anything that escapes here
+# reaches the Qt slot and the user sees no dialog at all. The file dialog offers
+# "All Files (*)", so a binary or a stale path is an ordinary mis-click.
+
+@pytest.mark.parametrize("reader", [geometry_io.read_geometry,
+                                    geometry_io.read_geometry_any])
+def test_missing_file_returns_none(tmp_path, reader):
+    assert reader(str(tmp_path / "does_not_exist.win")) is None
+
+
+@pytest.mark.parametrize("reader", [geometry_io.read_geometry,
+                                    geometry_io.read_geometry_any])
+def test_binary_file_returns_none(tmp_path, reader):
+    p = tmp_path / "binary.win"
+    p.write_bytes(bytes([0xff, 0xfe, 0x00, 0x41, 0x80]))
+    assert reader(str(p)) is None
+
+
+@pytest.mark.parametrize("reader", [geometry_io.read_geometry,
+                                    geometry_io.read_geometry_any])
+def test_directory_path_returns_none(tmp_path, reader):
+    d = tmp_path / "a_directory.win"
+    d.mkdir()
+    assert reader(str(d)) is None
+
+
+@pytest.mark.parametrize("reader", [geometry_io.read_geometry,
+                                    geometry_io.read_geometry_any])
+def test_binary_file_after_valid_first_line_returns_none(tmp_path, reader):
+    # Sniffs as a legacy .win, then the second read hits undecodable bytes --
+    # the branch that a guard on the sniff alone would miss.
+    p = tmp_path / "half.win"
+    p.write_bytes(b'Geometry 1 1\nWindow "\xff\xfe"\nEndWindow\n')
+    assert reader(str(p)) is None

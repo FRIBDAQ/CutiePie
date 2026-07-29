@@ -246,11 +246,7 @@ class Plot(QWidget):
         self.h_dict = {}
         self.h_dict_geo = {}
         self.axbkg = {}
-        self.h_log = {} # bool dict for linear/log axes
         self.h_dim = []
-        self.h_lst = []
-        self.axis_lst = []
-        self.cbar = {}
         self.next_plot_index = -1
 
 
@@ -274,24 +270,11 @@ class Plot(QWidget):
         self.zoomPress = False #true when mouse press and drag rectangle, false at release
 
         # gates
-        self.gate_dict = {}
-        self.style_dict = {}
-        self.artist_dict = {}
-        self.artist_list = []
-        self.artist1D = {}
-        self.artist2D = {}
-        self.gateTypeDict = {}
-        self.region_dict = {}
-        self.regionTypeDict = {}
         self.region_name = ""
         self.region_type = ""
-        self.counter = 0
-        self.counter_sr = 0
         self.toCreateGate = False
         self.toEditGate = False
         self.toCreateSumRegion = False
-        self.xs = []
-        self.ys = []
         # #temporary holds gate lines - to control edition with on_singleclick and on_dblclick (reset once gate is pushed to ReST)
         # self.listGateLine = []
 
@@ -355,8 +338,6 @@ class Plot(QWidget):
 
         if flag:
             self.h_dim.clear()
-            self.h_lst.clear()
-            self.axis_lst.clear()
 
             if not self.isLoaded:
                 self.old_row = row
@@ -365,7 +346,4 @@ class Plot(QWidget):
             for z in range(self.old_row*self.old_col):
                 self.h_dict[z] = self.InitializeHistogram()
                 self.h_dict_geo[z] = "empty"
-                self.h_log[z] = False
-                self.h_lst.append(None)
-                self.axis_lst.append(None)
             self.h_dim = self.get_histo_key_list(self.h_dict, "dim")
