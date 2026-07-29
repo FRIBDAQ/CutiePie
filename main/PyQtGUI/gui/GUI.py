@@ -1279,7 +1279,7 @@ class MainWindow(QMainWindow):
                 self.setEnlargedSpectrum(None, None)
                 self.currentPlot.isEnlarged = False
 
-                canvasLayout = self.wTab.layout[self.wTab.currentIndex()]
+                canvasLayout = self.wTab.tabLayout(self.wTab.currentIndex())
                 self.logger.debug('on_dblclick - canvasLayout: %s',canvasLayout)
 
                 ####################### Bashir ###################################################################
@@ -1488,8 +1488,8 @@ class MainWindow(QMainWindow):
     # Helper to set histo_geo widget and enable/disable buttons, when interact with tabs
     def tabGeoWidgetAndFlags(self, index):
         self.currentPlot = self.wTab.wPlot[index]
-        nRow = self.wTab.layout[index][0]
-        nCol = self.wTab.layout[index][1]
+        nRow = self.wTab.tabLayout(index)[0]
+        nCol = self.wTab.tabLayout(index)[1]
         self.logger.debug('tabGeoWidgetAndFlags - canvas layout: %s, %s',nRow, nCol)
 
         #nRow-1 because nRow (nCol) is the number of row (col) and the following sets an index starting at 0
@@ -1530,7 +1530,7 @@ class MainWindow(QMainWindow):
         indexTab = self.wTab.currentIndex()
         nRow = int(self.wConf.histo_geo_row.currentText())
         nCol = int(self.wConf.histo_geo_col.currentText())
-        self.wTab.layout[indexTab] = [nRow, nCol]
+        self.wTab.setTabLayout(indexTab, [nRow, nCol])
         self.wTab.wPlot[indexTab].InitializeCanvas(nRow, nCol)
         self.wTab.selected_plot_index_bak[indexTab] = None
         self.currentPlot.selected_plot_index = None
@@ -1808,7 +1808,7 @@ class MainWindow(QMainWindow):
         GUI (e.g. in the embedded Jupyter console) cannot be reclaimed here."""
         for tabIdx, plotVal in self.wTab.wPlot.items():
             try:
-                nRow, nCol = self.wTab.layout[tabIdx] if tabIdx < len(self.wTab.layout) else (1, 1)
+                nRow, nCol = self.wTab.tabLayout(tabIdx) if tabIdx in self.wTab.sessions else (1, 1)
                 plotVal.InitializeCanvas(nRow, nCol)
                 plotVal.isEnlarged = False
                 plotVal.selected_plot_index = None
@@ -2179,7 +2179,7 @@ class MainWindow(QMainWindow):
         try:
             tabs = []
             for tabIdx in sorted(self.wTab.wPlot.keys()):
-                nRow, nCol = self.wTab.layout[tabIdx]
+                nRow, nCol = self.wTab.tabLayout(tabIdx)
                 plotW = self.wTab.wPlot[tabIdx]
                 slots = self.wTab.spectrum_dict.get(tabIdx, {})
                 properties = {}
@@ -2501,7 +2501,7 @@ class MainWindow(QMainWindow):
     # returns position in grid based on indexing
     def plotPosition(self, index):
         return self.plot_controller.plotPosition(
-            index, self.wTab.layout[self.wTab.currentIndex()])
+            index, self.wTab.tabLayout(self.wTab.currentIndex()))
 
 
     # setup histogram limits according to the ReST info

@@ -39,7 +39,6 @@ class Tabs(QTabWidget):
         self._zoomPlotInfo_view = self.sessions.mapping_view("zoom_info")
         self._countClickTab_view = self.sessions.mapping_view("click_bound")
         self._selected_bak_view = self.sessions.sequence_view("selected_bak")
-        self._layout_view = self.sessions.sequence_view("layout")
         self.createTabs()
         self.setTabsClosable(True)
 
@@ -64,9 +63,11 @@ class Tabs(QTabWidget):
     def selected_plot_index_bak(self):
         return self._selected_bak_view
 
-    @property
-    def layout(self):
-        return self._layout_view
+    def tabLayout(self, index):
+        return self.sessions[index].layout
+
+    def setTabLayout(self, index, rowcol):
+        self.sessions[index].layout = rowcol
 
 
     def createTabs(self):
