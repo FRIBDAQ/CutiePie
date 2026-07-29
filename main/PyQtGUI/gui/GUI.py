@@ -509,7 +509,7 @@ class MainWindow(QMainWindow):
         self.connection_manager.connectionStateChanged.connect(self._render_connect_state)
         self.connection_manager.connectAttemptBusy.connect(self._on_connect_attempt_busy)
         self.connection_manager.spectrumListUpdated.connect(self._render_spectrum_list)
-        from gui.adapters.fit_adapter import FitAdapter
+        from adapters.fit_adapter import FitAdapter
         self._fit_adapter = FitAdapter(
             self.fit_manager, self.plot_controller,
             self.extraPopup, self.cutoffp, self.logger)
