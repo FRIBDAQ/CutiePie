@@ -27,21 +27,12 @@ class Tabs(QTabWidget):
         QTabWidget.__init__(self)
         self.logger = loggerMain
         self.sessions = TabSessionRegistry()
-        # The six containers below are live views onto `sessions`, kept under
-        # their historical names while call sites migrate. New code should
-        # reach for `sessions[index]` instead.
-        #   widget       - the Plot for the tab
-        #   slots        - {geo_index_spectrum: info_spectrum}, user-editable
-        #   zoom_info    - histo [index origin, name] in zoomed/expanded mode
-        #   click_bound  - whether the tab's widgets already have dynamic bind
-        self._wPlot_view = self.sessions.mapping_view("widget")
         self.createTabs()
         self.setTabsClosable(True)
 
 
-    @property
-    def wPlot(self):
-        return self._wPlot_view
+    def plot(self, index):
+        return self.sessions[index].widget
 
     def tabSlots(self, index):
         return self.sessions[index].slots

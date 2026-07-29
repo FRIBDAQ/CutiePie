@@ -373,7 +373,7 @@ class MainWindow(QMainWindow):
             get_is_enlarged=lambda: self.currentPlot.isEnlarged,
             get_geo=self.getGeo,
             get_sum_region=lambda index, name: self.sum_region_manager.getSumRegion(index, name),
-            get_current_canvas=lambda: self.wTab.wPlot[self.wTab.currentIndex()].canvas,
+            get_current_canvas=lambda: self.wTab.plot(self.wTab.currentIndex()).canvas,
             integrate_popup=self.integratePopup,
             get_integrate_copy=lambda: getattr(self, 'sidTableIntegrateCopy', None),
             get_hide=lambda: self.extraPopup.options.gateHide.isChecked(),
@@ -691,8 +691,8 @@ class MainWindow(QMainWindow):
         self.cutoffp.resetButton.clicked.connect(lambda: self.resetCutoff(True))
 
         #### Bashir added for zooming hotkeys ####
-        QShortcut(QKeySequence("+"), self.wTab.wPlot[self.wTab.currentIndex()]).activated.connect(lambda: self.zoomInOut("in"))
-        QShortcut(QKeySequence("-"), self.wTab.wPlot[self.wTab.currentIndex()]).activated.connect(lambda: self.zoomInOut("out"))
+        QShortcut(QKeySequence("+"), self.wTab.plot(self.wTab.currentIndex())).activated.connect(lambda: self.zoomInOut("in"))
+        QShortcut(QKeySequence("-"), self.wTab.plot(self.wTab.currentIndex())).activated.connect(lambda: self.zoomInOut("out"))
         ###############################################
 
         # copy attributes
@@ -772,8 +772,8 @@ class MainWindow(QMainWindow):
         self.extraPopup.imaging.rightButton.clicked.connect(self.fineRightMove)
 
         # key press event
-        self.wTab.wPlot[self.wTab.currentIndex()].canvas.setFocusPolicy( QtCore.Qt.ClickFocus )
-        self.wTab.wPlot[self.wTab.currentIndex()].canvas.setFocus()
+        self.wTab.plot(self.wTab.currentIndex()).canvas.setFocusPolicy( QtCore.Qt.ClickFocus )
+        self.wTab.plot(self.wTab.currentIndex()).canvas.setFocus()
 
         # create helpers
         self.wConf.histo_list.installEventFilter(self)
@@ -786,7 +786,7 @@ class MainWindow(QMainWindow):
         self.shortcutZoomDrag.activated.connect(self.customZoomButtonCallback)
 
 
-        self.currentPlot = self.wTab.wPlot[self.wTab.currentIndex()] # definition of current plot
+        self.currentPlot = self.wTab.plot(self.wTab.currentIndex()) # definition of current plot
 
         # per-tab button/canvas wiring — single source of truth:
         # the same routine that rebinds on tab switch does the initial bind
@@ -801,48 +801,48 @@ class MainWindow(QMainWindow):
         self.logger.info('bindDynamicSignal')
         for index in self.wTab.sessions.indices():
             if self.wTab.isClickBound(index):
-                self.wTab.wPlot[index].logButton.disconnect()
-                self.wTab.wPlot[index].cutoffButton.disconnect()
-                self.wTab.wPlot[index].histo_autoscale.disconnect()
-                self.wTab.wPlot[index].customZoomButton.disconnect()
-                self.wTab.wPlot[index].plusButton.disconnect()
-                self.wTab.wPlot[index].minusButton.disconnect()
-                self.wTab.wPlot[index].copyButton.disconnect()
-                self.wTab.wPlot[index].customHomeButton.disconnect()
+                self.wTab.plot(index).logButton.disconnect()
+                self.wTab.plot(index).cutoffButton.disconnect()
+                self.wTab.plot(index).histo_autoscale.disconnect()
+                self.wTab.plot(index).customZoomButton.disconnect()
+                self.wTab.plot(index).plusButton.disconnect()
+                self.wTab.plot(index).minusButton.disconnect()
+                self.wTab.plot(index).copyButton.disconnect()
+                self.wTab.plot(index).customHomeButton.disconnect()
                 self.wTab.setClickBound(index, False)
 
-        self.wTab.wPlot[self.wTab.currentIndex()].zoom_action.triggered.connect(self.zoomCallback)
-        self.wTab.wPlot[self.wTab.currentIndex()].histo_autoscale.clicked.connect(lambda: self.autoScaleAxisBox(None))
-        self.wTab.wPlot[self.wTab.currentIndex()].customZoomButton.clicked.connect(self.customZoomButtonCallback)
-        self.wTab.wPlot[self.wTab.currentIndex()].customZoomButton.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        self.wTab.wPlot[self.wTab.currentIndex()].customZoomButton.customContextMenuRequested.connect(self.zoom_handle_right_click)
-        self.wTab.wPlot[self.wTab.currentIndex()].plusButton.clicked.connect(lambda: self.zoomInOut("in"))
-        self.wTab.wPlot[self.wTab.currentIndex()].minusButton.clicked.connect(lambda: self.zoomInOut("out"))
-        self.wTab.wPlot[self.wTab.currentIndex()].cutoffButton.clicked.connect(self.cutoffButtonCallback)
-        self.wTab.wPlot[self.wTab.currentIndex()].cutoffButton.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        self.wTab.wPlot[self.wTab.currentIndex()].copyButton.clicked.connect(self.copyPopup)
-        self.wTab.wPlot[self.wTab.currentIndex()].customHomeButton.clicked.connect(lambda: self.customHomeButtonCallback(self.currentPlot.selected_plot_index))
-        self.wTab.wPlot[self.wTab.currentIndex()].customHomeButton.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        self.wTab.wPlot[self.wTab.currentIndex()].customHomeButton.customContextMenuRequested.connect(self.handle_right_click)
-        self.wTab.wPlot[self.wTab.currentIndex()].logButton.clicked.connect(lambda: self.logButtonCallback(self.currentPlot.selected_plot_index))
-        self.wTab.wPlot[self.wTab.currentIndex()].logButton.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        self.wTab.wPlot[self.wTab.currentIndex()].logButton.customContextMenuRequested.connect(self.log_handle_right_click)
+        self.wTab.plot(self.wTab.currentIndex()).zoom_action.triggered.connect(self.zoomCallback)
+        self.wTab.plot(self.wTab.currentIndex()).histo_autoscale.clicked.connect(lambda: self.autoScaleAxisBox(None))
+        self.wTab.plot(self.wTab.currentIndex()).customZoomButton.clicked.connect(self.customZoomButtonCallback)
+        self.wTab.plot(self.wTab.currentIndex()).customZoomButton.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.wTab.plot(self.wTab.currentIndex()).customZoomButton.customContextMenuRequested.connect(self.zoom_handle_right_click)
+        self.wTab.plot(self.wTab.currentIndex()).plusButton.clicked.connect(lambda: self.zoomInOut("in"))
+        self.wTab.plot(self.wTab.currentIndex()).minusButton.clicked.connect(lambda: self.zoomInOut("out"))
+        self.wTab.plot(self.wTab.currentIndex()).cutoffButton.clicked.connect(self.cutoffButtonCallback)
+        self.wTab.plot(self.wTab.currentIndex()).cutoffButton.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.wTab.plot(self.wTab.currentIndex()).copyButton.clicked.connect(self.copyPopup)
+        self.wTab.plot(self.wTab.currentIndex()).customHomeButton.clicked.connect(lambda: self.customHomeButtonCallback(self.currentPlot.selected_plot_index))
+        self.wTab.plot(self.wTab.currentIndex()).customHomeButton.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.wTab.plot(self.wTab.currentIndex()).customHomeButton.customContextMenuRequested.connect(self.handle_right_click)
+        self.wTab.plot(self.wTab.currentIndex()).logButton.clicked.connect(lambda: self.logButtonCallback(self.currentPlot.selected_plot_index))
+        self.wTab.plot(self.wTab.currentIndex()).logButton.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.wTab.plot(self.wTab.currentIndex()).logButton.customContextMenuRequested.connect(self.log_handle_right_click)
 
-        self.resizeID = self.wTab.wPlot[self.wTab.currentIndex()].canvas.mpl_connect("resize_event", self.on_resize)
-        self.pressID = self.wTab.wPlot[self.wTab.currentIndex()].canvas.mpl_connect("button_press_event", self.on_press)
-        self.wTab.wPlot[self.wTab.currentIndex()].canvas.mpl_connect("button_release_event", self.on_release)
+        self.resizeID = self.wTab.plot(self.wTab.currentIndex()).canvas.mpl_connect("resize_event", self.on_resize)
+        self.pressID = self.wTab.plot(self.wTab.currentIndex()).canvas.mpl_connect("button_press_event", self.on_press)
+        self.wTab.plot(self.wTab.currentIndex()).canvas.mpl_connect("button_release_event", self.on_release)
 
-        self.wTab.wPlot[self.wTab.currentIndex()].canvas.mpl_connect("motion_notify_event", self.histoHover)
+        self.wTab.plot(self.wTab.currentIndex()).canvas.mpl_connect("motion_notify_event", self.histoHover)
 
         self.wTab.setClickBound(self.wTab.currentIndex(), True)
 
 
     def connect(self):
-        self.wTab.wPlot[self.wTab.currentIndex()].canvas.mpl_connect("button_press_event", self.on_press)
+        self.wTab.plot(self.wTab.currentIndex()).canvas.mpl_connect("button_press_event", self.on_press)
 
 
     def disconnect(self):
-        self.wTab.wPlot[self.wTab.currentIndex()].canvas.mpl_disconnect(self.pressID)
+        self.wTab.plot(self.wTab.currentIndex()).canvas.mpl_disconnect(self.pressID)
 
 
     #Event filter for search in histo_list widget, and restrict position of moved tab
@@ -1463,7 +1463,7 @@ class MainWindow(QMainWindow):
         # First if when new tab
         if index == self.wTab.count()-1:
             self.wTab.addTab(index)
-            self.currentPlot = self.wTab.wPlot[index]
+            self.currentPlot = self.wTab.plot(index)
             self.tabGeoWidgetAndFlags(index)   
                   
         else:
@@ -1487,7 +1487,7 @@ class MainWindow(QMainWindow):
 
     # Helper to set histo_geo widget and enable/disable buttons, when interact with tabs
     def tabGeoWidgetAndFlags(self, index):
-        self.currentPlot = self.wTab.wPlot[index]
+        self.currentPlot = self.wTab.plot(index)
         nRow = self.wTab.tabLayout(index)[0]
         nCol = self.wTab.tabLayout(index)[1]
         self.logger.debug('tabGeoWidgetAndFlags - canvas layout: %s, %s',nRow, nCol)
@@ -1531,7 +1531,7 @@ class MainWindow(QMainWindow):
         nRow = int(self.wConf.histo_geo_row.currentText())
         nCol = int(self.wConf.histo_geo_col.currentText())
         self.wTab.setTabLayout(indexTab, [nRow, nCol])
-        self.wTab.wPlot[indexTab].InitializeCanvas(nRow, nCol)
+        self.wTab.plot(indexTab).InitializeCanvas(nRow, nCol)
         self.wTab.setSelectedPad(indexTab, None)
         self.currentPlot.selected_plot_index = None
         self.currentPlot.next_plot_index     = -1
@@ -1802,15 +1802,15 @@ class MainWindow(QMainWindow):
         recorded geometry (same end state the current tab already gets today via
         connectionEstablished -> setCanvasLayout). References captured outside the
         GUI (e.g. in the embedded Jupyter console) cannot be reclaimed here."""
-        for tabIdx, plotVal in self.wTab.wPlot.items():
+        for tabIdx in self.wTab.sessions.indices():
+            plotVal = self.wTab.plot(tabIdx)
             try:
-                nRow, nCol = self.wTab.tabLayout(tabIdx) if tabIdx in self.wTab.sessions else (1, 1)
+                nRow, nCol = self.wTab.tabLayout(tabIdx)
                 plotVal.InitializeCanvas(nRow, nCol)
                 plotVal.isEnlarged = False
                 plotVal.selected_plot_index = None
                 plotVal.next_plot_index     = -1
-                if tabIdx in self.wTab.sessions:
-                    self.wTab.setSelectedPad(tabIdx, None)
+                self.wTab.setSelectedPad(tabIdx, None)
                 self.wTab.setZoomInfo(tabIdx, None)
             except Exception:
                 self.logger.exception('_on_shm_views_invalidated - tab %s reset failed', tabIdx)
@@ -1911,7 +1911,8 @@ class MainWindow(QMainWindow):
     @pyqtSlot(str)
     def _on_spectrum_removed_rest(self, name):
         """Display-side cleanup when ConnectionManager removes a spectrum from REST binding."""
-        for tabIdx, plotVal in self.wTab.wPlot.items():
+        for tabIdx in self.wTab.sessions.indices():
+            plotVal = self.wTab.plot(tabIdx)
             to_delete = [key for key, value in plotVal.h_dict_geo.items() if name in value]
             for key in to_delete:
                 if key in self.wTab.tabSlots(tabIdx):
@@ -1943,7 +1944,8 @@ class MainWindow(QMainWindow):
         # in local spectrumInfo dict can have multiple spectra with the same name
         # dont use indexFromName because wont work properly when delete while in enlarged mode
         # also want to clear the corresponding axes in all tabs
-        for tabIdx, plotVal in self.wTab.wPlot.items():
+        for tabIdx in self.wTab.sessions.indices():
+            plotVal = self.wTab.plot(tabIdx)
             to_delete = [key for key, value in plotVal.h_dict_geo.items() if name in value]
             for key in to_delete:
                 if key in self.wTab.tabSlots(tabIdx):
@@ -2173,9 +2175,9 @@ class MainWindow(QMainWindow):
             return
         try:
             tabs = []
-            for tabIdx in sorted(self.wTab.wPlot.keys()):
+            for tabIdx in sorted(self.wTab.sessions.indices()):
                 nRow, nCol = self.wTab.tabLayout(tabIdx)
-                plotW = self.wTab.wPlot[tabIdx]
+                plotW = self.wTab.plot(tabIdx)
                 slots = self.wTab.tabSlots(tabIdx) if tabIdx in self.wTab.sessions else {}
                 properties = {}
                 for index in range(nRow * nCol):
@@ -2351,9 +2353,9 @@ class MainWindow(QMainWindow):
         # rebuild the tab set with existing primitives only (danger
         # zone: deleteTab reindexes the parallel dicts and plt.closes figures)
         self.wTab.setCurrentIndex(0)
-        self.currentPlot = self.wTab.wPlot[0]
-        while len(self.wTab.wPlot) > 1:
-            self.wTab.deleteTab(len(self.wTab.wPlot) - 1)
+        self.currentPlot = self.wTab.plot(0)
+        while len(self.wTab.sessions) > 1:
+            self.wTab.deleteTab(len(self.wTab.sessions) - 1)
         for k in range(1, len(tabsInfo)):
             self.wTab.addTab(k)
 
@@ -3166,7 +3168,7 @@ class MainWindow(QMainWindow):
         keep = self._peak2_fit_canvases()
         if self.peak2_armed or self.peak2_fix_armed:
             try:
-                keep.add(self.wTab.wPlot[self.wTab.currentIndex()].canvas)
+                keep.add(self.wTab.plot(self.wTab.currentIndex()).canvas)
             except Exception:
                 pass
         for canvas in list(self.peak2_conns):
@@ -3498,7 +3500,7 @@ class MainWindow(QMainWindow):
         if checked:
             # Start and Fix Peak are mutually exclusive arming modes
             self.extraPopup.peak.peak2_fix.setChecked(False)
-            self._peak2_connect(self.wTab.wPlot[self.wTab.currentIndex()].canvas)
+            self._peak2_connect(self.wTab.plot(self.wTab.currentIndex()).canvas)
             btn.setText("Stop")
             btn.setStyleSheet("background-color:#ff6b6b;")
             self._peak2_status(
@@ -3519,7 +3521,7 @@ class MainWindow(QMainWindow):
         self.peak2_fix_armed = bool(checked)
         if checked:
             self.extraPopup.peak.peak2_start.setChecked(False)   # mutual exclusion
-            self._peak2_connect(self.wTab.wPlot[self.wTab.currentIndex()].canvas)
+            self._peak2_connect(self.wTab.plot(self.wTab.currentIndex()).canvas)
             btn.setStyleSheet("background-color:#ff6b6b;")
             self._peak2_status(
                 "[armed: fix μ] Left-click at a peak centre to fit with μ "
