@@ -1577,8 +1577,8 @@ class MainWindow(QMainWindow):
             return self.spectra.get(name, info[0])
 
 
-    #Update spectrum info in spectrum_dict (identified by index and can update multiple info at once)
-    #Important that only self.wTab.spectrum_dict is changed here
+    #Update spectrum info in tabSlots (identified by index and can update multiple info at once)
+    #Important that only the per-tab slots dict is changed here
     #work in normal and enlarged mode
     def setSpectrumViewInfo(self, **info):
         self.logger.debug('setSpectrumViewInfo - info: %s',info)
@@ -1600,21 +1600,19 @@ class MainWindow(QMainWindow):
         # print("Simon - setSpectrumViewInfo - ", index,name,info["index"])
         for key, value in info.items():
             if key in SLOT_KEYS and index is not None:
-                if index not in self.wTab.spectrum_dict[self.wTab.currentIndex()]:
-                    # print("setSpectrumViewInfo -",name,"not in spectrum_dict")
-                    self.logger.debug('setSpectrumViewInfo - %s not in spectrum_dict', name)
+                if index not in self.wTab.tabSlots(self.wTab.currentIndex()):
+                    self.logger.debug('setSpectrumViewInfo - %s not in tabSlots', name)
                     return
-                    # self.wTab.spectrum_dict[self.wTab.currentIndex()][name] = {"dim":[],"binx":[],"minx":[],"maxx":[],"biny":[],"miny":[],"maxy":[],"data":[],"parameters":[],"type":[],"log":[],"minz":[],"maxz":[]}
-                slot = self.wTab.spectrum_dict[self.wTab.currentIndex()][index]
+                slot = self.wTab.tabSlots(self.wTab.currentIndex())[index]
                 setattr(slot, key, value)          # typed DisplaySlot field (key is whitelisted above)
                 #set axes info at the same time than spectrum
                 if key == "spectrum":
                     slot.axis = value.axes
 
 
-    #Get spectrum info from spectrum_dict (identified by index and info name)
+    #Get spectrum info from tabSlots (identified by index and info name)
     #template of expected arguments e.g.: ("dim", index=5) takes only the first info parameter (here "dim") (one per call)
-    #Important that it gets only the info from self.wTab.spectrum_dict[self.wTab.currentIndex()] here.
+    #Important that it gets only the info from the current tab's slots here.
     #work in normal and enlarged mode
     def getSpectrumViewInfo(self, *info, **identifier):
         self.logger.debug('getSpectrumViewInfo - info, identifier: %s, %s', info, identifier)
@@ -1633,14 +1631,12 @@ class MainWindow(QMainWindow):
             self.logger.debug('getSpectrumViewInfo - wrong identifier - expects index=histo_index or shoud be in zoomed mode')
             # print("getSpectrumViewInfo - wrong identifier - expects index=histo_index or shoud be in zoomed mode")
             return
-        if index is not None and index in self.wTab.spectrum_dict[self.wTab.currentIndex()] and info[0] in SLOT_KEYS:
-        # if index is not None and info[0] in ("name", "dim", "binx", "minx", "maxx", "biny", "miny", "maxy", "data", "parameters", "type", "log", "minz", "maxz"):
-            #print("Giordano - in getSpectrumViewInfo - ",self.wTab.currentIndex(), index, info[0])
-            return getattr(self.wTab.spectrum_dict[self.wTab.currentIndex()][index], info[0])   # typed access (info[0] whitelisted above)
+        if index is not None and index in self.wTab.tabSlots(self.wTab.currentIndex()) and info[0] in SLOT_KEYS:
+            return getattr(self.wTab.tabSlots(self.wTab.currentIndex())[index], info[0])   # typed access (info[0] whitelisted above)
 
 
-    #Remove spectrum from self.wTab.spectrum_dict:
-    #important: only functions that delete item in spectrum_dict and self.spectra
+    #Remove spectrum from per-tab slots:
+    #important: only functions that delete item in per-tab slots and self.spectra
     #important: should not be triggered by user, for now used only in updateFromTraces, because of the way it deletes local spectrumInfo entries.
     @property
     def rest(self):
@@ -1818,8 +1814,8 @@ class MainWindow(QMainWindow):
                 self.wTab.setZoomInfo(tabIdx, None)
             except Exception:
                 self.logger.exception('_on_shm_views_invalidated - tab %s reset failed', tabIdx)
-        for tabSpectra in self.wTab.spectrum_dict.values():
-            for info in tabSpectra.values():
+        for tabIdx in self.wTab.sessions.indices():
+            for info in self.wTab.tabSlots(tabIdx).values():
                 info["spectrum"] = None
                 info["axis"]     = None
 
@@ -1918,8 +1914,8 @@ class MainWindow(QMainWindow):
         for tabIdx, plotVal in self.wTab.wPlot.items():
             to_delete = [key for key, value in plotVal.h_dict_geo.items() if name in value]
             for key in to_delete:
-                if key in self.wTab.spectrum_dict[tabIdx]:
-                    spectrum = self.wTab.spectrum_dict[tabIdx][key].spectrum   # typed access
+                if key in self.wTab.tabSlots(tabIdx):
+                    spectrum = self.wTab.tabSlots(tabIdx)[key].spectrum   # typed access
                     if hasattr(spectrum, 'axes'):
                         ax = spectrum.axes
                         self.removeCb(ax)
@@ -1950,8 +1946,8 @@ class MainWindow(QMainWindow):
         for tabIdx, plotVal in self.wTab.wPlot.items():
             to_delete = [key for key, value in plotVal.h_dict_geo.items() if name in value]
             for key in to_delete:
-                if key in self.wTab.spectrum_dict[tabIdx]:
-                    spectrum = self.wTab.spectrum_dict[tabIdx][key].spectrum   # typed access
+                if key in self.wTab.tabSlots(tabIdx):
+                    spectrum = self.wTab.tabSlots(tabIdx)[key].spectrum   # typed access
                     #clear axis, remove colorbar and update in the geometry if mode="definitive"
                     if mode == "definitive":
                         ax = spectrum.axes
@@ -1961,9 +1957,9 @@ class MainWindow(QMainWindow):
                     del spectrum
 
 
-    #get full spectrum dict self.wTab.spectrum_dict:
+    #get full per-tab slots dict for the current tab:
     def getSpectrumViewDict(self):
-        return self.wTab.spectrum_dict[self.wTab.currentIndex()]
+        return self.wTab.tabSlots(self.wTab.currentIndex())
 
 
     #get full spectrum dict from self.spectra:
@@ -1996,15 +1992,14 @@ class MainWindow(QMainWindow):
 
 
     #sets h_dict_geo {key=index, value=histoName}
-    #Use only this function to set the geometry dict when add plot (against using it elsewhere because it initializes spectrum_dict)
+    #Use only this function to set the geometry dict when add plot (against using it elsewhere because it initializes per-tab slots)
     def setGeo(self, index, name):
         self.logger.info('setGeo - index, name: %s, %s', index, name)
         self.currentPlot.h_dict_geo[index] = name
-        #Set also here the spectrum_dict with only the spectra defined in the geo
-        if index not in self.wTab.spectrum_dict[self.wTab.currentIndex()]:
-            # typed per-pad display state (drop-in for the old 17-key dict).
-            self.wTab.spectrum_dict[self.wTab.currentIndex()][index] = DisplaySlot()
-        slot = self.wTab.spectrum_dict[self.wTab.currentIndex()][index]
+        #Set also here the per-tab slots with only the spectra defined in the geo
+        if index not in self.wTab.tabSlots(self.wTab.currentIndex()):
+            self.wTab.tabSlots(self.wTab.currentIndex())[index] = DisplaySlot()
+        slot = self.wTab.tabSlots(self.wTab.currentIndex())[index]
         slot.name = name
         #Initialize with the same info as in self.spectra.
         #"data" is intentionally NOT copied: the canonical array lives solely in the
@@ -2181,7 +2176,7 @@ class MainWindow(QMainWindow):
             for tabIdx in sorted(self.wTab.wPlot.keys()):
                 nRow, nCol = self.wTab.tabLayout(tabIdx)
                 plotW = self.wTab.wPlot[tabIdx]
-                slots = self.wTab.spectrum_dict.get(tabIdx, {})
+                slots = self.wTab.tabSlots(tabIdx) if tabIdx in self.wTab.sessions else {}
                 properties = {}
                 for index in range(nRow * nCol):
                     try:

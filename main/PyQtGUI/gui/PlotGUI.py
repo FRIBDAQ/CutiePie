@@ -35,7 +35,6 @@ class Tabs(QTabWidget):
         #   zoom_info    - histo [index origin, name] in zoomed/expanded mode
         #   click_bound  - whether the tab's widgets already have dynamic bind
         self._wPlot_view = self.sessions.mapping_view("widget")
-        self._spectrum_dict_view = self.sessions.mapping_view("slots")
         self.createTabs()
         self.setTabsClosable(True)
 
@@ -44,9 +43,8 @@ class Tabs(QTabWidget):
     def wPlot(self):
         return self._wPlot_view
 
-    @property
-    def spectrum_dict(self):
-        return self._spectrum_dict_view
+    def tabSlots(self, index):
+        return self.sessions[index].slots
 
     def isClickBound(self, index):
         return self.sessions[index].click_bound
