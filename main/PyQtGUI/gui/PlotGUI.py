@@ -36,8 +36,6 @@ class Tabs(QTabWidget):
         #   click_bound  - whether the tab's widgets already have dynamic bind
         self._wPlot_view = self.sessions.mapping_view("widget")
         self._spectrum_dict_view = self.sessions.mapping_view("slots")
-        self._zoomPlotInfo_view = self.sessions.mapping_view("zoom_info")
-        self._countClickTab_view = self.sessions.mapping_view("click_bound")
         self._selected_bak_view = self.sessions.sequence_view("selected_bak")
         self.createTabs()
         self.setTabsClosable(True)
@@ -51,13 +49,17 @@ class Tabs(QTabWidget):
     def spectrum_dict(self):
         return self._spectrum_dict_view
 
-    @property
-    def zoomPlotInfo(self):
-        return self._zoomPlotInfo_view
+    def isClickBound(self, index):
+        return self.sessions[index].click_bound
 
-    @property
-    def countClickTab(self):
-        return self._countClickTab_view
+    def setClickBound(self, index, flag):
+        self.sessions[index].click_bound = flag
+
+    def zoomInfo(self, index):
+        return self.sessions[index].zoom_info
+
+    def setZoomInfo(self, index, info):
+        self.sessions[index].zoom_info = info
 
     @property
     def selected_plot_index_bak(self):

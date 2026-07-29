@@ -799,8 +799,8 @@ class MainWindow(QMainWindow):
     #So that signals work for each tab, called in clickedTab()
     def bindDynamicSignal(self):
         self.logger.info('bindDynamicSignal')
-        for index, val in self.wTab.countClickTab.items():
-            if val:
+        for index in self.wTab.sessions.indices():
+            if self.wTab.isClickBound(index):
                 self.wTab.wPlot[index].logButton.disconnect()
                 self.wTab.wPlot[index].cutoffButton.disconnect()
                 self.wTab.wPlot[index].histo_autoscale.disconnect()
@@ -809,7 +809,7 @@ class MainWindow(QMainWindow):
                 self.wTab.wPlot[index].minusButton.disconnect()
                 self.wTab.wPlot[index].copyButton.disconnect()
                 self.wTab.wPlot[index].customHomeButton.disconnect()
-                self.wTab.countClickTab[index] = False
+                self.wTab.setClickBound(index, False)
 
         self.wTab.wPlot[self.wTab.currentIndex()].zoom_action.triggered.connect(self.zoomCallback)
         self.wTab.wPlot[self.wTab.currentIndex()].histo_autoscale.clicked.connect(lambda: self.autoScaleAxisBox(None))
@@ -834,7 +834,7 @@ class MainWindow(QMainWindow):
 
         self.wTab.wPlot[self.wTab.currentIndex()].canvas.mpl_connect("motion_notify_event", self.histoHover)
 
-        self.wTab.countClickTab[self.wTab.currentIndex()] = True
+        self.wTab.setClickBound(self.wTab.currentIndex(), True)
 
 
     def connect(self):
@@ -1183,7 +1183,7 @@ class MainWindow(QMainWindow):
 
                 self.logger.debug('on_dblclick - entering expanded spectrum view')
 
-                #important that zoomPlotInfo is set only while in zoom mode (not None only here)
+                #important that zoomInfo is set only while in zoom mode (not None only here)
                 self.setEnlargedSpectrum(idx, name)
                 self.currentPlot.next_plot_index = self.currentPlot.selected_plot_index
                 self.logger.debug('on_dblclick - next_plot_index: %s', self.currentPlot.next_plot_index)
@@ -1273,7 +1273,7 @@ class MainWindow(QMainWindow):
                 # disabling gate creation
                 self.wConf.createGate.setEnabled(False)
 
-                #important that zoomPlotInfo is set only while in zoom mode (None only here)
+                #important that zoomInfo is set only while in zoom mode (None only here)
                 #tempIdxEnlargedSpectrum is used to draw back the dashed red rectangle, which pad was enlarged
                 tempIdxEnlargedSpectrum = self.getEnlargedSpectrum()[0]
                 self.setEnlargedSpectrum(None, None)
@@ -1815,7 +1815,7 @@ class MainWindow(QMainWindow):
                 plotVal.next_plot_index     = -1
                 if tabIdx < len(self.wTab.selected_plot_index_bak):
                     self.wTab.selected_plot_index_bak[tabIdx] = None
-                self.wTab.zoomPlotInfo[tabIdx] = None
+                self.wTab.setZoomInfo(tabIdx, None)
             except Exception:
                 self.logger.exception('_on_shm_views_invalidated - tab %s reset failed', tabIdx)
         for tabSpectra in self.wTab.spectrum_dict.values():
@@ -1986,7 +1986,7 @@ class MainWindow(QMainWindow):
     def indexFromName(self, name):
         self.logger.info('indexFromName - name: %s', name)
         result = []
-        #Have to be careful that zoomPlotInfo is well sets all the time.
+        #Have to be careful that zoomInfo is well sets all the time.
         #Should have a value _only_while_ in enlarged mode
         if self.getEnlargedSpectrum():
             result = [0]
@@ -2043,15 +2043,15 @@ class MainWindow(QMainWindow):
         
     def setEnlargedSpectrum(self, index, name):
         self.logger.info('setEnlargedSpectrum')
-        self.wTab.zoomPlotInfo[self.wTab.currentIndex()] = None 
+        self.wTab.setZoomInfo(self.wTab.currentIndex(), None)
         if index is not None and name is not None:
-            self.wTab.zoomPlotInfo[self.wTab.currentIndex()] = [index, name]
+            self.wTab.setZoomInfo(self.wTab.currentIndex(), [index, name])
 
     def getEnlargedSpectrum(self):
         # self.logger.info('getEnlargedSpectrum')
         result = None
-        if self.wTab.zoomPlotInfo[self.wTab.currentIndex()] :
-            result = self.wTab.zoomPlotInfo[self.wTab.currentIndex()]
+        if self.wTab.zoomInfo(self.wTab.currentIndex()):
+            result = self.wTab.zoomInfo(self.wTab.currentIndex())
         return result
 
 
@@ -2522,7 +2522,7 @@ class MainWindow(QMainWindow):
         selected = (self.wConf.histo_list.currentText()
                     if self.wConf.histo_list.count() else None)
         return self.plot_controller.addPlot(
-            selected, self.wTab.countClickTab[self.wTab.currentIndex()])
+            selected, self.wTab.isClickBound(self.wTab.currentIndex()))
 
 
     #why not using np.linspace(vmin, vmax, bins)
