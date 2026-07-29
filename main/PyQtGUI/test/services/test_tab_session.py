@@ -131,10 +131,20 @@ def test_zoom_info_accepts_empty_list_and_none_and_pair():
     assert r[0].zoom_info == [3, "spec"]
 
 
-def test_delete_returns_the_removed_session():
+def test_delete_returns_session_before_renumbering():
+    # deleteTab must close the doomed tab's figure BEFORE indices shift, or it
+    # closes the wrong one. delete() returning the removed session is what makes
+    # that orderable.
+    r = _reg(3)
+    removed = r.delete(1)
+    assert removed.widget == "w1"
+    assert r[1].widget == "w2"
+
+
+def test_swap_is_a_no_op_when_indices_are_equal():
     r = _reg(2)
-    gone = r.delete(0)
-    assert gone.widget == "w0"
+    r.swap(1, 1)
+    assert r[1].widget == "w1"
 
 
 def test_delete_of_unknown_index_raises_keyerror():

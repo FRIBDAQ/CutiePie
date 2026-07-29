@@ -122,58 +122,28 @@ class Tabs(QTabWidget):
                 self.setTabText(i, "Tab %d" %(i+1))
 
 
-    # Deletes the specified key from a dictionary and reassigns remaining keys.
-    # Assuming keys are successive numbers.
-    def deleteDictEntry(self, dict, keyToDelete):
-        del dict[keyToDelete]
-        newDict = {}
-        for i, (k, v) in enumerate(dict.items()):
-            newDict[i] = v
-        return newDict
-
-
     def deleteTab(self, index):
         self.logger.info('deleteTab -- at index %d', index)
-        # -1 in upper bound to avoid the last "+" tab 
+        # -1 in upper bound to avoid the last "+" tab
         if index >= 0 and index < self.count()-1:
             # Remove the tab from the QTabWidget
             self.removeTab(index)
-            # release the pyplot-managed figure or it lives (with all its
-            # artists and shm-view refs) in pyplot's registry forever
-            plt.close(self.wPlot[index].figure)
-            # Update related data structures
-            self.wPlot = self.deleteDictEntry(self.wPlot, index)
-            self.spectrum_dict = self.deleteDictEntry(self.spectrum_dict, index)
-            self.zoomPlotInfo = self.deleteDictEntry(self.zoomPlotInfo, index)
-            self.countClickTab = self.deleteDictEntry(self.countClickTab, index)
-            del self.selected_plot_index_bak[index]
-            del self.layout[index]
+            # Take the session out first so plt.close hits the right figure —
+            # after the registry renumbers, `index` names another tab.
+            gone = self.sessions.delete(index)
+            plt.close(gone.widget.figure)
             return True
         elif index == self.count() - 1:
             self.logger.warning('deleteTab -- Trying to delete last + tab')
             return False
-        
 
-    # Swap tab dict/list items
-    def swapItems(self, dictionary, indexFrom, indexTo):
-        valTo = dictionary[indexTo]
-        dictionary[indexTo] = dictionary[indexFrom]
-        dictionary[indexFrom] = valTo
-        return dictionary
-        
 
-    # Swap all tab dicts
     def swapTabDict(self, indexFrom, indexTo):
         self.logger.info('swapTabDict - indexFrom %d indexTo %d', indexFrom, indexTo)
         if indexTo < self.count()-1:
-            self.wPlot = self.swapItems(self.wPlot, indexFrom, indexTo)
-            self.spectrum_dict = self.swapItems(self.spectrum_dict, indexFrom, indexTo)
-            self.zoomPlotInfo = self.swapItems(self.zoomPlotInfo, indexFrom, indexTo)
-            self.countClickTab = self.swapItems(self.countClickTab, indexFrom, indexTo)
-            self.selected_plot_index_bak = self.swapItems(self.selected_plot_index_bak, indexFrom, indexTo)
-            self.layout = self.swapItems(self.layout, indexFrom, indexTo)
-        else :
-            self.logger.warning('swapTabDict -- Trying to swap tab dictionaries with last tab') 
+            self.sessions.swap(indexFrom, indexTo)
+        else:
+            self.logger.warning('swapTabDict -- Trying to swap tab dictionaries with last tab')
 
 
 class Plot(QWidget):
