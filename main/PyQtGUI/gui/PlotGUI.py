@@ -18,50 +18,74 @@ from PyQt5.QtWidgets import (
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 
+from services.tab_session import TabSession, TabSessionRegistry
+
 debug = False
 
 class Tabs(QTabWidget):
     def __init__(self, loggerMain):
         QTabWidget.__init__(self)
-        self.wPlot = {}
         self.logger = loggerMain
-        #spectrum_dict {key:geo_index_spectrum, value:{info_spectrum - including spectrum name}}, user can change spectrum_info.
-        self.spectrum_dict = {} #dict of dict
-        self.spectrum_dict[0] = {}
-        self.zoomPlotInfo = {} #Histo [index origin, name] in the zoomed/expanded mode
-        self.zoomPlotInfo[0] = [] #dict of list
-        self.countClickTab = {} #dict of flag to know if widgets already have dynamic bind
+        self.sessions = TabSessionRegistry()
+        # The six containers below are live views onto `sessions`, kept under
+        # their historical names while call sites migrate. New code should
+        # reach for `sessions[index]` instead.
+        #   widget       - the Plot for the tab
+        #   slots        - {geo_index_spectrum: info_spectrum}, user-editable
+        #   zoom_info    - histo [index origin, name] in zoomed/expanded mode
+        #   click_bound  - whether the tab's widgets already have dynamic bind
+        self._wPlot_view = self.sessions.mapping_view("widget")
+        self._spectrum_dict_view = self.sessions.mapping_view("slots")
+        self._zoomPlotInfo_view = self.sessions.mapping_view("zoom_info")
+        self._countClickTab_view = self.sessions.mapping_view("click_bound")
+        self._selected_bak_view = self.sessions.sequence_view("selected_bak")
+        self._layout_view = self.sessions.sequence_view("layout")
         self.createTabs()
         self.setTabsClosable(True)
 
 
+    @property
+    def wPlot(self):
+        return self._wPlot_view
+
+    @property
+    def spectrum_dict(self):
+        return self._spectrum_dict_view
+
+    @property
+    def zoomPlotInfo(self):
+        return self._zoomPlotInfo_view
+
+    @property
+    def countClickTab(self):
+        return self._countClickTab_view
+
+    @property
+    def selected_plot_index_bak(self):
+        return self._selected_bak_view
+
+    @property
+    def layout(self):
+        return self._layout_view
+
+
     def createTabs(self):
-        self.wPlot[0] = Plot(self.logger)
-        self.countClickTab[0] = False
+        # tab 0 is the only one that starts two pads wide
+        self.sessions.add(0, TabSession(widget=Plot(self.logger), layout=[1,2]))
         self.setUpdatesEnabled(True)
-        self.insertTab(0, self.wPlot[0], "Tab" )
+        self.insertTab(0, self.sessions[0].widget, "Tab" )
         self.insertTab(1, QWidget(),'  +  ')
-        self.selected_plot_index_bak = []
-        self.selected_plot_index_bak.append(None)
-        #layout is a list that keeps for each tab [numberOfRow, numberOfColumn]
-        self.layout = []
-        self.layout.append([1,2])
 
 
     def addTab(self, index):
-        self.wPlot[index] = Plot(self.logger)
+        self.sessions.add(index, TabSession(widget=Plot(self.logger)))
         self.logger.debug('addTab -- Inserting tab at index: %d',index)
         # last tab was clicked. add tab
-        self.insertTab(index, self.wPlot[index], "Tab %d" %(index+1))
+        self.insertTab(index, self.sessions[index].widget, "Tab %d" %(index+1))
         self.resetTabText()
         self.setCurrentIndex(index)
-        self.selected_plot_index_bak.append(None)
-        self.layout.append([1,1])
-        self.spectrum_dict[index] = {}
-        self.zoomPlotInfo[index] = []
-        self.countClickTab[index] = False
         # remove the default close button
-        self.tabBar().setTabButton(index, QTabBar.RightSide, None)        
+        self.tabBar().setTabButton(index, QTabBar.RightSide, None)
 
 
     # keep the default naming ordered, when add/delete a tab
