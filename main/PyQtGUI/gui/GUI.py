@@ -500,15 +500,13 @@ class MainWindow(QMainWindow):
         self.connectConfig.ok.clicked.connect(self.okConnect)
         self.connectConfig.cancel.clicked.connect(self.closeConnect)
         self.connection_manager.connectionEstablished.connect(self.setCanvasLayout)
-        self.connection_manager.spectrumRemoved.connect(self._on_spectrum_removed_rest)
         self.connection_manager.spectrumListChanged.connect(self.refreshSpectrumSumRegionDict)
         self.connection_manager.updatePlotRequested.connect(self._updatePlotOnGui)
-        self.connection_manager.shmViewsInvalidated.connect(self._on_shm_views_invalidated)
-        self.connection_manager.connectionRefused.connect(self._on_connection_refused)
-        self.connection_manager.connectFailed.connect(self._on_connect_failed_dialog)
-        self.connection_manager.connectionStateChanged.connect(self._render_connect_state)
-        self.connection_manager.connectAttemptBusy.connect(self._on_connect_attempt_busy)
-        self.connection_manager.spectrumListUpdated.connect(self._render_spectrum_list)
+        from adapters.connection_adapter import ConnectionAdapter
+        self._connection_adapter = ConnectionAdapter(
+            self.connection_manager, self.wTab, self.wConf.connectButton,
+            self.wConf.histo_list, self.plot_controller.removeCb,
+            self, self.logger)
         from adapters.fit_adapter import FitAdapter
         self._fit_adapter = FitAdapter(
             self.fit_manager, self.plot_controller,
@@ -1787,96 +1785,6 @@ class MainWindow(QMainWindow):
         cb = self.gatePopup.gateNameList
         cb.completer().setCompletionMode(QCompleter.PopupCompletion)
         cb.completer().setFilterMode(QtCore.Qt.MatchContains)
-
-    @pyqtSlot()
-    def _on_shm_views_invalidated(self):
-        """A re-connect completed a fresh mirror transfer.
-
-        Every matplotlib artist and cached per-tab "spectrum"/"axis" entry still
-        references arrays from the previous transfer; drop them all before the
-        SpectrumStore is repopulated, then leave each tab as an empty grid in its
-        recorded geometry (same end state the current tab already gets today via
-        connectionEstablished -> setCanvasLayout). References captured outside the
-        GUI (e.g. in the embedded Jupyter console) cannot be reclaimed here."""
-        for tabIdx in self.wTab.sessions.indices():
-            plotVal = self.wTab.plot(tabIdx)
-            try:
-                nRow, nCol = self.wTab.tabLayout(tabIdx)
-                plotVal.InitializeCanvas(nRow, nCol)
-                plotVal.isEnlarged = False
-                plotVal.selected_plot_index = None
-                plotVal.next_plot_index     = -1
-                self.wTab.setSelectedPad(tabIdx, None)
-                self.wTab.setZoomInfo(tabIdx, None)
-            except Exception:
-                self.logger.exception('_on_shm_views_invalidated - tab %s reset failed', tabIdx)
-        for tabIdx in self.wTab.sessions.indices():
-            for info in self.wTab.tabSlots(tabIdx).values():
-                info["spectrum"] = None
-                info["axis"]     = None
-
-    @pyqtSlot(str)
-    def _on_connection_refused(self, msg):
-        """guard tripped in ConnectionManager: surface it, since the connect
-        attempt was dropped without changing the running session."""
-        QMessageBox.warning(self, "Connection refused", msg)
-
-    def _on_connect_failed_dialog(self, msg):
-        """the mirror transfer failed (CPyConverter::Update now raises a
-        Python exception instead of segfaulting when getSpecTclMemory returns
-        nullptr). Surface the reason so the user can fix the endpoint and retry;
-        the button has already reverted to disconnected."""
-        QMessageBox.critical(self, "Connection failed", msg)
-
-    @pyqtSlot(str)
-    def _render_connect_state(self, state):
-        """adapter: ConnectionManager reports connection state via signal;
-        only this window touches the connect button."""
-        button = self.wConf.connectButton
-        if state == "connected":
-            button.setStyleSheet("background-color:#bcee68;")
-            button.setText("Connected")
-        elif state == "connecting":
-            button.setStyleSheet("background-color:rgb(255, 200, 0);")
-            button.setText("Connecting to mirror…")
-        else:
-            button.setStyleSheet("background-color:rgb(252, 48, 3);")
-            button.setText("Disconnected")
-
-    @pyqtSlot(bool)
-    def _on_connect_attempt_busy(self, busy):
-        """adapter: the connect button is disabled while the mirror transfer runs."""
-        self.wConf.connectButton.setEnabled(not busy)
-
-    @pyqtSlot(list, bool)
-    def _render_spectrum_list(self, names, init):
-        """adapter: ConnectionManager publishes the bound-spectrum names;
-        only this window touches the histo_list combo."""
-        self.wConf.histo_list.blockSignals(True)
-        self.wConf.histo_list.clear()
-        self.wConf.histo_list.addItems(names)
-        self.wConf.histo_list.blockSignals(False)
-        if init:
-            self.wConf.histo_list.setEditable(True)
-            self.wConf.histo_list.setInsertPolicy(QComboBox.NoInsert)
-            self.wConf.histo_list.completer().setCompletionMode(QCompleter.PopupCompletion)
-            self.wConf.histo_list.completer().setFilterMode(QtCore.Qt.MatchContains)
-
-    @pyqtSlot(str)
-    def _on_spectrum_removed_rest(self, name):
-        """Display-side cleanup when ConnectionManager removes a spectrum from REST binding."""
-        for tabIdx in self.wTab.sessions.indices():
-            plotVal = self.wTab.plot(tabIdx)
-            to_delete = [key for key, value in plotVal.h_dict_geo.items() if name in value]
-            for key in to_delete:
-                if key in self.wTab.tabSlots(tabIdx):
-                    spectrum = self.wTab.tabSlots(tabIdx)[key].spectrum   # typed access
-                    if hasattr(spectrum, 'axes'):
-                        ax = spectrum.axes
-                        self.removeCb(ax)
-                        ax.clear()
-                    plotVal.h_dict_geo[key] = "empty"
-                    del spectrum
 
     def removeSpectrum(self, **identifier):
         self.logger.info('removeSpectrum - identifier: %s', identifier)
