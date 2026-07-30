@@ -375,7 +375,7 @@ class MainWindow(QMainWindow):
             get_sum_region=lambda index, name: self.sum_region_manager.getSumRegion(index, name),
             get_current_canvas=lambda: self.wTab.plot(self.wTab.currentIndex()).canvas,
             integrate_popup=self.integratePopup,
-            get_integrate_copy=lambda: getattr(self, 'sidTableIntegrateCopy', None),
+            get_integrate_copy=lambda: getattr(self._sum_region_adapter, 'sid_table_integrate_copy', None),
             get_hide=lambda: self.extraPopup.options.gateHide.isChecked(),
             get_annotate=lambda: self.extraPopup.options.gateAnnotation.isChecked(),
             get_edit_disable=lambda: self.extraPopup.options.gateEditDisable.isChecked(),
@@ -609,34 +609,13 @@ class MainWindow(QMainWindow):
             lambda: self.gate_manager.cancelGate())
         self.gatePopup.gateActionCreate.clicked.connect(
             lambda: self.gate_manager.createGate(self.currentPlot.selected_plot_index))
-        self.gatePopup.gateActionEdit.clicked.connect(self.gate_manager.editGate)
         self.gatePopup.clearInfoSignal.connect(self.gatePopup.clearInfo)
         self.gatePopup.clearInfoSignal.connect(self.autoUpdateResume)
-        self.gate_manager.canvasDrawRequested.connect(self._on_gm_canvas_draw)
-        self.gate_manager.canvasDrawIdleRequested.connect(self._on_gm_canvas_draw_idle)
         self.gate_manager.updatePlotRequested.connect(self.updatePlot)
-        self.gate_manager.gateCreationStarted.connect(self._on_gate_creation_started)
-        self.gate_manager.gateEditingStarted.connect(self._on_gate_editing_started)
-        self.gate_manager.gateEnded.connect(self._on_gate_ended)
-        self.gate_manager.gateReadoutChanged.connect(self._on_gate_readout_changed)
-        self.gate_manager.gateReadoutEditable.connect(self._on_gate_readout_editable)
-        self.gate_manager.gateTypeCleared.connect(self._on_gate_type_cleared)
-        self.gate_manager.gateTypeItemAdded.connect(self._on_gate_type_item_added)
-        self.gate_manager.gateNamesPrepared.connect(self._on_gate_names_prepared)
-        self.gate_manager.gateNameSelected.connect(self._on_gate_name_selected)
-        self.gate_manager.gateNameListEditable.connect(self._on_gate_name_list_editable)
-        self.gate_manager.gateNameCompleterConfigured.connect(self._on_gate_name_completer_configured)
-        self.gate_manager.gateClearInfoRequested.connect(self.gatePopup.clearInfo)
-        self.gate_manager.gatePopupShowRequested.connect(self.gatePopup.show)
-        self.gate_manager.gatePopupCloseRequested.connect(self.gatePopup.close)
-        self.gate_manager.gateActionCreateChecked.connect(self.gatePopup.gateActionCreate.setChecked)
-        self.gate_manager.gateActionEditChecked.connect(self.gatePopup.gateActionEdit.setChecked)
-        self.gate_manager.gateActionEditEnabled.connect(self.gatePopup.gateActionEdit.setEnabled)
-        # gate popup combo signals are wired to the service slots ONCE here
-        # (was connect/disconnect bookkeeping inside the service). The slots
-        # self-gate on _creating_gate/_editing_gate.
-        self.gatePopup.listGateType.currentIndexChanged.connect(self.gate_manager.gateTypeListChanged)
-        self.gatePopup.gateNameList.currentTextChanged.connect(self.gate_manager.gateNameListChanged)
+        from adapters.gate_adapter import GateAdapter
+        self._gate_adapter = GateAdapter(
+            self.gate_manager, self.gatePopup,
+            lambda: self.currentPlot, self.logger)
 
         # summing region
         self.wConf.createSumRegionButton.clicked.connect(
@@ -656,19 +635,13 @@ class MainWindow(QMainWindow):
                 self.sumRegionPopup.sumRegionNameList.currentText()))
         self.sumRegionPopup.clearInfoSignal.connect(self.sumRegionPopup.clearInfo)
         self.sumRegionPopup.clearInfoSignal.connect(self.autoUpdateResume)
-        self.sum_region_manager.canvasDrawRequested.connect(self._on_srm_canvas_draw)
-        self.sum_region_manager.figureTightLayoutRequested.connect(self._on_srm_tight_layout)
         self.sum_region_manager.updatePlotRequested.connect(self.updatePlot)
-        self.sum_region_manager.sumRegionStarted.connect(self._on_sum_region_started)
-        self.sum_region_manager.sumRegionEnded.connect(self._on_sum_region_ended)
         self.sum_region_manager.gateSignalsDisconnectRequested.connect(self.disconnectGateSignals)
-        # adapters: only this window touches the sum-region popup / integrate table
-        self.sum_region_manager.regionReadoutChanged.connect(self._on_region_readout_changed)
-        self.sum_region_manager.sumRegionCreatePrepared.connect(self._on_sum_region_create_prepared)
-        self.sum_region_manager.sumRegionSelectionChanged.connect(self._on_sum_region_selection_changed)
-        self.sum_region_manager.sumRegionPopupCloseRequested.connect(self._on_sum_region_popup_close)
-        self.sum_region_manager.integrationResultsReady.connect(self._on_integration_results)
-        self.sum_region_manager.integratePopupCloseRequested.connect(self._on_integrate_popup_close)
+        from adapters.sum_region_adapter import SumRegionAdapter
+        self._sum_region_adapter = SumRegionAdapter(
+            self.sum_region_manager, lambda: self.currentPlot,
+            self.sumRegionPopup, self.integratePopup,
+            self.copySelectionIntegrateTable, self.logger)
 
         # self.wConf.editGate.setToolTip("Key bindings for Modify->Edit:\n"
         #                               "'i' insert vertex\n"
@@ -677,7 +650,6 @@ class MainWindow(QMainWindow):
         #integrate gate and summing region
         self.wConf.integrateGateAndRegion.clicked.connect(
             lambda: self.sum_region_manager.integrate(*self._current_plot_ctx()))
-        self.integratePopup.ok.clicked.connect(self.sum_region_manager.okIntegrate)
 
         self.tabp.okButton.clicked.connect(self.okTab)
         self.tabp.cancelButton.clicked.connect(self.cancelTab)
@@ -1643,148 +1615,6 @@ class MainWindow(QMainWindow):
         if (self.currentPlot.toCreateGate or self.currentPlot.toEditGate) \
                 and not self.gatePopup.isVisible():
             self.cancelGate(doClose)
-
-    @pyqtSlot()
-    def _on_srm_canvas_draw(self):
-        self.currentPlot.canvas.draw()
-
-    @pyqtSlot()
-    def _on_srm_tight_layout(self):
-        self.currentPlot.figure.tight_layout()
-        self.currentPlot.canvas.draw()
-
-    @pyqtSlot(int)
-    def _on_sum_region_started(self, index):
-        self.currentPlot.toCreateSumRegion = True
-
-    @pyqtSlot()
-    def _on_sum_region_ended(self):
-        self.currentPlot.toCreateSumRegion = False
-
-    @pyqtSlot(str)
-    def _on_region_readout_changed(self, text):
-        """adapter: SumRegionManager reports the region-point readout via
-        signal; only this window writes the popup text box."""
-        self.sumRegionPopup.regionPoint.clear()
-        self.sumRegionPopup.regionPoint.insertPlainText(text)
-
-    @pyqtSlot(list)
-    def _on_sum_region_create_prepared(self, names):
-        """adapter: populate the sum-region name combo from the names the
-        service resolved, then show the popup."""
-        combo = self.sumRegionPopup.sumRegionNameList
-        self.sumRegionPopup.clearInfo()
-        combo.setEditable(True)
-        combo.setInsertPolicy(QComboBox.NoInsert)
-        for name in names:
-            combo.addItem(name)
-        combo.setCurrentText("None")
-        combo.completer().setCompletionMode(QCompleter.PopupCompletion)
-        combo.completer().setFilterMode(QtCore.Qt.MatchContains)
-        self.sumRegionPopup.show()
-
-    @pyqtSlot(str)
-    def _on_sum_region_selection_changed(self, text):
-        self.sumRegionPopup.sumRegionNameList.setCurrentText(text)
-
-    @pyqtSlot()
-    def _on_sum_region_popup_close(self):
-        self.sumRegionPopup.close()
-
-    @pyqtSlot(list)
-    def _on_integration_results(self, rows):
-        """adapter: SumRegionManager computes integration result rows; only
-        this window builds the integrate table. Empty rows -> 'Nothing to
-        integrate'."""
-        table = self.integratePopup.resultsText
-        self.integratePopup.clearInfo()
-        colHeader = ['Spectrum', 'Region', 'Counts', 'Centroid X', 'Centroid Y', 'FWHM X', 'FWHM Y']
-        for col, header in enumerate(colHeader):
-            headerItem = QTableWidgetItem(header)
-            font = table.font()
-            font.setBold(True)
-            headerItem.setFont(font)
-            table.setHorizontalHeaderItem(col, headerItem)
-        if not rows:
-            table.insertRow(0)
-            table.setItem(0, 0, QTableWidgetItem("Nothing to integrate"))
-            self.integratePopup.show()
-            return
-        for irow, row in enumerate(rows):
-            table.insertRow(irow)
-            for icol, cell in enumerate(row):
-                table.setItem(irow, icol, QTableWidgetItem(cell))
-        self.sidTableIntegrateCopy = table.itemSelectionChanged.connect(
-            self.copySelectionIntegrateTable)
-        self.integratePopup.show()
-
-    @pyqtSlot()
-    def _on_integrate_popup_close(self):
-        self.integratePopup.close()
-
-    @pyqtSlot()
-    def _on_gm_canvas_draw(self):
-        self.currentPlot.canvas.draw()
-
-    @pyqtSlot()
-    def _on_gm_canvas_draw_idle(self):
-        self.currentPlot.canvas.draw_idle()
-
-    @pyqtSlot(int)
-    def _on_gate_creation_started(self, index):
-        self.currentPlot.toCreateGate = True
-        self.currentPlot.toEditGate   = False
-
-    @pyqtSlot()
-    def _on_gate_editing_started(self):
-        self.currentPlot.toEditGate   = True
-        self.currentPlot.toCreateGate = False
-
-    @pyqtSlot()
-    def _on_gate_ended(self):
-        self.currentPlot.toCreateGate = False
-        self.currentPlot.toEditGate   = False
-
-    @pyqtSlot(str)
-    def _on_gate_readout_changed(self, text):
-        self.gatePopup.regionPoint.clear()
-        self.gatePopup.regionPoint.insertPlainText(text)
-
-    @pyqtSlot(bool)
-    def _on_gate_readout_editable(self, editable):
-        self.gatePopup.regionPoint.setReadOnly(not editable)
-
-    @pyqtSlot()
-    def _on_gate_type_cleared(self):
-        self.gatePopup.listGateType.clear()
-
-    @pyqtSlot(str)
-    def _on_gate_type_item_added(self, text):
-        self.gatePopup.listGateType.addItem(text)
-
-    @pyqtSlot(list, str)
-    def _on_gate_names_prepared(self, names, current):
-        cb = self.gatePopup.gateNameList
-        cb.clear()
-        for name in names:
-            cb.addItem(name)
-        cb.setCurrentText(current)
-
-    @pyqtSlot(str)
-    def _on_gate_name_selected(self, name):
-        self.gatePopup.gateNameList.setCurrentText(name)
-
-    @pyqtSlot()
-    def _on_gate_name_list_editable(self):
-        cb = self.gatePopup.gateNameList
-        cb.setEditable(True)
-        cb.setInsertPolicy(QComboBox.NoInsert)
-
-    @pyqtSlot()
-    def _on_gate_name_completer_configured(self):
-        cb = self.gatePopup.gateNameList
-        cb.completer().setCompletionMode(QCompleter.PopupCompletion)
-        cb.completer().setFilterMode(QtCore.Qt.MatchContains)
 
     def removeSpectrum(self, **identifier):
         self.logger.info('removeSpectrum - identifier: %s', identifier)
