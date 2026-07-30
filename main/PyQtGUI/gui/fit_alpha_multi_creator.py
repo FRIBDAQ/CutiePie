@@ -26,7 +26,6 @@
 # If GUI doesn’t inject bw/wmode, we auto-pick: bw=median(dx), wmode=2.
 
 import sys, os, csv
-from datetime import datetime
 sys.path.append(os.getcwd())
 
 _here = os.path.dirname(os.path.abspath(__file__))
@@ -40,9 +39,8 @@ from lmfit import Model, Parameters, fit_report
 import fit_factory  # noqa: F401
 
 from fit_alpha_base import (
-    _GL7_T, _GL7_W, _GL3_T, _GL3_W, _INV_SQRT2,
-    _safe_name, _parse_percent,
-    _emg_one_tail_stable, _emg_two_tail_stable,
+    _GL7_T, _GL7_W, _GL3_T, _GL3_W, _safe_name,
+    _parse_percent, _emg_two_tail_stable,
 )
 
 USE_GL3 = True  # set True for speed

@@ -5,7 +5,6 @@ import time
 
 import matplotlib
 import matplotlib.lines as mlines
-import matplotlib.pyplot as plt
 import numpy as np
 
 from PyQt5.QtCore import Qt, QObject, pyqtSignal

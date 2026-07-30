@@ -1,9 +1,8 @@
 #!/usr/bin/env python
-import io
 import sys, os
 sys.path.append(os.getcwd())
 
-import algo_factory
+import algo_factory  # noqa: F401 - keep import so the factory can discover this module
 from CannyEdgePlot import CannyEdgePlot
 
 # Canny Edge algo parameters

@@ -1,9 +1,6 @@
-import sys, csv, io, time
-import numpy as np
+import time
 import matplotlib
 matplotlib.use("Qt5Agg")
-import matplotlib.pyplot as plt
-import matplotlib.cm as cm
 
 from PyQt5.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QGroupBox, QHBoxLayout,

@@ -39,7 +39,7 @@ import numpy as np
 from lmfit import Model, Parameters, fit_report
 from scipy.special import erfcx
 
-import fit_factory  # keep import so the factory can discover this module
+import fit_factory  # keep import so the factory can discover this module  # noqa: F401
 
 from fit_alpha_base import _GL7_T, _GL7_W, _INV_SQRT2, _as_float
 try:
@@ -103,9 +103,17 @@ def pick(ui, auto):
     v = _as_float(ui)
     return float(v) if np.isfinite(v) and v != 0 else float(auto)
 
-def _get(name):
+def _get(params, name):
+    """One fitted value out of an lmfit Parameters mapping, or NaN when the
+    model has no such parameter (eta/tau2 are absent in the reduced forms).
+
+    `params` is passed in rather than closed over: the sibling creators define
+    this nested inside `start`, where `p = res.params` is in scope, and hoisting
+    it to module level here left it reading a global `p` that never existed —
+    the `except` then turned every NameError into a NaN, so the results CSV
+    silently recorded no fitted values at all."""
     try:
-        return float(p[name].value)
+        return float(params[name].value)
     except Exception:
         return np.nan
 
@@ -284,8 +292,8 @@ class AlphaEMG12Fit:
             "timestamp": timestamp,
             "chi-square": redchi,
             "R2": R2_plain,
-            "A": _get("A"), "mu": _get("mu"), "sigma": _get("sigma"),
-            "tau1": _get("tau1"), "tau2": _get("tau2"), "eta": _get("eta"),
+            "A": _get(p, "A"), "mu": _get(p, "mu"), "sigma": _get(p, "sigma"),
+            "tau1": _get(p, "tau1"), "tau2": _get(p, "tau2"), "eta": _get(p, "eta"),
         }
 
         csv_path = os.path.join(os.getcwd(), "fit_EMG12_results.csv")

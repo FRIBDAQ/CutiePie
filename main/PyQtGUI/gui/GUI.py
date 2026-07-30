@@ -2,18 +2,13 @@
 # import modules and packages
 
 import sys, os, ast
-import copy, cv2
+import cv2
 import logging, logging.handlers
-import threading, time, math, re
-from copy import copy, deepcopy
-import pandas as pd
+import threading, time, re
+from copy import deepcopy
 import numpy as np
-import CPyConverter as cpy
 
 import signal, ctypes
-import csv, json
-from types import SimpleNamespace
-from functools import partial
 
 
 
@@ -54,45 +49,22 @@ os.environ['XDG_RUNTIME_DIR'] = os.getcwd()
 
 from PyQt5 import QtCore
 from PyQt5.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QCompleter, QDialog,
+    QApplication, QCheckBox, QDialog,
     QFileDialog, QFormLayout, QGridLayout, QHBoxLayout, QInputDialog,
     QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox, QPushButton,
-    QListWidgetItem, QShortcut, QSlider, QTabBar, QTableWidget,
-    QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
+    QListWidgetItem, QShortcut, QTabBar,
+    QTableWidgetItem, QVBoxLayout, QWidget,
 )
 from PyQt5.QtGui import QCursor, QKeySequence, QMouseEvent, QPalette
 from PyQt5.QtCore import (
-    pyqtSignal, pyqtSlot, Qt, QObject, QThread, QTimer, QElapsedTimer,
-    QEventLoop, QSettings, QDir, QEvent, QPoint,
+    pyqtSignal, pyqtSlot, Qt, QObject, QTimer,
+    QSettings, QDir,
 )
 
 
-from sklearn import metrics
-from sklearn.cluster import KMeans
-from sklearn.mixture import GaussianMixture
-from sklearn.preprocessing import StandardScaler
-
 import matplotlib
 matplotlib.use("Qt5Agg")
-import matplotlib.pyplot as plt
-import matplotlib.cm as cm
-import matplotlib.lines as mlines
-import matplotlib.mlab as mlab
-import matplotlib.image as mpimg
-import matplotlib.gridspec as gridspec
-import matplotlib.colorbar as mcolorbar
-import matplotlib.colors as colors
-from matplotlib.artist import Artist
-
-from matplotlib.patches import Polygon, Circle, Ellipse
-from matplotlib.path import Path
-from scipy.optimize import curve_fit
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-
-import matplotlib.text as mtext
 
 # List of implementation topics
 # 0) Class definition
@@ -118,9 +90,7 @@ import matplotlib.text as mtext
 from MenuAndConfigGUI import Configuration
 from SpecialFunctionsGUI import SpecialFunctions # all the extra functions we defined
 # from OutputGUI import OutputPopup # popup output window
-from PlotGUI import Plot # area defined for the histograms
 from PlotGUI import Tabs # area defined for the Tabs
-from PyREST import PyREST # class interface for SpecTcl REST plugin
 from services.spectrum_store import SpectrumStore
 from services.display_slot import DisplaySlot, SLOT_KEYS
 from services import geometry_io
@@ -132,7 +102,6 @@ from services.peak_finder import (
     fwhm_to_sigma, nearest_window_edge, sigma_to_fwhm, validate_gauss_edit,
 )
 from services.figure_overlay import compute_overlay_position, apply_joystick_move, apply_fine_move
-from services.thread_workers import RestWorker, AutoUpdateWorker
 from services.fit_manager import FitManager
 from services.gate_manager import GateManager
 from services.sum_region_manager import SumRegionManager
@@ -148,9 +117,6 @@ from OutputIntegrate import OutputIntegratePopup #popup for gate/summing region 
 from logger import log, setup_logging, set_logger
 from notebook_process import testnotebook, startnotebook, stopnotebook
 from WebWindow import WebWindow
-
-## Bashir added for alpha filter dialog
-from alpha_filter_dialog import AlphaChainIsoFilterDialog
 
 
 #from collapseMenu import Spoiler
@@ -1094,44 +1060,6 @@ class MainWindow(QMainWindow):
             self.currentPlot.canvas.draw_idle()
 
 
-    # find the closest bin edge position to the input position
-    def closestBinPos(self, index=None, x=None, y=None):
-        result = None 
-        if index is None :
-            self.logger.debug('closestBinPos - index is None')
-            return result
-
-        dim = self.getSpectrumStoreInfo("dim", index=index)
-        minx = self.getSpectrumStoreInfo("minx", index=index)
-        maxx = self.getSpectrumStoreInfo("maxx", index=index)
-        binx = self.getSpectrumStoreInfo("binx", index=index)
-        stepx = (float(maxx)-float(minx))/float(binx)
-
-        if dim == 1 and x is not None:
-            # to round int essential, will give the closest bin edge
-            nXbin = round((x-minx)/stepx, 0)
-            xbinPos = minx + nXbin*stepx
-            result = xbinPos
-            # print("Simon - closestBinPos - dim1 - ", minx, maxx, stepx, nXbin, xbinPos )
-        if dim == 2 and x is not None and y is not None:
-            miny = self.getSpectrumStoreInfo("miny", index=index)
-            maxy = self.getSpectrumStoreInfo("maxy", index=index)
-            biny = self.getSpectrumStoreInfo("biny", index=index)
-            stepy = (float(maxy)-float(miny))/float(biny)
-            # to round int essential, will give the closest bin edge
-            nXbin = round((x-minx)/stepx, 0)
-            xbinPos = minx + nXbin*stepx
-            nYbin = round((y-miny)/stepy, 0)
-            ybinPos = miny + nYbin*stepy
-            result = xbinPos, ybinPos
-        else:
-            pass
-
-        return result 
-
-
-    
-            
     #### Bashir's changes to avoid re-initialization of Canvas
     #called by on_press when not in ceate/edit gate mode
     def on_dblclick(self, idx):
@@ -1455,7 +1383,6 @@ class MainWindow(QMainWindow):
                             break
             except Exception:
                 self.logger.debug('clickedTab - exception occured', exc_info=True)
-                pass
         
 
 
@@ -1521,14 +1448,6 @@ class MainWindow(QMainWindow):
     # 5) Connection to REST for gates
     ##
     #############################################
-
-
-    #Set spectrum info from ReST in self.spectra (identified by histo name and can update multiple info at once)
-    #self.spectra is used to keep track of the treegui definition (fixed)
-    def setSpectrumStoreInfo(self, name, **info):
-        # log keys only — info can carry the full counts array
-        self.logger.info('setSpectrumStoreInfo - name: %s, keys: %s', name, list(info))
-        self.spectra.set(name, **info)
 
 
     #Get spectrum info from self.spectra (identified by histo name or index and info name)
@@ -1624,41 +1543,6 @@ class MainWindow(QMainWindow):
                 and not self.gatePopup.isVisible():
             self.cancelGate(doClose)
 
-    def removeSpectrum(self, **identifier):
-        self.logger.info('removeSpectrum - identifier: %s', identifier)
-        name = None
-        mode = None
-        if "index" in identifier:
-            name = self.nameFromIndex(identifier["index"])
-        elif "name" in identifier:
-            name = identifier["name"]
-        if "mode" in identifier:
-            mode = identifier["mode"]
-        if name is None :
-            self.logger.debug('removeSpectrum - wrong identifier - expects name=histo_name or index=histo_index')
-            # print("removeSpectrum - wrong identifier - expects name=histo_name or index=histo_index")
-            return
-        # in spectrumInfoReST dict can only have unique spectrum
-        self.spectra.remove(name)
-    
-        # in local spectrumInfo dict can have multiple spectra with the same name
-        # dont use indexFromName because wont work properly when delete while in enlarged mode
-        # also want to clear the corresponding axes in all tabs
-        for tabIdx in self.wTab.sessions.indices():
-            plotVal = self.wTab.plot(tabIdx)
-            to_delete = [key for key, value in plotVal.h_dict_geo.items() if name in value]
-            for key in to_delete:
-                if key in self.wTab.tabSlots(tabIdx):
-                    spectrum = self.wTab.tabSlots(tabIdx)[key].spectrum   # typed access
-                    #clear axis, remove colorbar and update in the geometry if mode="definitive"
-                    if mode == "definitive":
-                        ax = spectrum.axes
-                        self.removeCb(ax)
-                        ax.clear()
-                        plotVal.h_dict_geo[key] = "empty"
-                    del spectrum
-
-
     #get full per-tab slots dict for the current tab:
     def getSpectrumViewDict(self):
         return self.wTab.tabSlots(self.wTab.currentIndex())
@@ -1678,19 +1562,6 @@ class MainWindow(QMainWindow):
             return self.getEnlargedSpectrum()[1]
         elif index in self.currentPlot.h_dict_geo:
             return self.currentPlot.h_dict_geo[index]
-
-
-    #Find index(es) in geo for spectrum name (returns a list)
-    def indexFromName(self, name):
-        self.logger.info('indexFromName - name: %s', name)
-        result = []
-        #Have to be careful that zoomInfo is well sets all the time.
-        #Should have a value _only_while_ in enlarged mode
-        if self.getEnlargedSpectrum():
-            result = [0]
-        else:
-            result = [key for key, value in self.currentPlot.h_dict_geo.items() if name in value]
-        return result
 
 
     #sets h_dict_geo {key=index, value=histoName}
@@ -1819,15 +1690,6 @@ class MainWindow(QMainWindow):
     # 7) Load/save geometry window
     ##########################################
 
-
-    def findWholeWord(self, w):
-        return re.compile(r'\b({0})\b'.format(w), flags=re.IGNORECASE).search
-
-    def findNumbers(self, w):
-        return [int(s) for s in re.findall(r'\b\d+\b', w)]
-
-    def findHistoName(self, w):
-        return re.findall('"([^"]*)"', w)
 
     def saveGeo(self):
         fileName = self.saveFileDialog()
@@ -2261,7 +2123,6 @@ class MainWindow(QMainWindow):
             self.currentPlot.index = keys[values.index("empty")]
         else:
             self.currentPlot.index = keys[-1]
-            self.currentPlot.isFull = True
         return self.currentPlot.index
 
 
@@ -3970,14 +3831,6 @@ class MainWindow(QMainWindow):
 
     def removeRectangle(self):                  return self.plot_controller.removeRectangle()
 
-    #for debug
-    def axesChilds(self):                       return self.plot_controller.axesChilds()
-
-
-    #for debug
-    def axesChildsTest(self, axis=None):        return self.plot_controller.axesChildsTest(axis)
-
-
     def debugModeCallBack(self):
         if self.extraPopup.options.debugMode.isChecked():
             # record creation only while the file handler can consume it
@@ -4002,29 +3855,6 @@ class MainWindow(QMainWindow):
                         self.logger.removeHandler(self.fileHandler)
             self.logger.setLevel(logging.WARNING)
 
-
-    def rgbString(self, r, g, b):
-        return f"\033[38;2;{r};{g};{b}m"
-
-    def colorString(self, string, rgbList):
-        if len(rgbList) == 3:
-            color = self.rgbString(rgbList[0], rgbList[1], rgbList[2])
-            reset = "\033[0m" # Important!
-            return str(f"{color}" + string + f"{reset}")
-        else :
-            return string
-
-    # For summary spectrum, extract the last number from the parameter name
-    def getLastDigitParam(self, parameterName):
-        self.logger.info('getLastDigitParam - parameterName: %s', parameterName)
-        parts = parameterName.split(".")
-        if not any(part.isdigit() for part in parts):
-            return None
-        try:
-            return int(parts[-1])
-        except ValueError:
-            self.logger.debug('getLastDigitParam - ValueError exception', exc_info=True)
-            return None
 
 
 # redirect logging
@@ -4142,274 +3972,3 @@ class cutoffPopup(QDialog):
         self.mainLayout.addLayout(buttonsLayout, 4, 0, 1, 0)
         self.setLayout(self.mainLayout)        
 
-class centeredNorm(colors.Normalize):
-    def __init__(self, data, vcenter=0, halfrange=None, clip=False):
-        if halfrange is None:
-            halfrange = np.max(np.abs(data - vcenter))
-        super().__init__(vmin=vcenter - halfrange, vmax=vcenter + halfrange, clip=clip)
-
-
-# Bashir --- ADD: simple dialog to collect fit points and plot ---
-class FitParamsDialog(QDialog):
-    """
-    Holds rows of {mu, A, sigma, tau, model, name}, with:
-      - Name: editable text for current point
-      - Append / Load CSV / Plot
-    """
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Collected Fit Parameters")
-        self.resize(800, 520)
-
-        self.data = []        # list of dicts
-        self.pending = None   # dict to be appended when user clicks "Append"
-
-        layout = QVBoxLayout(self)
-
-        self.hint = QLabel("Last fit: (nothing yet)")
-        layout.addWidget(self.hint)
-
-        # --- Name (label) editor for the pending point ---
-        row = QHBoxLayout()
-        row.addWidget(QLabel("Name:"))
-        self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("enter a label for this point (e.g., peak window / ROI)")
-        row.addWidget(self.name_edit)
-        layout.addLayout(row)
-
-        # --- Table ---
-        self.table = QTableWidget(0, 7)
-        self.table.setHorizontalHeaderLabels(["mu", "A", "sigma", "tau1", "tau2", "model", "name"])
-        self.table.setSortingEnabled(True)
-        layout.addWidget(self.table)
-
-        # --- Buttons ---
-        btns = QHBoxLayout()
-        self.btn_append = QPushButton("Append current")
-        self.btn_load   = QPushButton("Load CSV…")
-        self.btn_save   = QPushButton("Save CSV…")       
-        self.btn_plot   = QPushButton("Plot")
-        btns.addWidget(self.btn_append)
-        btns.addWidget(self.btn_load)
-        btns.addWidget(self.btn_save)                    
-        btns.addWidget(self.btn_plot)
-
-        self.btn_append.clicked.connect(self.on_append)
-        self.btn_load.clicked.connect(self.on_load)
-        self.btn_save.clicked.connect(self.on_save)      
-        self.btn_plot.clicked.connect(self.on_plot)
-        layout.addLayout(btns)
-
-
-    def set_pending(self, point_dict, suggested_name=None):
-        """Supply the most recent fit’s point (not automatically stored)."""
-        self.pending = point_dict or None
-        if self.pending:
-            self.hint.setText(
-                f"Last fit → mu={self.pending.get('mu'):.6g}, "
-                f"A={self.pending.get('A'):.6g}, "
-                f"sigma={self.pending.get('sigma'):.6g}, "
-                f"tau={self.pending.get('tau'):.6g} "
-                f"({self.pending.get('model')} · {self.pending.get('spectrum','')})"
-            )
-            # prefer caller’s suggestion; fall back to pending.name/spectrum
-            default_name = (suggested_name
-                            or self.pending.get('name')
-                            or self.pending.get('spectrum', ''))
-            self.name_edit.setText(default_name)
-        else:
-            self.hint.setText("Last fit: (nothing yet)")
-            self.name_edit.clear()
-
-    def _append_row(self, p):
-        """
-        Append one row to the table from a point-dict `p`.
-        Expected keys: 'mu','A','sigma',('tau1' or 'tau'),('tau2' or 'tau'),'model','name'
-        Falls back to single-tail 'tau' if tau1/tau2 are missing.
-        """
-        import math
-
-        # Ensure the table has the 7 expected columns (mu, A, sigma, tau1, tau2, model, name)
-        if self.table.columnCount() < 7:
-            self.table.setColumnCount(7)
-            self.table.setHorizontalHeaderLabels(
-                ["mu", "A", "sigma", "tau1", "tau2", "model", "name"]
-            )
-
-        was_sorting = self.table.isSortingEnabled()
-        if was_sorting:
-            self.table.setSortingEnabled(False)
-
-        row = self.table.rowCount()
-        self.table.insertRow(row)
-
-        # ---- helpers ----
-        def _coerce_float(v):
-            try:
-                f = float(v)
-                return f if math.isfinite(f) else None
-            except Exception:
-                return None
-
-        def _fmt_num(v):
-            f = _coerce_float(v)
-            return f"{f:.6g}" if f is not None else ""
-
-        def _add_cell(col, text, editable=False, align_right=True):
-            it = QTableWidgetItem(text)
-            # Right-align numeric columns for readability
-            if align_right:
-                it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            if not editable:
-                it.setFlags(it.flags() & ~Qt.ItemIsEditable)
-            self.table.setItem(row, col, it)
-            return it
-
-        # ---- normalize taus (support single-tail dicts that only carry 'tau') ----
-        t1 = p.get("tau1", p.get("tau", None))
-        t2 = p.get("tau2", p.get("tau", None))
-
-        # ---- fill cells ----
-        _add_cell(0, _fmt_num(p.get("mu", None)))
-        _add_cell(1, _fmt_num(p.get("A", None)))
-        _add_cell(2, _fmt_num(p.get("sigma", None)))
-        _add_cell(3, _fmt_num(t1))
-        _add_cell(4, _fmt_num(t2))
-        _add_cell(5, str(p.get("model", "")), align_right=False)
-
-        name_text = p.get("name", "")
-        name_item = _add_cell(6, name_text, editable=True, align_right=False)
-
-        # Optionally stash raw numeric values for future use (e.g., export)
-        # in case the display text was formatted:
-        # (Qt's sort uses display text; for true numeric sort, you'd subclass QTableWidgetItem.)
-        self.table.item(row, 0).setData(Qt.UserRole, _coerce_float(p.get("mu", None)))
-        self.table.item(row, 1).setData(Qt.UserRole, _coerce_float(p.get("A", None)))
-        self.table.item(row, 2).setData(Qt.UserRole, _coerce_float(p.get("sigma", None)))
-        self.table.item(row, 3).setData(Qt.UserRole, _coerce_float(t1))
-        self.table.item(row, 4).setData(Qt.UserRole, _coerce_float(t2))
-
-        if was_sorting:
-            self.table.setSortingEnabled(True)
-
-    def on_append(self):
-        if not self.pending:
-            QMessageBox.information(self, "Append", "No current fit to append.")
-            return
-        p = self.pending.copy()
-        label = self.name_edit.text().strip()
-        if not label:
-            # fallback if user left it blank
-            label = p.get('name') or p.get('spectrum', '') or "untitled"
-        p['name'] = label
-        self.data.append(p)
-        self._append_row(p)
-        self.pending = None
-        self.hint.setText("Last fit: (appended)")
-        self.name_edit.clear()
-
-    def on_load(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Load CSV", "", "CSV files (*.csv)")
-        if not path: return
-        try:
-            import csv
-            was_sorting = self.table.isSortingEnabled()
-            if was_sorting:
-                self.table.setSortingEnabled(False)
-
-            self.table.setRowCount(0)
-            self.data = []
-
-            with open(path, newline='') as f:
-                rdr = csv.DictReader(f)
-                for r in rdr:
-                    name = r.get('name', r.get('spectrum', ''))
-                    p = {
-                        'mu': float(r.get('mu', 'nan')),
-                        'A': float(r.get('A', 'nan')),
-                        'sigma': float(r.get('sigma', 'nan')),
-                        'tau1': float(r.get('tau1', 'nan')),
-                        'tau2': float(r.get('tau2', 'nan')),
-                        'model': r.get('model', 'AlphaEMG12'),
-                        'name': name,
-                    }
-                    self.data.append(p)
-                    self._append_row(p)
-
-            if was_sorting:
-                self.table.setSortingEnabled(True)
-        except Exception as e:
-            QMessageBox.warning(self, "Load CSV", f"Failed to load CSV:\n{e}")
-
-
-    def on_plot(self):
-        if not self.data:
-            QMessageBox.information(self, "Plot", "No data to plot. Append or load first.")
-            return
-
-        # keep only rows with required fields and finite numbers
-        def _finite(p, k):
-            try: return np.isfinite(float(p.get(k, np.nan)))
-            except Exception: return False
-        pts = [p for p in self.data
-               if all(k in p for k in ('mu','A','sigma')) and
-                  (_finite(p,'mu') and _finite(p,'A') and _finite(p,'sigma'))]
-        # tolerate single-tail rows by copying tau → tau1=tau2=tau
-        for p in pts:
-            if 'tau1' not in p and 'tau' in p: p['tau1'] = p['tau']
-            if 'tau2' not in p and 'tau' in p: p['tau2'] = p['tau']
-        pts = [p for p in pts if _finite(p,'tau1') and _finite(p,'tau2')]
-        pts = sorted(pts, key=lambda d: float(d['mu']))
-
-        mu   = np.array([float(d['mu'])    for d in pts])
-        Aval = np.array([float(d['A'])     for d in pts])
-        sig  = np.array([float(d['sigma']) for d in pts])
-        tau1 = np.array([float(d['tau1'])  for d in pts])
-        tau2 = np.array([float(d['tau2'])  for d in pts])
-
-        # Reuse a single window if already open
-        if not hasattr(self, "_plot_fig") or self._plot_fig is None:
-            self._plot_fig, self._plot_axs = plt.subplots(4, 1, sharex=True, figsize=(8, 8))
-            try:
-                self._plot_fig.canvas.manager.set_window_title("Fit parameters vs μ (energy)")
-            except Exception:
-                pass
-        fig, axs = self._plot_fig, self._plot_axs
-        # Clear and redraw
-        for ax in axs: ax.cla()
-        axs[0].plot(mu, Aval, marker='o'); axs[0].set_ylabel("A")
-        axs[1].plot(mu, sig,  marker='o'); axs[1].set_ylabel("σ")
-        axs[2].plot(mu, tau1, marker='o', label="τ₁"); axs[2].set_ylabel("τ")
-        axs[2].plot(mu, tau2, marker='o', label="τ₂"); axs[2].legend(loc="best")
-        # Optional combined view of τ ratio or Δτ for diagnostics
-        axs[3].plot(mu, tau2 - tau1, marker='o'); axs[3].set_ylabel("τ₂ - τ₁")
-        axs[3].set_xlabel("μ (energy)")
-        fig.tight_layout()
-        plt.show(block=False)
-
-
-    def on_save(self):
-        if not self.data:
-            QMessageBox.information(self, "Save CSV", "No data to save.")
-            return
-        path, _ = QFileDialog.getSaveFileName(self, "Save CSV", "", "CSV files (*.csv)")
-        if not path:
-            return
-        try:
-            import csv
-            with open(path, "w", newline="") as f:
-                w = csv.DictWriter(f, fieldnames=["mu","A","sigma","tau1","tau2","model","name"])
-                w.writeheader()
-                for d in self.data:
-                    w.writerow({
-                        "mu": d.get("mu",""),
-                        "A": d.get("A",""),
-                        "sigma": d.get("sigma",""),
-                        "tau1": d.get("tau1",""),
-                        "tau2": d.get("tau2",""),
-                        "model": d.get("model",""),
-                        "name": d.get("name",""),
-                    })
-            QMessageBox.information(self, "Save CSV", f"Saved to:\n{path}")
-        except Exception as e:
-            QMessageBox.warning(self, "Save CSV", f"Could not save:\n{e}")

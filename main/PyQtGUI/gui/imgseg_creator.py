@@ -1,10 +1,9 @@
 #!/usr/bin/env python
-import io
 import sys, os
 sys.path.append(os.getcwd())
 
 import cv2
-import algo_factory
+import algo_factory  # noqa: F401 - keep import so the factory can discover this module
 from ImgSegPlot import ImgSegPlot
 
 # KMean algo parameters (cv.kmeans())

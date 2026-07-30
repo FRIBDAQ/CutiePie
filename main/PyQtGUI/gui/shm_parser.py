@@ -1,5 +1,6 @@
 #!/usr/bin/python3
-import os, sys, re
+import os
+import sys
 import json
 import httplib2
 

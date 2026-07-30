@@ -1,9 +1,6 @@
-import random
-import numpy as np
 import matplotlib
 matplotlib.use("Qt5Agg")
 import matplotlib.pyplot as plt
-import matplotlib.cm as cm
 import matplotlib.gridspec as gridspec
 #### Bashir imports
 # import time
@@ -244,7 +241,6 @@ class Plot(QWidget):
         self.logScale = False
         # drawing tools
         self.isLoaded = False
-        self.isFull = False
         self.isEnlarged = False #Tells if the canvas is in single pad mode
         self.isSelected = False
         self.rec = None

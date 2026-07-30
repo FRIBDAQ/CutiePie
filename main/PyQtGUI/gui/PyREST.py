@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-import io
 import json, httplib2
 import threading
 import urllib.parse

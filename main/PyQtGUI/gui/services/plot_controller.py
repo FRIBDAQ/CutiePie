@@ -324,7 +324,6 @@ class PlotController(QObject):
                 return list(ax.get_xlim()), list(ax.get_ylim())
         except Exception:
             self.logger.debug('getAxisProperties - exception occured', exc_info=True)
-            pass
 
     # ------------------------------------------------------------------
     # Zoom / toolbar callbacks
@@ -578,7 +577,6 @@ class PlotController(QObject):
             cp.canvas.draw()
         except Exception:
             self.logger.debug('okCutoff - exception', exc_info=True)
-            pass
 
         self.cutoffPopupCloseRequested.emit()
 
@@ -658,7 +656,6 @@ class PlotController(QObject):
                 cb.remove()
             except Exception:
                 self.logger.debug('removeCb - IndexError exception', exc_info=True)
-                pass
 
     def select_plot(self, index):
         self.logger.info('select_plot - index: %s', index)
@@ -836,7 +833,6 @@ class PlotController(QObject):
                     self._layout_dirty = False
                 except ValueError:
                     self.logger.debug('addPlot - ValueError exception', exc_info=True)
-                    pass
 
                 cp.canvas.draw_idle()
                 cp.isSelected = False
@@ -1150,39 +1146,3 @@ class PlotController(QObject):
         except NameError:
             raise
 
-    # ------------------------------------------------------------------
-    # Debug helpers
-    # ------------------------------------------------------------------
-
-    def axesChilds(self):
-        try:
-            cp = self._get_current_plot()
-            for ax in cp.figure.axes:
-                print("Simon - axes ---------------------------- ", ax)
-                for child in ax.get_children():
-                    print("Simon - axesChilds - ", child)
-                    if type(child) == matplotlib.lines.Line2D:
-                        print("Simon - axesChild get_c", child.get_c())
-                        print("Simon - axesChild get_lw", child.get_lw())
-                        print("Simon - axesChild get_ls", child.get_ls())
-                        print("Simon - axesChild get_xdata:", child.get_xdata())
-                        print("Simon - axesChild get_ydata:", child.get_ydata())
-        except NameError:
-            raise
-
-    def axesChildsTest(self, axis=None):
-        try:
-            dumTypeList = []
-            if type(axis) == type(dumTypeList):
-                return
-            print("Simon - axes ---------------------------- ", axis)
-            for child in axis.get_children():
-                print("Simon - axesChilds - ", child)
-                if type(child) == matplotlib.lines.Line2D:
-                    print("Simon - axesChild get_c", child.get_c())
-                    print("Simon - axesChild get_lw", child.get_lw())
-                    print("Simon - axesChild get_ls", child.get_ls())
-                    print("Simon - axesChild get_xdata:", child.get_xdata())
-                    print("Simon - axesChild get_ydata:", child.get_ydata())
-        except NameError:
-            raise

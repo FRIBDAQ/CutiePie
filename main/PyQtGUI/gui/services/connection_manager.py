@@ -6,7 +6,6 @@ from PyQt5.QtCore import QThread, QTimer, pyqtSignal, pyqtSlot
 from PyQt5 import QtCore
 
 from PyREST import PyREST
-from services.spectrum_store import SpectrumStore
 from services.thread_workers import RestWorker, AutoUpdateWorker, ConnectWorker, parse_binding_entry
 
 

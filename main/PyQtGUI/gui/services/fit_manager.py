@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 from PyQt5.QtWidgets import (
     QMessageBox, QFileDialog, QDialog, QLabel, QPushButton, QCheckBox,
-    QHBoxLayout, QVBoxLayout, QInputDialog, QTextEdit, QApplication,
+    QHBoxLayout, QVBoxLayout, QInputDialog, QTextEdit,
 )
 from PyQt5.QtCore import Qt, QObject, QSettings, QEventLoop, pyqtSignal
 

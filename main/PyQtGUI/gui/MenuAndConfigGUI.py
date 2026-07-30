@@ -1,12 +1,8 @@
 import os
 import getpass
-import numpy as np
 import matplotlib
 matplotlib.use("Qt5Agg")
-import matplotlib.pyplot as plt
-import matplotlib.cm as cm
 
-from PyQt5 import QtCore
 from PyQt5.QtWidgets import (
     QComboBox, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QToolButton,

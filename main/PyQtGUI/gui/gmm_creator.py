@@ -1,15 +1,12 @@
 #!/usr/bin/env python
-import io
 import sys, os
 sys.path.append(os.getcwd())
 
 import numpy as np
-from sklearn import metrics
 from sklearn.mixture import GaussianMixture
-from itertools import chain, compress, zip_longest
 from matplotlib.patches import Ellipse
 
-import algo_factory
+import algo_factory  # noqa: F401 - keep import so the factory can discover this module
         
 # GMM algo parameters (sklearn.mixture.GaussianMixture)
 # n_components=1,        // The number of mixture components.

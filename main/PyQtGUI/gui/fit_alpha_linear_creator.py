@@ -47,9 +47,8 @@ if _here not in sys.path:
     sys.path.insert(0, _here)
 
 from fit_alpha_base import (
-    _GL7_T, _GL7_W, _GL3_T, _GL3_W, _INV_SQRT2,
-    _safe_name, _parse_percent,
-    _emg_one_tail_stable, _emg_two_tail_stable,
+    _GL7_T, _GL7_W, _GL3_T, _GL3_W, _safe_name,
+    _parse_percent, _emg_two_tail_stable,
 )
 
 USE_GL3 = False  # set True for speed

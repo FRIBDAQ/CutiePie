@@ -2,8 +2,6 @@ from PyQt5.QtCore import pyqtSlot, QSettings, QTimer, QUrl, Qt
 from PyQt5.QtGui import QCloseEvent
 from PyQt5.QtWidgets import QMainWindow, QMessageBox, QDockWidget, QPlainTextEdit, QTabWidget
 from PyQt5.QtWebEngineWidgets import QWebEngineView as QWebView
-from PyQt5.QtWebEngineWidgets import QWebEnginePage as QWebPage
-from PyQt5.QtWebEngineWidgets import QWebEngineSettings as QWebSettings
 
 from logger import log
 

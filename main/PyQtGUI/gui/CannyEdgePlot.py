@@ -1,24 +1,16 @@
 import matplotlib
 matplotlib.use("Qt5Agg")
-import matplotlib.pyplot as plt
-import matplotlib.cm as cm
 
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout)
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
-from mpl_toolkits.mplot3d import Axes3D
 
-from sklearn import metrics
-from sklearn.cluster import KMeans
-from sklearn.mixture import GaussianMixture
-from sklearn.preprocessing import StandardScaler
 
 from scipy import ndimage
 from scipy.ndimage.filters import convolve
 
-from scipy import misc
 import numpy as np
 
 import cv2

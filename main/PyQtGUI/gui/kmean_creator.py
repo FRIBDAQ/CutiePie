@@ -1,15 +1,13 @@
 #!/usr/bin/env python
-import io
 import sys, os
 sys.path.append(os.getcwd())
 
 import numpy as np
-from sklearn import metrics
 from sklearn.cluster import KMeans
-from itertools import chain, compress, zip_longest
+from itertools import compress
 from matplotlib.patches import Circle
 
-import algo_factory
+import algo_factory  # noqa: F401 - keep import so the factory can discover this module
 
 # KMean algo parameters (sklearn.cluster.KMeans)
 # n_clusters=8,                             // The number of clusters to form as well as the number of centroids to generate.
