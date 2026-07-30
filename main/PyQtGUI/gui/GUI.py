@@ -471,8 +471,16 @@ class MainWindow(QMainWindow):
         self.peak2_fits = []
         self.peak2_count = 0
 
-        # overlay
+        # overlay: onFigure says whether one is up; imgplot/overlay_ax are the
+        # live artists (None until Add) and LISEpic the image (None until Load).
+        # Delete and the four nudge buttons are wired straight to Qt slots, so
+        # these have to exist before the first click, not after the first draw.
         self.onFigure = False
+        self.LISEpic = None
+        self.imgplot = None
+        self.overlay_ax = None
+        self.xstart = 0.0
+        self.ystart = 0.0
 
 
         # Bool set by extra options -> differentiate gates 
@@ -3701,38 +3709,67 @@ class MainWindow(QMainWindow):
             # crash the GUI, but must not be silent either.
             self.logger.exception('loadFigure - image load failed')
 
-    def fineUpMove(self):
+    def _removeOverlayArtist(self):
+        """Detach the overlay image and its axes if one is drawn; True when
+        there was something to remove.
+
+        The axes goes too. drawFigure adds a fresh one on every call and only
+        the image used to be removed, so a slider drag (valueChanged fires
+        continuously) appended one empty axes per tick to figure.axes — the
+        same list the pad lookups index (`list(figure.axes).index(inaxes)`), so
+        a click on a leaked axes answers with an index past the end of the grid.
+        A geometry change or an enlarge detaches the axes behind our back
+        (InitializeCanvas delaxes everything), hence the membership test. Both
+        artists are removed from whatever figure they were drawn on rather than
+        from currentPlot's, which is a different figure once the user has
+        switched tabs."""
+        if self.imgplot is None:
+            return False
         self.imgplot.remove()
-        self.xstart, self.ystart = apply_fine_move(self.xstart, self.ystart, "up")
+        self.imgplot = None
+        if self.overlay_ax is not None:
+            fig = self.overlay_ax.figure
+            if fig is not None and self.overlay_ax in fig.axes:
+                fig.delaxes(self.overlay_ax)
+            self.overlay_ax = None
+        return True
+
+    def _fineMove(self, direction):
+        if not self._removeOverlayArtist():
+            return
+        self.xstart, self.ystart = apply_fine_move(self.xstart, self.ystart, direction)
         self.drawFigure()
 
-    def fineDownMove(self):
-        self.imgplot.remove()
-        self.xstart, self.ystart = apply_fine_move(self.xstart, self.ystart, "down")
-        self.drawFigure()
+    def fineUpMove(self):    self._fineMove("up")
 
-    def fineLeftMove(self):
-        self.imgplot.remove()
-        self.xstart, self.ystart = apply_fine_move(self.xstart, self.ystart, "left")
-        self.drawFigure()
+    def fineDownMove(self):  self._fineMove("down")
 
-    def fineRightMove(self):
-        self.imgplot.remove()
-        self.xstart, self.ystart = apply_fine_move(self.xstart, self.ystart, "right")
-        self.drawFigure()
+    def fineLeftMove(self):  self._fineMove("left")
+
+    def fineRightMove(self): self._fineMove("right")
+
+    def _redrawOverlay(self):
+        """Slider handlers: redraw the overlay in place, or do nothing when
+        none is up. Deliberately leaves onFigure alone — routing these through
+        deleteFigure cleared the flag while the image stayed on screen, and the
+        next Add then drew a second overlay over the first."""
+        if self._removeOverlayArtist():
+            self.drawFigure()
 
     def moveFigure(self):
         self.logger.info('moveFigure')
         try:
-            self.imgplot.remove()
+            if not self._removeOverlayArtist():
+                return
             self.xstart, self.ystart = apply_joystick_move(
                 self.xstart, self.ystart,
                 self.extraPopup.imaging.joystick.direction,
                 self.extraPopup.imaging.joystick.distance)
             self.drawFigure()
         except Exception:
-            # Best-effort overlay nudge — a bad joystick read or a missing
-            # imgplot must not crash the GUI, but must not be silent either.
+            # Best-effort overlay nudge — a bad joystick read must not crash the
+            # GUI, but must not be silent either. (The missing-overlay case is
+            # handled above now, not by this clause.)
             self.logger.exception('moveFigure - overlay move failed')
 
     def indexToStartPosition(self, index):
@@ -3744,11 +3781,18 @@ class MainWindow(QMainWindow):
 
     def drawFigure(self):
         self.logger.info('drawFigure')
+        if self.LISEpic is None:
+            # Reachable from a redraw when a later Load failed under a live
+            # overlay (cv2.imread answers None instead of raising): the image
+            # is gone from the canvas, so the flag must not still claim one.
+            self.logger.warning('drawFigure - no image loaded')
+            self.onFigure = False
+            return
         self.alpha = self.extraPopup.imaging.alpha_slider.value()/10
         self.zoomX = self.extraPopup.imaging.zoomX_slider.value()/10
         self.zoomY = self.extraPopup.imaging.zoomY_slider.value()/10
 
-        ax = self.currentPlot.figure.add_axes(
+        self.overlay_ax = ax = self.currentPlot.figure.add_axes(
             [self.xstart, self.ystart, self.zoomX, self.zoomY], frameon=True)
         ax.axis('off')
         self.imgplot = ax.imshow(self.LISEpic,
@@ -3759,47 +3803,42 @@ class MainWindow(QMainWindow):
 
     def deleteFigure(self):
         self.logger.info('deleteFigure')
-        self.imgplot.remove()
+        if not self._removeOverlayArtist():
+            return
         self.onFigure = False
         self.currentPlot.canvas.draw()
 
     def transFigure(self):
         self.logger.info('transFigure')
         self.extraPopup.imaging.alpha_label.setText("Transparency Level ({} %)".format(self.extraPopup.imaging.alpha_slider.value()*10))
-        try:
-            self.deleteFigure()
-            self.drawFigure()
-        except Exception:
-            self.logger.debug('transFigure - no overlay to redraw', exc_info=True)
+        self._redrawOverlay()
 
     def zoomFigureX(self):
         self.logger.info('zoomFigureX')
         self.extraPopup.imaging.zoomX_label.setText("Zoom X Level ({} %)".format(self.extraPopup.imaging.zoomX_slider.value()*10))
-        try:
-            self.deleteFigure()
-            self.drawFigure()
-        except Exception:
-            self.logger.debug('zoomFigureX - no overlay to redraw', exc_info=True)
+        self._redrawOverlay()
 
     def zoomFigureY(self):
         self.logger.info('zoomFigureY')
         self.extraPopup.imaging.zoomY_label.setText("Zoom Y Level ({} %)".format(self.extraPopup.imaging.zoomY_slider.value()*10))
-        try:
-            self.deleteFigure()
-            self.drawFigure()
-        except Exception:
-            self.logger.debug('zoomFigureY - no overlay to redraw', exc_info=True)
+        self._redrawOverlay()
 
     def addFigure(self):
         self.logger.info('addFigure')
-        try:
-            self.indexToStartPosition(self.currentPlot.selected_plot_index)
-            if self.onFigure == False:
-                self.drawFigure()
-                self.onFigure = True
-        except NameError:
-            raise
-            #QMessageBox.about(self, "Warning", "Please select one histogram...")
+        if self.LISEpic is None:
+            QMessageBox.warning(self, "Overlay", "Load an image first.")
+            return
+        # plotPosition returns None for an unselected pad, so the unpack in
+        # indexToStartPosition raises TypeError — this is the case the old
+        # `except NameError: raise` was reaching for and never caught.
+        if self.currentPlot.selected_plot_index is None:
+            QMessageBox.warning(self, "Overlay", "Please select one histogram.")
+            return
+        if self.onFigure:
+            return
+        self.indexToStartPosition(self.currentPlot.selected_plot_index)
+        self.drawFigure()
+        self.onFigure = True
 
     ############################
     # 16) Jupyter Notebook
