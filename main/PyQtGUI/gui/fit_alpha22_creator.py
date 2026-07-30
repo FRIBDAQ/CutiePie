@@ -40,29 +40,6 @@ def _peak_binned(x, A, mu, s, t1, t2, eta, bw):
     return _bin_integral(_emg_two_tail_stable, x, bw, A, mu, s, t1, t2, eta)
 
 
-def _emg_two_tail(x, A, mu, sigma, tau_fast, tau_slow, eta):
-    """
-    Single EMG peak with two-tail mixture; left-tailed; erfcx-stable.
-    eta in [0,1] is FIXED per peak by the GUI/user (we still pass it as a param with vary=False).
-    """
-    x = np.asarray(x, dtype=float)
-    sigma    = max(float(sigma),    1e-9)
-    tau_fast = max(float(tau_fast), 1e-9)
-    tau_slow = max(float(tau_slow), 1e-9)
-    eta      = float(np.clip(eta, 0.0, 1.0))
-
-    inv_sigma = 1.0 / sigma
-    dx = (x - mu) * inv_sigma
-    g  = np.exp(-0.5 * dx * dx)
-
-    zf = (dx + sigma / tau_fast) * _INV_SQRT2
-    zs = (dx + sigma / tau_slow) * _INV_SQRT2
-
-    tail = (1.0 - eta) * erfcx(zf) / tau_fast + eta * erfcx(zs) / tau_slow
-    return 0.5 * A * g * tail
-
-    # erfcx(z) = exp(z^2) * erfc(z) is the scaled complementary error function
-
 ################################## Stable two-tail ###################################################
 def _emg_one_tail_stable(x, A, mu, sigma, tau):
     """

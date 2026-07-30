@@ -37,7 +37,7 @@ if _here not in sys.path:
 
 import numpy as np
 from lmfit import Model, Parameters, fit_report
-from scipy.special import erfcx
+from scipy.special import erfcx, erfc
 
 import fit_factory  # keep import so the factory can discover this module  # noqa: F401
 
@@ -49,25 +49,51 @@ except Exception:
 
 
 
-def _emg_tail_mixture(x, A, mu, sigma, tau1, tau2, eta):
-    x = np.asarray(x)  # preserve dtype of input
+def _emg_one_tail_stable(x, A, mu, sigma, tau):
+    """
+    Numerically stable single EMG tail, same sign convention as this module
+    (u = sigma/tau + (x-mu)/sigma). Ported from fit_alpha22_creator, which
+    already carried this form.
 
+    The direct expression g*erfcx(z) blows up far to the left of the peak:
+    erfcx(z) = exp(z^2)*erfc(z) overflows to +inf once z is below about -26.6,
+    while g = exp(-dx^2/2) has already underflowed to exactly 0.0, so the
+    product is 0*inf = NaN and lmfit aborts the whole fit. The two branches
+    below are algebraically identical but each stays in range:
+      u >= 0 : g * erfcx(u)                       (erfcx(u) <= 1 there)
+      u <  0 : exp( (sigma/tau)^2/2 + (x-mu)/tau ) * erfc(u)
+    In the second branch u < 0 implies (x-mu)/tau < -(sigma/tau)^2, so that
+    exponent is always <= -(sigma/tau)^2/2 <= 0 and cannot overflow either.
+
+    NOTE: fit_alpha_base._emg_one_tail_stable is NOT interchangeable with this
+    one — it uses the opposite sign (its own module docstring says so), so
+    swapping it in would mirror the tail.
+    """
+    x = np.asarray(x, dtype=float)
     sigma = max(float(sigma), 1e-9)
-    tau1  = max(float(tau1),  1e-9)
-    tau2  = max(float(tau2),  1e-9)
-    eta   = float(np.clip(eta, 0.0, 1.0))
+    tau   = max(float(tau),   1e-9)
 
+    pref = 0.5 * A / tau
     inv_sigma = 1.0 / sigma
-    dx = (x - mu) * inv_sigma
-    g = np.exp(-0.5 * dx * dx)
+    u = _INV_SQRT2 * ((sigma / tau) + ((x - mu) * inv_sigma))
 
-    z1 = (dx + sigma / tau1) * _INV_SQRT2
-    z2 = (dx + sigma / tau2) * _INV_SQRT2
+    out = np.empty_like(x)
+    m = (u >= 0.0)
+    if np.any(m):
+        g = np.exp(-0.5 * ((x[m] - mu) * inv_sigma) ** 2)
+        out[m] = pref * g * erfcx(u[m])
+    if np.any(~m):
+        expfac = np.exp(0.5 * (sigma / tau) ** 2 + (x[~m] - mu) / tau)
+        out[~m] = pref * expfac * erfc(u[~m])
 
-    tail = (1.0 - eta) * erfcx(z1) / tau1 + eta * erfcx(z2) / tau2
-    return 0.5 * A * g * tail
+    # far-out tails can still round to non-finite; they are physically zero
+    return np.where(np.isfinite(out), out, 0.0)
 
-    # erfcx(z) = exp(z^2) * erfc(z) is the scaled complementary error function
+
+def _emg_tail_mixture(x, A, mu, sigma, tau1, tau2, eta):
+    eta = float(np.clip(eta, 0.0, 1.0))
+    return ((1.0 - eta) * _emg_one_tail_stable(x, A, mu, sigma, tau1)
+            + (      eta) * _emg_one_tail_stable(x, A, mu, sigma, tau2))
 
 
 def _bin_integral(fun, x, bw, *args):
@@ -104,8 +130,10 @@ def pick(ui, auto):
     return float(v) if np.isfinite(v) and v != 0 else float(auto)
 
 def _get(params, name):
-    """One fitted value out of an lmfit Parameters mapping, or NaN when the
-    model has no such parameter (eta/tau2 are absent in the reduced forms).
+    """One fitted value out of an lmfit Parameters mapping, or NaN if the name
+    is absent. This model always builds all six (eta is added on both branches,
+    tau2 is the expression tau1+dtau), so a NaN in the results CSV means
+    something went wrong — it is not a normal reduced-model reading.
 
     `params` is passed in rather than closed over: the sibling creators define
     this nested inside `start`, where `p = res.params` is in scope, and hoisting
