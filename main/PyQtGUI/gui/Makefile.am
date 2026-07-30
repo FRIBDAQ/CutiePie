@@ -20,6 +20,8 @@ install-exec-hook:
 	$(INSTALL_DATA) @srcdir@/*.py @prefix@/Script
 	$(mkinstalldirs) @prefix@/Script/services
 	$(INSTALL_DATA) @srcdir@/services/*.py @prefix@/Script/services
+	$(mkinstalldirs) @prefix@/Script/adapters
+	$(INSTALL_DATA) @srcdir@/adapters/*.py @prefix@/Script/adapters
 	$(INSTALL_DATA) @srcdir@/Main.py @prefix@/Skel 
 	$(INSTALL_DATA) @srcdir@/algo_skel_creator.py @prefix@/Skel
 	$(INSTALL_DATA) @srcdir@/fit_skel_creator.py @prefix@/Skel
@@ -42,4 +44,4 @@ EXTRA_DIST = Main.py GUI.py connectConfigGUI.py MenuAndConfigGUI.py \
 	WebWindow.py notebook_process.py logger.py jupyterqtpy_notebook_config.py d3.js SpecialFunctionsGUI.py PyREST.py CopyPropertiesGUI.py \
 	services/__init__.py services/spectrum_store.py services/thread_workers.py \
 	services/fit_manager.py services/gate_manager.py services/sum_region_manager.py \
-	services/connection_manager.py services/plot_controller.py
+	services/connection_manager.py services/plot_controller.py adapters/fit_adapter.py
