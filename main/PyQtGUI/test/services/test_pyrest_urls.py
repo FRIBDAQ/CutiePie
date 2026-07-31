@@ -107,3 +107,60 @@ def test_integrate2d_coordinates_are_encoded(rest):
     assert [v for k, v in pairs if k == "xcoord"] == ["1.5", "3.0"]
     assert [v for k, v in pairs if k == "ycoord"] == ["2.5", "4.0"]
     assert query_of(rest.sent[-1])["spectrum"] == "spec name"
+
+
+# ------------------------------------------- L13: getSpectrumStats returns a list
+#
+# C3 hardened the 13 list-promising endpoints to `return detail if
+# isinstance(detail, list) else []`, because SpecTcl answers an error with a
+# string or an int in "detail" and a list-consuming caller then indexes it as if
+# it were one of the objects — the original crash was `TypeError: string indices
+# must be integers`. getSpectrumStats was dormant during that sweep and was
+# missed; the Jupyter statistics export later put it on a live path.
+
+
+@pytest.fixture
+def replying(pyrest_cls):
+    """A PyREST whose transport returns whatever bytes the test hands it."""
+    def make(payload):
+        r = pyrest_cls.__new__(pyrest_cls)
+        r.server, r.rest = "spechost", "8080"
+        r.sendRequest = lambda url: payload
+        return r
+    return make
+
+
+GOOD_STATS = (b'{"status": "OK", "detail": ['
+              b'{"name": "raw00", "underflows": [3], "overflows": [7]}]}')
+
+
+def test_spectrum_stats_returns_the_detail_list(replying):
+    entries = replying(GOOD_STATS).getSpectrumStats()
+    assert entries == [{"name": "raw00", "underflows": [3], "overflows": [7]}]
+
+
+@pytest.mark.parametrize("detail", [
+    '"no such spectrum"',      # the C3 case: an error string
+    "17",                      # an int
+    '{"name": "raw00"}',       # a bare object rather than a list of them
+    "null",
+])
+def test_non_list_detail_becomes_an_empty_list(replying, detail):
+    payload = ('{"status": "ERROR", "detail": %s}' % detail).encode()
+    assert replying(payload).getSpectrumStats() == []
+
+
+def test_missing_detail_key_becomes_an_empty_list(replying):
+    assert replying(b'{"status": "OK"}').getSpectrumStats() == []
+
+
+def test_no_response_returns_an_empty_list_not_a_dict(replying):
+    """It used to return {} here — a dict from a list-promising endpoint."""
+    assert replying(None).getSpectrumStats() == []
+
+
+def test_the_error_string_is_not_indexable_as_an_object(replying):
+    """What the guard prevents, stated as the caller would hit it."""
+    entries = replying(b'{"status": "ERROR", "detail": "no such spectrum"}').getSpectrumStats()
+    assert isinstance(entries, list)          # pre-fix: the error string itself
+    assert [e["name"] for e in entries if isinstance(e, dict)] == []

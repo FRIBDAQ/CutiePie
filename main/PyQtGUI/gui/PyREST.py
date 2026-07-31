@@ -590,13 +590,16 @@ class PyREST:
     # name
     # underflows - array of per-axis underflow counts (x, then y for 2-d spectra)
     # overflows - array of per-axis overflow counts (x, then y for 2-d spectra)
+    # Always a list: SpecTcl answers an error with a string or an int in
+    # "detail", which a caller iterating the objects would index as if it were
+    # one of them. The other list-returning endpoints here make the same promise.
     def getSpectrumStats(self, pattern="*"):
         url = self._build_url("spectcl/specstats", filter=str(pattern))
         response = self.sendRequest(url)
         if response is None :
-            return {}
-        stats_dict = json.loads(response.decode())
-        return stats_dict["detail"]
+            return []
+        detail = json.loads(response.decode()).get("detail", [])
+        return detail if isinstance(detail, list) else []
 
 
     ############################################################
