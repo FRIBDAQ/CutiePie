@@ -49,7 +49,7 @@ os.environ['XDG_RUNTIME_DIR'] = os.getcwd()
 
 from PyQt5 import QtCore
 from PyQt5.QtWidgets import (
-    QApplication, QCheckBox, QDialog,
+    QApplication, QDialog,
     QFileDialog, QFormLayout, QGridLayout, QHBoxLayout, QInputDialog,
     QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox, QPushButton,
     QListWidgetItem, QShortcut, QTabBar,
@@ -2225,16 +2225,18 @@ class MainWindow(QMainWindow):
     def applyCopy(self):
         self.logger.info('applyCopy')
         try:
-            flags = []
-            discard = ["Ok", "Cancel", "Apply", "Select all", "Deselect all"]
+            # read each property checkbox by name; a positional list built from
+            # findChildren() would silently re-point if CopyProperties ever
+            # reorders or gains a checkbox. histoAll is the master toggle, not a
+            # property, so it is not one of these.
+            copy_xlim  = self.copyAttr.axisLimitX.isChecked()
+            copy_ylim  = self.copyAttr.axisLimitY.isChecked()
+            copy_scale = self.copyAttr.axisScale.isChecked()
+            copy_minz  = self.copyAttr.histoScaleminZ.isChecked()
+            copy_maxz  = self.copyAttr.histoScalemaxZ.isChecked()
 
-            for instance in self.copyAttr.findChildren(QCheckBox):
-                if instance.isChecked():
-                    flags.append(True)
-                else:
-                    flags.append(False)
-
-            self.logger.debug('applyCopy - flags: %s', flags)
+            self.logger.debug('applyCopy - x: %s, y: %s, scale: %s, minz: %s, maxz: %s',
+                              copy_xlim, copy_ylim, copy_scale, copy_minz, copy_maxz)
 
             dim = self.getSpectrumStoreInfo("dim", index=self.currentPlot.selected_plot_index)
             indexes = []
@@ -2244,6 +2246,7 @@ class MainWindow(QMainWindow):
             scale_src = None
 
             # creating list of target histograms
+            discard = ["Ok", "Cancel", "Apply", "Select all", "Deselect all"]
             for instance in self.copyAttr.findChildren(QPushButton):
                 if instance.text() not in discard and instance.isChecked():
                     labelPos = self.copyAttr.copy_log.labelForField(instance)
@@ -2272,17 +2275,17 @@ class MainWindow(QMainWindow):
             # copy to destination
             for index in indexes:
                 # set the limits for x,y
-                if flags[0]:
+                if copy_xlim:
                     self.setSpectrumViewInfo(minx=xlim_src[0], index=index)
                     self.setSpectrumViewInfo(maxx=xlim_src[1], index=index)
-                if flags[1]:
+                if copy_ylim:
                     self.setSpectrumViewInfo(miny=ylim_src[0], index=index)
                     self.setSpectrumViewInfo(maxy=ylim_src[1], index=index)
                 # set log/lin scale
-                if flags[2]:
+                if copy_scale:
                     self.setSpectrumViewInfo(log=scale_src_bool, index=index)
-                # set minZ/maxZ
-                if dim == 2 and (flags[3] or flags[4]):
+                # set minZ/maxZ (either box copies both bounds)
+                if dim == 2 and (copy_minz or copy_maxz):
                     self.setSpectrumViewInfo(minz=zlim_src[0], index=index)
                     self.setSpectrumViewInfo(maxz=zlim_src[1], index=index)
                 # apply to the target axes directly: updatePlot's only
@@ -2291,15 +2294,15 @@ class MainWindow(QMainWindow):
                 ax = self.getSpectrumViewInfo("axis", index=index)
                 if ax is None:
                     continue
-                if flags[0]:
+                if copy_xlim:
                     ax.set_xlim(xlim_src[0], xlim_src[1])
-                if flags[1]:
+                if copy_ylim:
                     ax.set_ylim(ylim_src[0], ylim_src[1])
-                if dim == 2 and (flags[3] or flags[4]):
+                if dim == 2 and (copy_minz or copy_maxz):
                     spectrum = self.getSpectrumViewInfo("spectrum", index=index)
                     if spectrum is not None:
                         spectrum.set_clim(zlim_src[0], zlim_src[1])
-                if flags[2]:
+                if copy_scale:
                     self.setAxisScale(ax, index, "log")
             self.updatePlot()
         except Exception:
