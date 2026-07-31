@@ -2274,13 +2274,26 @@ class MainWindow(QMainWindow):
 
             # copy to destination
             for index in indexes:
+                # the target axes are read up front because the y bottom has to
+                # be clamped before it is stored, not only before it is drawn: a
+                # linear source pad reports a zero or slightly negative bottom,
+                # and a log-scaled target rejects that outright (matplotlib warns
+                # and keeps its own, so only half the range copies). Clamp to the
+                # same floor setAxisScale uses for its log branch. With no axes
+                # yet the scale is unknowable, so the raw value is stored and
+                # setAxisScale clamps it on read as before.
+                ax = self.getSpectrumViewInfo("axis", index=index)
+                ymin_dst, ymax_dst = ylim_src[0], ylim_src[1]
+                if ax is not None and ax.get_yscale() == "log" and ymin_dst <= 0:
+                    ymin_dst = 0.001
+
                 # set the limits for x,y
                 if copy_xlim:
                     self.setSpectrumViewInfo(minx=xlim_src[0], index=index)
                     self.setSpectrumViewInfo(maxx=xlim_src[1], index=index)
                 if copy_ylim:
-                    self.setSpectrumViewInfo(miny=ylim_src[0], index=index)
-                    self.setSpectrumViewInfo(maxy=ylim_src[1], index=index)
+                    self.setSpectrumViewInfo(miny=ymin_dst, index=index)
+                    self.setSpectrumViewInfo(maxy=ymax_dst, index=index)
                 # set log/lin scale
                 if copy_scale:
                     self.setSpectrumViewInfo(log=scale_src_bool, index=index)
@@ -2291,13 +2304,12 @@ class MainWindow(QMainWindow):
                 # apply to the target axes directly: updatePlot's only
                 # limits-application path is autoscale-gated, so view-tier
                 # writes alone never reach the screen (okCutoff precedent)
-                ax = self.getSpectrumViewInfo("axis", index=index)
                 if ax is None:
                     continue
                 if copy_xlim:
                     ax.set_xlim(xlim_src[0], xlim_src[1])
                 if copy_ylim:
-                    ax.set_ylim(ylim_src[0], ylim_src[1])
+                    ax.set_ylim(ymin_dst, ymax_dst)
                 if dim == 2 and (copy_minz or copy_maxz):
                     spectrum = self.getSpectrumViewInfo("spectrum", index=index)
                     if spectrum is not None:
