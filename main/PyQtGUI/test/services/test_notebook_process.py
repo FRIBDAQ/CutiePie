@@ -62,7 +62,7 @@ def test_returns_published_address(monkeypatch):
     assert addr == "http://127.0.0.1:8888/?token=abc"
 
 
-# --------------------------------------------------------------- E8a: died before publishing
+# -------------------------------------------------------- died before publishing
 
 def test_raises_when_server_exits_before_publishing(monkeypatch):
     fake = FakePopen(lines=[], returncode=1, alive=False)   # immediate EOF, exited

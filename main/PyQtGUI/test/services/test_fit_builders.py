@@ -1,5 +1,5 @@
 """Fit/algo builders hand back a fresh object, and numpy's invalid-value
-suppression belongs to a fit rather than to the process (AUDIT M23 b and c).
+suppression belongs to a fit rather than to the process.
 
 Both halves used to be latent rather than broken: the cached builders only ever
 received static config, and the process-wide `np.seterr` only ever hid warnings

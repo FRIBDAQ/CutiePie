@@ -11,7 +11,7 @@ the same question from a terminal when the mirror is misbehaving.
 
 Arguments win over the environment; with neither, it raises KeyError. Installed
 by gui/Makefile.am, which is why it ships despite having no importer — a
-"dead code, zero importers" reading of that is a false positive (AUDIT M23a).
+"dead code, zero importers" reading of that is a false positive.
 """
 import os
 import sys

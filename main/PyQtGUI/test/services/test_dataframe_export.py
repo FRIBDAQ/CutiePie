@@ -203,7 +203,7 @@ def test_round_trip_returns_the_original_arrays(tmp_path):
 
 
 def test_round_trip_survives_hostile_spectrum_names(tmp_path):
-    """Names carry spaces, brackets and slashes in the field (SMOKE A9). The
+    """Names carry spaces, brackets and slashes in the field. The
     sidecar keys off the row position, never the name, so a name that is not a
     legal archive member cannot corrupt the mapping."""
     d = {'my spec': _spectrum(1, np.array([1., 2.])),
@@ -263,7 +263,7 @@ def test_builder_can_keep_arrays_as_arrays():
     assert np.array_equal(kept['data'].iloc[0], arr)
 
 
-# ---- B10: a partial or unexpected store record must not raise ---------------
+# ---- a partial or unexpected store record must not raise -------------------
 
 def test_record_missing_a_column_does_not_raise():
     """The builder appended per-record values into fixed columns, so a record

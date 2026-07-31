@@ -115,8 +115,8 @@ class Fncts1D(QDialog):
 
         # signal + background model for NEW fits (wired in GUI.py). The tail-side
         # box only matters when the signal is Crystal ball. Selecting a fit row
-        # syncs these back to that fit's model (E3); changing one re-fits the
-        # selected fit (E3) and sets the default for the next new fit.
+        # syncs these back to that fit's model; changing one re-fits the
+        # selected fit and sets the default for the next new fit.
         self.peak2_signal = QComboBox(self)
         self.peak2_signal.addItems(["Gaussian", "Crystal ball"])
         self.peak2_signal.setToolTip("Signal shape used for new fits")

@@ -2,7 +2,7 @@
 
 `test_pyrest.py` needs the real httplib2 and skips in this environment, so the
 query strings PyREST puts on the wire were never checked here. These tests stub
-the transport and assert the URL only, which is where the M22 double-encode
+the transport and assert the URL only, which is where the double-encode bug
 lived: a value pre-encoded at the call site is encoded AGAIN by `_build_url`'s
 urlencode, so `%2B` reaches SpecTcl as `%252B` and decodes to the literal text
 `%2B` rather than `+`.
@@ -56,7 +56,7 @@ def query_of(url):
     return dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query))
 
 
-# ---------------------------------------------------------------- M22: "+" gate
+# ------------------------------------------------------------------- "+" gate
 
 def test_plus_gate_type_reaches_the_server_as_a_plus(rest):
     """A `+` compound gate must arrive as `+`. Pre-encoding it at the call site
@@ -73,7 +73,7 @@ def test_plus_gate_still_carries_its_component_gates(rest):
     assert [v for k, v in pairs if k == "gate"] == ["g1", "g2"]
 
 
-# ------------------------------------------------------- M22: vector-or slice
+# ------------------------------------------------------------ vector-or slice
 
 def test_vector_or_slice_type_reaches_the_server_as_vs_plus(rest):
     rest.createVectorOrSlice("vs", "vec", 0.0, 10.0)
@@ -98,7 +98,7 @@ def test_invalid_slice_type_still_rejected(rest):
         rest.createVectorSlice("vs", "nonsense", "vec", 0.0, 10.0)
 
 
-# ------------------------------------------------ M22 residual: integrate2D
+# ---------------------------------------------------------- integrate2D coords
 
 def test_integrate2d_coordinates_are_encoded(rest):
     """The coords were appended raw while every neighbouring append used `_q`."""
@@ -109,14 +109,15 @@ def test_integrate2d_coordinates_are_encoded(rest):
     assert query_of(rest.sent[-1])["spectrum"] == "spec name"
 
 
-# ------------------------------------------- L13: getSpectrumStats returns a list
+# ------------------------------------------ getSpectrumStats returns a list
 #
-# C3 hardened the 13 list-promising endpoints to `return detail if
+# The 13 other list-promising endpoints here return `detail if
 # isinstance(detail, list) else []`, because SpecTcl answers an error with a
 # string or an int in "detail" and a list-consuming caller then indexes it as if
 # it were one of the objects — the original crash was `TypeError: string indices
-# must be integers`. getSpectrumStats was dormant during that sweep and was
-# missed; the Jupyter statistics export later put it on a live path.
+# must be integers`, hit via `applylistgate` on the hover hot path.
+# getSpectrumStats was dormant when the others were hardened and was missed; the
+# Jupyter statistics export later put it on a live path.
 
 
 @pytest.fixture
@@ -140,7 +141,7 @@ def test_spectrum_stats_returns_the_detail_list(replying):
 
 
 @pytest.mark.parametrize("detail", [
-    '"no such spectrum"',      # the C3 case: an error string
+    '"no such spectrum"',      # the crashing case: an error string
     "17",                      # an int
     '{"name": "raw00"}',       # a bare object rather than a list of them
     "null",

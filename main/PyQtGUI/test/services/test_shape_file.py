@@ -81,7 +81,7 @@ def test_looks_like_shape_file_discriminates(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Undecodable input (AUDIT L12). Both guards documented "Never raises" and
+# Undecodable input. Both guards documented "Never raises" and
 # both let UnicodeDecodeError straight through on any non-UTF-8 file, because
 # they caught only OSError. Contained by luck — UnicodeDecodeError subclasses
 # ValueError, which the two callers happen to swallow — so what the user

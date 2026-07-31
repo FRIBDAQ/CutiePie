@@ -6,8 +6,8 @@ before the step-1 inversion. The ~50 widget touches that go through the
 injected `_get_current_plot()` seam are exercised via a fake plot widget
 carrying a REAL matplotlib figure (Agg), so line/imshow/axis behavior is real.
 
-Two standing regression pins live here: the E7 two-tier axis rule (bin edges
-from the REST store tier, never the per-tab view tier) and the P1 customMinMax
+Two standing regression pins live here: the two-tier axis rule (bin edges come
+from the REST store tier, never the per-tab view tier) and the customMinMax
 semantics.
 """
 

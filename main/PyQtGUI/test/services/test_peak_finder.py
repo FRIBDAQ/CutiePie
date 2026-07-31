@@ -445,7 +445,7 @@ def test_fit_poisson_calibration():
     assert 0.5 < r["redchi"] < 2.0
 
 
-# ===================== INTERSPEC Phase A1: generalized range fit ================
+# ===================== generalized range fit ===================================
 
 from services.peak_finder import fit_gaussian_linear_range
 
@@ -521,7 +521,7 @@ def test_A1_range_fit_too_narrow_fails_cleanly():
     assert r["ok"] is False and r["error"]
 
 
-# ===================== INTERSPEC Phase A2: auto-window cap ======================
+# ===================== auto-window cap ==========================================
 
 def test_A2_cap_clamps_window():
     x = np.arange(0.0, 600.0, 1.0)
@@ -550,7 +550,7 @@ def test_A2_cap_too_tight_fails_cleanly():
     assert r["ok"] is False and r["error"]
 
 
-# ===================== INTERSPEC Phase A3: Fix-Peak window + output tag =========
+# ===================== Fix-Peak window + output tag =============================
 
 from services.peak_finder import fix_peak_window
 
@@ -748,7 +748,7 @@ def test_validate_accepts_empty():
     assert validate_gauss_edit({}, lo=30.0, hi=70.0) is None
 
 
-# ===================== INTERSPEC Phase E1: composite shape registry ============
+# ===================== composite shape registry ================================
 # Signal shapes gaussian + crystal_ball; background poly1 (raw m*x+b) / poly2 /
 # poly3 (mapped t in [-1,1]); fit_composite is the one engine, and
 # fit_gaussian_linear_range is a pure gaussian x1 + poly1 delegate of it.
@@ -915,7 +915,7 @@ def test_E1_composite_unknown_shape_errors():
     assert fit_composite(x, y, 160.0, 240.0, spec)["ok"] is False
 
 
-# ---- Phase E1 formatters + the gaussian x1 + poly1 delegate pin --------------
+# ---- formatters + the gaussian x1 + poly1 delegate pin ----------------------
 
 from services.peak_finder import (
     format_composite_fit_output, format_composite_fit_row,
@@ -1054,7 +1054,7 @@ def test_E1_row_multicomponent_marks_count():
     assert len(row["cells"]) == 5
 
 
-# ===================== INTERSPEC Phase E4.1: residual-scan component finder =====
+# ===================== residual-scan component finder ===========================
 
 from services.peak_finder import find_residual_component
 
@@ -1108,7 +1108,7 @@ def test_E41_picks_highest_snr_when_two_candidates():
     assert cand is not None and abs(cand["mu"] - 350.0) < 3.0   # the taller one
 
 
-# ===================== INTERSPEC Phase E4.2: autocomponent_refit ===============
+# ===================== autocomponent_refit =====================================
 
 from services.peak_finder import autocomponent_refit, eval_composite_result
 
@@ -1171,7 +1171,7 @@ def test_E42_respects_component_cap():
     assert r["ok"] and len(r["components"]) == 2
 
 
-# ===================== INTERSPEC Phase E4.4: Crystal Ball multi-component =======
+# ===================== Crystal Ball multi-component =============================
 
 def test_E44_cb_doublet_auto_adds_and_shares_alpha_n():
     rng = np.random.default_rng(5)
@@ -1208,7 +1208,7 @@ def test_E44_output_labels_multicomponent_crystal_ball():
     assert text.count("μ =") == 2
 
 
-# ===================== INTERSPEC Phase E5.1: nearest component ==================
+# ===================== nearest component ========================================
 
 from services.peak_finder import nearest_component_index
 

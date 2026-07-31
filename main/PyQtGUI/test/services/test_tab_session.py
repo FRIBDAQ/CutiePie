@@ -1,4 +1,4 @@
-"""Headless net for the per-tab session registry (ARCH.md R2).
+"""Headless net for the per-tab session registry.
 
 Pins the container semantics that Tabs used to implement by hand across six
 parallel dicts/lists: contiguous renumbering on delete, swap, and the live

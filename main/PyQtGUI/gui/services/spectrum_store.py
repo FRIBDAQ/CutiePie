@@ -21,8 +21,9 @@ class SpectrumStore:
         """Upsert valid-key fields for the named spectrum. Invalid keys are silently ignored.
 
         `data` arrays are live shared-memory views: replacing one
-        with an array that does not alias it silently freezes the spectrum
-        (the C1 regression class), so such writes are refused and logged.
+        with an array that does not alias it silently freezes the spectrum —
+        no error, just a display that stops updating — so such writes are
+        refused and logged.
         Callers installing views from a NEW mirror — connect/reconnect and
         trace adds after a CPyConverter.Update() — must pass
         allow_data_replacement=True.

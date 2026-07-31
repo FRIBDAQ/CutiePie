@@ -82,7 +82,7 @@ def test_data_is_an_empty_placeholder_by_default():
 
 
 def test_getattr_setattr_roundtrip_over_every_whitelist_key():
-    # C3 production idiom: getSpectrumViewInfo does getattr(slot, info[0]);
+    # the production idiom: getSpectrumViewInfo does getattr(slot, info[0]);
     # setSpectrumViewInfo / setGeo do setattr(slot, key, value). This must work
     # for all 17 whitelist keys (dynamic key access without the dict shim).
     slot = DisplaySlot()

@@ -16,14 +16,13 @@ Two invariants carried over from the dict it replaces:
   template byte-for-byte: callers test truthiness (an un-set ``log`` reads as
   ``[]`` = falsy = linear), so the default must stay falsy-and-equal-to-``[]``.
 
-Strangler migration:
+How it replaced the raw dict, in order:
 
-* **C1** introduced this class with the mapping protocol (``__getitem__`` /
-  ``__setitem__`` / ``__contains__``) so it could drop into the existing
-  ``spectrum_dict`` slot with every call site unchanged; **C2** made ``setGeo``
-  build it instead of a raw dict.
-* **C3 (done)** migrated all production access to *typed* form — the accessors
-  and ``setGeo`` use ``getattr``/``setattr``/``slot.attr`` (dynamic keys stay
+* The mapping protocol (``__getitem__`` / ``__setitem__`` / ``__contains__``)
+  let this class drop into the existing ``spectrum_dict`` slot with every call
+  site unchanged, and ``setGeo`` began building it instead of a raw dict.
+* All production access then moved to *typed* form — the accessors and
+  ``setGeo`` use ``getattr``/``setattr``/``slot.attr`` (dynamic keys stay
   dynamic via ``getattr``, guarded by the same whitelist as before). No
   production code subscripts a slot anymore.
 

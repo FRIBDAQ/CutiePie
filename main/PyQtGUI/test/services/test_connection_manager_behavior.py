@@ -422,7 +422,7 @@ def test_process_add_summary_bounds_from_parameter_indices(env):
     assert rec["data"].shape == (4, 4)
 
 
-# ------------------------------------------- oversized-spectrum discard (E23)
+# ------------------------------------------------- oversized-spectrum discard
 
 def test_oversized_spectrum_is_discarded_not_stored(env):
     """A spectrum declaring more bytes than the mirror holds must never reach
@@ -587,7 +587,7 @@ def test_auto_update_resume_clears_skip(env):
     assert not env.skip_auto.is_set()
 
 
-# ---- B8: one malformed spectrum must not take the batch down --------------
+# ---- one malformed spectrum must not take the batch down ------------------
 
 def _strip_chart_info():
     """A SpecTcl strip chart: ONE axis, type "S". The dimension test in

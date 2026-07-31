@@ -87,7 +87,7 @@ def test_custom_min_max_positives_masked_zeros_remain_returns_none():
     import numpy as np
     raw = np.array([[0, 100], [100, 0]])
     data = np.ma.masked_greater(raw, 50)  # positives all masked, zeros remain
-    # data.any() is False → (None, None), identical to the pre-P1 behavior
+    # data.any() is False → (None, None), identical to the older behavior
     assert _custom_min_max(data) == (None, None)
 
 

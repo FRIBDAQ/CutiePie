@@ -985,7 +985,7 @@ def test_save_peaks_redchi_local_nan_without_raw_data(env, tmp_path):
         assert ln.split(",")[-1].lower() == "nan"
 
 
-# ---- M25: a ragged CSV must reach the caller's dialog, not the slot ---------
+# ---- a ragged CSV must reach the caller's dialog, not the slot -------------
 
 def _ragged_v2(tmp_path, body):
     """A Version-2 file — the parser picks that branch off a header row whose

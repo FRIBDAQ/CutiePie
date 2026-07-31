@@ -252,7 +252,7 @@ def fit_gaussian_linear_range(x_axis, y_data, lo, hi, fixed=None, seeds=None):
 
 
 # ---------------------------------------------------------------------------
-# Peak Finder 2 — composite shape registry (INTERSPEC Phase E1).
+# Peak Finder 2 — composite shape registry.
 # One fit engine (`fit_composite`) over a pluggable signal shape (gaussian /
 # crystal ball) times 1..5 components, plus a background shape (poly1/2/3).
 # `fit_gaussian_linear_range` above is a pure gaussian x1 + poly1 delegate of
@@ -547,7 +547,7 @@ def eval_composite_result(x, result):
 
 def autocomponent_refit(x, y, lo, hi, prev_result, max_components=5):
     """Re-fit ``prev_result``'s model over the new window ``[lo, hi]``, matching
-    the component set to what the window now covers (INTERSPEC feature 6).
+    the component set to what the window now covers.
 
     (1) **shrink-drop**: components of the previous fit whose μ fell outside the
     new window are dropped (renumbered implicitly). (2) refit the reduced spec.
@@ -604,7 +604,7 @@ def find_residual_component(x, y, y_model, existing_mus, existing_sigmas,
     from every existing μ — a residual bump closer than that is a mismodeled
     shape on an existing peak, not a new one. Returns the highest-``snr``
     qualifying bin as ``{'mu', 'A', 'sigma'}`` (A = residual height there, σ =
-    the median existing σ), else None. The core of E4's auto-add-on-drag loop."""
+    the median existing σ), else None. The core of the auto-add-on-drag loop."""
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
     ym = np.asarray(y_model, dtype=float)
@@ -913,7 +913,7 @@ def format_gauss_fit_row(peak_no, r, tag=None):
             "tooltip": format_gauss_fit_output(peak_no, r, tag=tag)}
 
 
-# ---- Phase E1 composite output --------------------------------------------
+# ---- composite output --------------------------------------------
 
 _SIGNAL_LABELS = {"gaussian": "gaussian", "crystal_ball": "crystal ball"}
 _BACKGROUND_LABELS = {"poly1": "linear", "poly2": "quadratic", "poly3": "cubic"}

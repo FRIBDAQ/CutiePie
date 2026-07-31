@@ -683,8 +683,8 @@ class MainWindow(QMainWindow):
             lambda: self.fit_manager.fit(*self._current_plot_ctx(), *self._fit_inputs()))
         self.extraPopup.fit_csv_button.clicked.connect(
             lambda: self.fit_manager.on_fit_csv_clicked(*self._fit_inputs()))
-        # lambdas shield the slots from clicked(bool)'s checked arg (the E17 trap:
-        # a bare connect would pass False as the path/context)
+        # lambdas shield the slots from clicked(bool)'s checked arg — a bare
+        # connect would pass False as the path/context
         self.extraPopup.save_fit_button.clicked.connect(
             lambda: self.fit_manager.save_fit_curve())
         self.extraPopup.load_fit_button.clicked.connect(
@@ -698,7 +698,7 @@ class MainWindow(QMainWindow):
         self.extraPopup.peak.peak_analysis.clicked.connect(self.analyzePeak)
         self.extraPopup.peak.peak_analysis_clear.clicked.connect(self.peakAnalClear)
         # Peak Finder 2 (click-to-fit): Start is a checkable toggle; lambda
-        # shields Clear from clicked(bool)'s checked arg (the E17 trap)
+        # shields Clear from clicked(bool)'s checked arg
         self.extraPopup.peak.peak2_start.toggled.connect(self.peakFit2Toggle)
         self.extraPopup.peak.peak2_fix.toggled.connect(self.peakFit2FixToggle)
         self.extraPopup.peak.peak2_delete.clicked.connect(lambda: self._peak2_delete_selected())
@@ -706,8 +706,7 @@ class MainWindow(QMainWindow):
         self.extraPopup.peak.peak2_config.clicked.connect(lambda: self.peakFit2Config())
         self.extraPopup.peak.peak2_table.itemSelectionChanged.connect(self._peak2_row_selected)
         # shape menus: restore the last-used selection, then persist on change.
-        # E2 only persists here (no self-update yet); E3 extends the slot to
-        # re-fit the selected fit.
+        # The slot also re-fits the selected fit.
         self._peak2_load_shape_menus()
         self.extraPopup.peak.peak2_signal.currentIndexChanged.connect(self._peak2_shape_changed)
         self.extraPopup.peak.peak2_bg.currentIndexChanged.connect(self._peak2_shape_changed)
@@ -715,7 +714,7 @@ class MainWindow(QMainWindow):
         # peak-selection list: wired ONCE here (the old per-scan
         # stateChanged.connect on the fixed checkbox grid stacked a duplicate
         # connection on every Scan); lambdas shield from clicked(bool)'s
-        # checked arg (the E17 trap — All would otherwise receive False)
+        # checked arg — All would otherwise receive False
         self.extraPopup.peak.peak_list.itemChanged.connect(self.peakItemChanged)
         self.extraPopup.peak.peak_all.clicked.connect(lambda: self.setAllPeaksChecked(True))
         self.extraPopup.peak.peak_none.clicked.connect(lambda: self.setAllPeaksChecked(False))
@@ -3064,7 +3063,7 @@ class MainWindow(QMainWindow):
 
     def _peak2_current_spec(self):
         """The fit spec selected in the shape menus. Single component here; a
-        multi-component fit only arises from E5's auto-add-on-drag."""
+        multi-component fit only arises from the auto-add-on-drag."""
         p = self.extraPopup.peak
         return {
             "signal": self._PEAK2_SIGNAL_BY_LABEL.get(p.peak2_signal.currentText(),
@@ -3095,7 +3094,7 @@ class MainWindow(QMainWindow):
                 widget.blockSignals(False)
 
     def _peak2_shape_changed(self, *_):
-        """A shape menu changed (E3 self-update): persist the selection, then —
+        """A shape menu changed: persist the selection, then —
         if a fit row is selected — re-fit THAT fit in place with the new model.
         With no row selected the menu only sets the default for the next new
         fit. This slot fires only on a genuine user change: the menu-sync on
@@ -3150,7 +3149,7 @@ class MainWindow(QMainWindow):
     def _peak2_sync_menus_to_spec(self, spec):
         """Write `spec` back into the three shape menus WITH combo signals
         blocked, so syncing the menus to the selected fit never triggers
-        `_peak2_shape_changed`'s re-fit (the E3 re-entrancy guard)."""
+        `_peak2_shape_changed`'s re-fit (the re-entrancy guard)."""
         p = self.extraPopup.peak
         sig = next((k for k, v in self._PEAK2_SIGNAL_BY_LABEL.items()
                     if v == spec.get("signal")), "Gaussian")
@@ -3229,7 +3228,7 @@ class MainWindow(QMainWindow):
     def _peak2_row_selected(self):
         """Highlight the selected fit's curve on the pad (thicker + orange);
         restore the others to the default red. Also syncs the shape menus to the
-        selected fit's model (E3) so the menus reflect the fit you'd act on."""
+        selected fit's model, so the menus reflect the fit you'd act on."""
         sel = self._peak2_selected_number()
         sel_rec = None
         canvases = set()
