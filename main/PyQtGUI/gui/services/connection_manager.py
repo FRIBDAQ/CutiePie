@@ -27,6 +27,10 @@ class ConnectionManager(QtCore.QObject):
     # wrong port / dead mirror service). The C++ side now raises instead of
     # segfaulting (CPyConverter::Update null-check); MainWindow shows the message.
     connectFailed         = pyqtSignal(str)
+    # a bound spectrum declares more data than the mapped mirror can hold, so
+    # its view was discarded instead of touched; payload is the user-facing
+    # message. Emitted once per spectrum name per session.
+    spectrumDiscarded     = pyqtSignal(str)
     # connect-button rendering inverted into signals — MainWindow owns the
     # widget (adapters _render_connect_state / _on_connect_attempt_busy).
     connectionStateChanged = pyqtSignal(str)   # "connected" | "connecting" | "disconnected"
@@ -66,10 +70,52 @@ class ConnectionManager(QtCore.QObject):
         # popup fields (which now live in MainWindow). Order matches
         # CPyConverter.Update: (hostname, port, mirror, user).
         self._last_connect_params = None
+        # spectra already reported as too big for the mirror; a binding trace
+        # re-offers them on every poll, so the dialog fires once per name.
+        self._oversized_reported = set()
 
     # ------------------------------------------------------------------
     # REST + shared memory connection
     # ------------------------------------------------------------------
+
+    def _shm_view_fits(self, arr, name):
+        """True when a zero-copy view's own extent fits inside the mapped mirror.
+
+        Nothing between the mirror header and here checks the declared shape:
+        CPyConverter wraps whatever address and bin counts it is given, and
+        creating the array touches no memory. The first real access is the
+        `data[0] = 0` write below, so a spectrum defined larger than the display
+        memory takes the process down with SIGSEGV and no traceback. `nbytes` is
+        shape times itemsize and reads nothing, so it is safe to ask first.
+
+        This catches a spectrum too big for the whole segment. It cannot catch
+        one that fits but is placed near the end — only the C++ side knows the
+        offset.
+        """
+        size = self._mapped_shmem_size
+        if size is None:
+            # same fail-open as the connect-time size guard: without a
+            # REST-reported size there is nothing to compare against
+            return True
+        try:
+            nbytes = int(arr.nbytes)
+        except Exception:
+            self.logger.debug('_shm_view_fits - no nbytes for %s', name, exc_info=True)
+            return True
+        if nbytes <= size:
+            return True
+
+        self.logger.error(
+            '_shm_view_fits - discarding %s: it declares %d bytes but the mapped '
+            'shared memory is %d bytes', name, nbytes, size)
+        if name not in self._oversized_reported:
+            self._oversized_reported.add(name)
+            self.spectrumDiscarded.emit(
+                f'The spectrum "{name}" declares {nbytes} bytes of data, but '
+                f"SpecTcl's display shared memory is only {size} bytes.\n\n"
+                "It cannot be read and has been skipped. Reduce the number of "
+                "bins, or restart SpecTcl with a larger display memory.")
+        return False
 
     def connectShMem(self, hostname, port, user, mirror):
         """Connect to SpecTcl REST + the shm mirror. The four parameters are
@@ -184,6 +230,8 @@ class ConnectionManager(QtCore.QObject):
             self.logger.debug('connectShMem - populating spectra from shmem + REST')
             for i, name in enumerate(s[1]):
                 if name not in otherInfo:
+                    continue
+                if not self._shm_view_fits(s[9][i], name):
                     continue
                 if s[2][i] == 2:
                     data = s[9][i][1:-1, 1:-1]
@@ -305,6 +353,8 @@ class ConnectionManager(QtCore.QObject):
             biny = miny = maxy = None
             try:
                 nameIndex = s[1].index(name)
+                if not self._shm_view_fits(s[9][nameIndex], name):
+                    return
                 data = s[9][nameIndex][0:-1]
                 data[0] = 0
             except Exception:
@@ -328,6 +378,8 @@ class ConnectionManager(QtCore.QObject):
             binx = maxx - minx
             try:
                 nameIndex = s[1].index(name)
+                if not self._shm_view_fits(s[9][nameIndex], name):
+                    return
                 data = s[9][nameIndex][1:-1, 1:-1]
             except Exception:
                 self.logger.debug('_process_spectrum_add - name not in shmem for %s', name, exc_info=True)
@@ -349,6 +401,8 @@ class ConnectionManager(QtCore.QObject):
             maxy = spec_info["axes"][1]["high"]
             try:
                 nameIndex = s[1].index(name)
+                if not self._shm_view_fits(s[9][nameIndex], name):
+                    return
                 data = s[9][nameIndex][1:-1, 1:-1]
             except Exception:
                 self.logger.debug('_process_spectrum_add - name not in shmem for %s', name, exc_info=True)

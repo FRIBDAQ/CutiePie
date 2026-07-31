@@ -422,6 +422,76 @@ def test_process_add_summary_bounds_from_parameter_indices(env):
     assert rec["data"].shape == (4, 4)
 
 
+# ------------------------------------------- oversized-spectrum discard (E23)
+
+def test_oversized_spectrum_is_discarded_not_stored(env):
+    """A spectrum declaring more bytes than the mirror holds must never reach
+    the `data[0] = 0` write — that write is through a view onto shared memory
+    and segfaults the process when the extent is out of bounds."""
+    env.cm._mapped_shmem_size = 64                     # bytes
+    discarded = record_signal(env.cm.spectrumDiscarded)
+    big = np.arange(1000, dtype=np.int32)              # 4000 bytes
+    s = make_shm(("huge", 1, 1000, 0.0, 10.0, 0, 0.0, 0.0, big))
+
+    env.cm._process_spectrum_add("huge", spec_info_1d(bins=1000), s)
+
+    assert not env.store.contains("huge")              # discarded, not stored
+    assert len(discarded) == 1
+    assert "huge" in discarded[0][0] and "64" in discarded[0][0]
+
+
+def test_oversized_spectrum_untouched_by_the_guard(env):
+    """The guard must not write into the view it rejects."""
+    env.cm._mapped_shmem_size = 64
+    big = np.arange(1, 1001, dtype=np.int32)           # element 0 is 1, not 0
+    s = make_shm(("huge", 1, 1000, 0.0, 10.0, 0, 0.0, 0.0, big))
+    env.cm._process_spectrum_add("huge", spec_info_1d(bins=1000), s)
+    assert big[0] == 1                                 # pre-fix this was zeroed
+
+
+def test_fitting_spectrum_still_stored(env):
+    env.cm._mapped_shmem_size = 4096
+    discarded = record_signal(env.cm.spectrumDiscarded)
+    arr = np.arange(8, dtype=np.int32)                 # 32 bytes, fits
+    s = make_shm(("ok", 1, 8, 0.0, 10.0, 0, 0.0, 0.0, arr))
+    env.cm._process_spectrum_add("ok", spec_info_1d(), s)
+    assert env.store.contains("ok")
+    assert discarded == []
+
+
+def test_discard_dialog_fires_once_per_name(env):
+    """A binding trace re-offers the same spectrum on every poll; the log keeps
+    complaining but the dialog must not."""
+    env.cm._mapped_shmem_size = 64
+    discarded = record_signal(env.cm.spectrumDiscarded)
+    big = np.arange(1000, dtype=np.int32)
+    s = make_shm(("huge", 1, 1000, 0.0, 10.0, 0, 0.0, 0.0, big))
+    for _ in range(3):
+        env.cm._process_spectrum_add("huge", spec_info_1d(bins=1000), s)
+    assert len(discarded) == 1
+
+
+def test_unknown_shmem_size_fails_open(env):
+    """Without a REST-reported size there is nothing to compare against, so the
+    guard must not block spectra — same fail-open as the connect-time check."""
+    env.cm._mapped_shmem_size = None
+    arr = np.arange(8, dtype=np.int32)
+    s = make_shm(("ok", 1, 8, 0.0, 10.0, 0, 0.0, 0.0, arr))
+    env.cm._process_spectrum_add("ok", spec_info_1d(), s)
+    assert env.store.contains("ok")
+
+
+def test_oversized_2d_spectrum_is_discarded(env):
+    env.cm._mapped_shmem_size = 64
+    info = {"axes": [{"bins": 100, "low": 0.0, "high": 100.0},
+                     {"bins": 100, "low": 0.0, "high": 100.0}],
+            "parameters": ["p1", "p2"], "type": "2"}
+    big = np.arange(10000, dtype=np.int32).reshape(100, 100)
+    s = make_shm(("huge2d", 2, 100, 0.0, 100.0, 100, 0.0, 100.0, big))
+    env.cm._process_spectrum_add("huge2d", info, s)
+    assert not env.store.contains("huge2d")
+
+
 def test_process_add_missing_from_shmem_stores_empty_data(env):
     s = make_shm(("someother", 1, 8, 0.0, 10.0, 0, 0.0, 0.0, np.arange(6)))
     env.cm._process_spectrum_add("ghost", spec_info_1d(), s)

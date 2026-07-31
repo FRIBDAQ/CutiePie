@@ -25,6 +25,8 @@ class ConnectionAdapter:
             self._on_connection_refused)
         connection_manager.connectFailed.connect(
             self._on_connect_failed_dialog)
+        connection_manager.spectrumDiscarded.connect(
+            self._on_spectrum_discarded)
         connection_manager.connectionStateChanged.connect(
             self._render_connect_state)
         connection_manager.connectAttemptBusy.connect(
@@ -56,6 +58,9 @@ class ConnectionAdapter:
 
     def _on_connect_failed_dialog(self, msg):
         QMessageBox.critical(self._parent, "Connection failed", msg)
+
+    def _on_spectrum_discarded(self, msg):
+        QMessageBox.warning(self._parent, "Spectrum skipped", msg)
 
     def _render_connect_state(self, state):
         button = self._connect_button
