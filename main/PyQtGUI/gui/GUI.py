@@ -102,6 +102,7 @@ from services.peak_finder import (
     fwhm_to_sigma, nearest_window_edge, sigma_to_fwhm, validate_gauss_edit,
 )
 from services.figure_overlay import compute_overlay_position, apply_joystick_move, apply_fine_move
+from services.log_throttle import LogThrottle
 from services.fit_manager import FitManager
 from services.gate_manager import GateManager
 from services.sum_region_manager import SumRegionManager
@@ -491,6 +492,9 @@ class MainWindow(QMainWindow):
         self._gate_name_cache: dict = {}  # spectrum_name → (gate_or_None, monotonic_ts)
         self._gate_name_inflight: set = set()  # names with a background fetch running
         self._hoveredSpectrumName = None       # spectrum currently under the pointer
+        # histoHover runs per mouse-motion event, so an unexpected error there
+        # gets one WARNING per interval rather than one per pixel
+        self._hoverLogThrottle = LogThrottle(interval_secs=30.0)
         self._gateNameFetched.connect(self._on_gate_name_fetched)
         self._resize_timer = QTimer(self)
         self._resize_timer.setSingleShot(True)
@@ -833,6 +837,14 @@ class MainWindow(QMainWindow):
         if label.text() != text:
             label.setText(text)
 
+    def _blankHoverLabels(self):
+        """Clear the three readout labels — the pointer is not over a spectrum."""
+        self._hoveredSpectrumName = None
+        self._setLabelText(self.currentPlot.histoLabel, "Spectrum: \nX: Y:")
+        self._setLabelText(self.currentPlot.pointerLabel, "Pointer:\nX: Y: Count: ")
+        self._setLabelText(self.currentPlot.gateLabel, "Gate applied: \n")
+
+
     def histoHover(self, event):
         try:
             #### Bashir added for mouse hovering ####
@@ -868,17 +880,35 @@ class MainWindow(QMainWindow):
                 if sp_type == "s":
                     xTitle = xTitle + ", ..."
                     self._setLabelText(self.currentPlot.histoLabel, "Spectrum: " + name + "\nX: " + xTitle)
+            else:
+                # The pad names a spectrum the store does not have — deleted
+                # server-side, or a geometry naming something SpecTcl never sent.
+                # Without this the two labels keep the previous pad's text and
+                # the readout reports a spectrum the pointer is not over.
+                self._blankHoverLabels()
+                return
             gateName = self.getAppliedGateName(index=index)
             if gateName is not None:
                 self._setLabelText(self.currentPlot.gateLabel, "Gate applied: "+gateName+"\n")
             else :
                 self._setLabelText(self.currentPlot.gateLabel, "Gate applied: \n")
+        except (IndexError, ValueError, TypeError):
+            # Ordinary and frequent: the pointer is over a pad whose axes are not
+            # in this figure, over an empty pad, or over one whose spectrum has no
+            # counts under the cursor yet, so getPointerInfo hands back ''. Blank
+            # the readout and say nothing.
+            self._blankHoverLabels()
         except Exception:
-            # self.logger.debug('histoHover - exception', exc_info=True)
-            self._hoveredSpectrumName = None
-            self._setLabelText(self.currentPlot.histoLabel, "Spectrum: \nX: Y:")
-            self._setLabelText(self.currentPlot.pointerLabel, "Pointer:\nX: Y: Count: ")
-            self._setLabelText(self.currentPlot.gateLabel, "Gate applied: \n")
+            # Anything else is a defect somewhere below — a bad store record, a
+            # wrong-tier axis read — and it used to look exactly like the pointer
+            # leaving the axes. Report it, but not once per mouse-motion event.
+            emit, suppressed = self._hoverLogThrottle.allow()
+            if emit:
+                self.logger.warning(
+                    'histoHover - unexpected error, readout blanked%s',
+                    ' (%d similar suppressed)' % suppressed if suppressed else '',
+                    exc_info=True)
+            self._blankHoverLabels()
 
 
     #called in histoHover, return the bin position under mouse pointer
