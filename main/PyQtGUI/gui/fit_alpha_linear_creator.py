@@ -358,10 +358,5 @@ class AlphaEMGLinearFit:
 
 
 class AlphaEMGLinearFitBuilder:
-    def __init__(self):
-        self._instance = None
-
     def __call__(self, **cfg):
-        if not self._instance:
-            self._instance = AlphaEMGLinearFit(**cfg)
-        return self._instance
+        return AlphaEMGLinearFit(**cfg)

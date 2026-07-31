@@ -67,12 +67,7 @@ class GPol1Fit(FitFunction):
 
 
 class GPol1FitBuilder:
-    def __init__(self):
-        self._instance = None
-
     def __call__(self, amplitude=1000, mean=100, standard_deviation=10,
                  p0=100, p1=10, f=0.9):
-        if not self._instance:
-            self._instance = GPol1Fit(amplitude, mean, standard_deviation,
-                                      p0, p1, f)
-        return self._instance
+        return GPol1Fit(amplitude, mean, standard_deviation,
+                        p0, p1, f)

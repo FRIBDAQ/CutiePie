@@ -28,10 +28,5 @@ class Pol1Fit(FitFunction):
             self.p_init[1] = (y[-1] - y[0]) / (x[-1] - x[0])
             
 class Pol1FitBuilder:
-    def __init__(self):
-        self._instance = None
-
     def __call__(self, p0=100, p1=10):
-        if not self._instance:
-            self._instance = Pol1Fit(p0, p1)
-        return self._instance
+        return Pol1Fit(p0, p1)

@@ -22,10 +22,5 @@ class SkelFit(FitFunction):
     #    # Custom initialization goes here.
     
 class SkelFitBuilder:
-    def __init__(self):
-        self._instance = None
-
     def __call__(self, param_1=1, param_2=2, param_3=10, **_ignored):
-        if not self._instance:
-            self._instance = SkelFit(param_1, param_2, param_3)
-        return self._instance
+        return SkelFit(param_1, param_2, param_3)

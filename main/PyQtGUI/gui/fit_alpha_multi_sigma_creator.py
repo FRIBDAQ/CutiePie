@@ -1192,7 +1192,5 @@ class AlphaMultiEMGSigmaFit:
 
 
 class AlphaMultiEMGSigmaFitBuilder:
-    def __init__(self):
-        self._instance = None
     def __call__(self, **cfg):
         return AlphaMultiEMGSigmaFit(**cfg)

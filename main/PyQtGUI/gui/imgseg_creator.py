@@ -48,10 +48,5 @@ class ImgSegAlgo:
         self.imgSegPopup.plot(filename, nclusters, xmin, xmax, ymin, ymax)
         
 class ImgSegAlgoBuilder:
-    def __init__(self):
-        self._instance = None
-
     def __call__(self, nclusters, criteria, attempts, flags, **_ignored):
-        if not self._instance:
-            self._instance = ImgSegAlgo(nclusters=5, criteria=(cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.2), attempts=10, flags=cv2.KMEANS_RANDOM_CENTERS)
-        return self._instance
+        return ImgSegAlgo(nclusters=5, criteria=(cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.2), attempts=10, flags=cv2.KMEANS_RANDOM_CENTERS)

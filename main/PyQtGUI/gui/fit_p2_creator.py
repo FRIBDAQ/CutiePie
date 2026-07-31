@@ -35,10 +35,5 @@ class Pol2Fit(FitFunction):
 
             
 class Pol2FitBuilder:
-    def __init__(self):
-        self._instance = None
-
     def __call__(self, p0=100, p1=10, p2=1):
-        if not self._instance:
-            self._instance = Pol2Fit(p0, p1, p2)
-        return self._instance
+        return Pol2Fit(p0, p1, p2)

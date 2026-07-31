@@ -378,9 +378,5 @@ class AlphaEMG12Fit:
         return fitln
 
 class AlphaEMG12FitBuilder:
-    def __init__(self):
-        self._instance = None
     def __call__(self, param_1=1, param_2=2, param_3=10, eta_vary=True, eta_value=0, **_ignored):
-        if not self._instance:
-            self._instance = AlphaEMG12Fit(param_1, param_2, param_3, eta_vary=eta_vary, eta_value=eta_value)
-        return self._instance
+        return AlphaEMG12Fit(param_1, param_2, param_3, eta_vary=eta_vary, eta_value=eta_value)

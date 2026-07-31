@@ -28,10 +28,5 @@ class ExpFit(FitFunction):
             self.p_init[2] = -1.0
 
 class ExpFitBuilder:
-    def __init__(self):
-        self._instance = None
-
     def __call__(self, a=1, b=5, c=-1):
-        if not self._instance:
-            self._instance = ExpFit(a, b, c)
-        return self._instance
+        return ExpFit(a, b, c)

@@ -560,10 +560,5 @@ class AlphaEMG22Fit:
 
 
 class AlphaEMG22FitBuilder:
-    def __init__(self):
-        self._instance = None
-
     def __call__(self, param_1=1, param_2=2, param_3=10, **_ignored):
-        if not self._instance:
-            self._instance = AlphaEMG22Fit(param_1=param_1, param_2=param_2, param_3=param_3)
-        return self._instance
+        return AlphaEMG22Fit(param_1=param_1, param_2=param_2, param_3=param_3)

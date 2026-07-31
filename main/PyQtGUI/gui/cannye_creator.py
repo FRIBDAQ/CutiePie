@@ -64,10 +64,5 @@ class CannyEdgeAlgo:
         self.cannyEdgePopup.plotEdge(filename, xmin, xmax, ymin, ymax)
         
 class CannyEdgeAlgoBuilder:
-    def __init__(self):
-        self._instance = None
-
     def __call__(self, sigma=1, kernel_size=7, lowthreshold=0.05, highthreshold=0.15, weak_pixel=75, strong_pixel=255, **_ignored):
-        if not self._instance:
-            self._instance = CannyEdgeAlgo(sigma, kernel_size, lowthreshold, highthreshold, weak_pixel, strong_pixel)
-        return self._instance
+        return CannyEdgeAlgo(sigma, kernel_size, lowthreshold, highthreshold, weak_pixel, strong_pixel)

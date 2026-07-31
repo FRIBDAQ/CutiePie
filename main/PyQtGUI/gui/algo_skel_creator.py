@@ -20,10 +20,5 @@ class SkelAlgo:
         print("Skeleton example. Implementation is all yours.")
         
 class SkelAlgoBuilder:
-    def __init__(self):
-        self._instance = None
-
     def __call__(self, param_1 = 5, param_2 = 'test', param_3 = 100, **_ignored):
-        if not self._instance:
-            self._instance = SkelAlgo(param_1, param_2, param_3)
-        return self._instance
+        return SkelAlgo(param_1, param_2, param_3)

@@ -1,7 +1,10 @@
 import numpy as np
 from scipy.optimize import minimize
 
-np.seterr(invalid='ignore') # Suppress some 'invalid value' runtime warnings
+# Invalid values are ordinary here: the optimiser walks through parameter sets
+# that make the model produce nan, and the objective is defined for them. That
+# is a property of fitting, not of the process, so the suppression is applied
+# per fit in start() rather than to every numpy operation in the GUI.
 
 class FitFunction:
     """Base class for curve fitting by Poisson MLE. It is up to the derived
@@ -43,6 +46,10 @@ class FitFunction:
 
     def start(self, x, y, xmin, xmax, params, axis, fit_results):
         """Perform the fit and show the results. Return the data to plot."""
+        with np.errstate(invalid='ignore'):
+            return self._start(x, y, xmin, xmax, params, axis, fit_results)
+
+    def _start(self, x, y, xmin, xmax, params, axis, fit_results):
         self.set_initial_parameters(x, y, params)
         # Use BFGS and higher-order Jacobian approx. BFGS provides appoximate
         # Hessian for extracting parameter uncertainties without an additional

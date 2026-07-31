@@ -560,9 +560,6 @@ class AlphaMultiEMGFit:
 
 
 class AlphaMultiEMGFitBuilder:
-    def __init__(self):
-        self._instance = None
-
     def __call__(self, **cfg):
         # cfg can include: shape_file, calib_a, calib_b, allow_shift, shift_bound
         # if not self._instance:

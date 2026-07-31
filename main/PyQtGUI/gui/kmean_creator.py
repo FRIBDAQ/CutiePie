@@ -127,11 +127,6 @@ class KMeanAlgo:
 
         
 class KMeanAlgoBuilder:
-    def __init__(self):
-        self._instance = None
-
     def __call__(self, n_clusters=8, init='k-means++', n_init=10, max_iter=300, tol=0.0001, precompute_distances='auto', verbose=0,
                  random_state=None, algorithm='auto', **_ignored):
-        if not self._instance:
-            self._instance = KMeanAlgo(n_clusters, init, n_init, max_iter, tol, precompute_distances, verbose, random_state, algorithm)
-        return self._instance
+        return KMeanAlgo(n_clusters, init, n_init, max_iter, tol, precompute_distances, verbose, random_state, algorithm)

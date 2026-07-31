@@ -1165,7 +1165,11 @@ class FitManager(QObject):
                     fitResultsText = QTextEdit()
                     self.logger.info('fit - fitting %s ...', fit_funct)
 
-                    fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
+                    # the Alpha* creators override start() with their own lmfit code,
+                    # so the per-fit suppression is applied here too, not only in
+                    # FitFunction.start
+                    with np.errstate(invalid='ignore'):
+                        fitln = fit.start(x, y, xmin, xmax, fitpar, ax, fitResultsText)
 
                     self._maybe_show_alpha_filter_popup(fitln, fit_funct)
 

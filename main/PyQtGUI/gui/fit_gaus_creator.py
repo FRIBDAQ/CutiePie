@@ -47,10 +47,5 @@ class GausFit(FitFunction):
         super().set_initial_parameters(x, y, clean_params)
 
 class GausFitBuilder:
-    def __init__(self):
-        self._instance = None
-
     def __call__(self, amplitude=1000, mean=100, standard_deviation=10):
-        if not self._instance:
-            self._instance = GausFit(amplitude, mean, standard_deviation)
-        return self._instance
+        return GausFit(amplitude, mean, standard_deviation)
