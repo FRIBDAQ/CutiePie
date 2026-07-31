@@ -107,6 +107,10 @@ from services.gate_manager import GateManager
 from services.sum_region_manager import SumRegionManager
 from services.connection_manager import ConnectionManager
 from services.plot_controller import PlotController
+from adapters.connection_adapter import ConnectionAdapter
+from adapters.fit_adapter import FitAdapter
+from adapters.gate_adapter import GateAdapter
+from adapters.sum_region_adapter import SumRegionAdapter
 from CopyPropertiesGUI import CopyProperties
 from connectConfigGUI import ConnectConfiguration #class for the connection configuration popup
 from MenuGate import MenuGate #class for the gate creation/edition popup
@@ -192,6 +196,25 @@ class MainWindow(QMainWindow):
         # ensure GUI dies when SpecTcl dies (was an import-time call in the class body)
         tie_lifetime_to_parent()
 
+        # __init__ is a sequence of setup phases plus the activation below;
+        # each helper is a contiguous slice of what used to be one 550-line
+        # body, called in the original order. Order is load-bearing: services
+        # capture widgets and threading events built before them, and the
+        # signal wiring captures the services.
+        self._setup_logging()
+        self._build_widgets(factory, fit_factory)
+        self._build_services()
+        self._init_runtime_state()
+        self._wire_signals()
+
+        self.currentPlot = self.wTab.plot(self.wTab.currentIndex()) # definition of current plot
+
+        # per-tab button/canvas wiring — single source of truth:
+        # the same routine that rebinds on tab switch does the initial bind
+        self.bindDynamicSignal()
+
+    def _setup_logging(self):
+        """Root-logger configuration and the two handlers."""
         # Single source of truth for root-logger config. Runs before
         # any setup_logging() call, so THIS is the config that takes effect:
         # default stderr handler at WARNING. (datefmt is inert here — the
@@ -226,7 +249,12 @@ class MainWindow(QMainWindow):
         #following line to avoid main logger printing log in addition to its handlers
         self.logger.propagate = False
 
+    def _build_widgets(self, factory, fit_factory):
+        """Window shell, layouts, the toolbar/tab widgets and the nine popups.
 
+        factory/fit_factory are the two __init__ arguments this phase stores
+        and initializes; they are passed in rather than read off self so the
+        statements stay in their original order."""
         self.setWindowFlag(Qt.WindowMinimizeButtonHint, True)
         self.setWindowFlag(Qt.WindowMaximizeButtonHint, True)
 
@@ -321,6 +349,8 @@ class MainWindow(QMainWindow):
         # initialize factory from fit_creator
         self.fit_factory.initialize(self.extraPopup.fit_list)
 
+    def _build_services(self):
+        """The spectrum store and the five application services."""
         # global variables
         #spectra (SpectrumStore): canonical REST registry {name -> {dim,binx,minx,maxx,biny,miny,maxy,data,parameters,type}}
         self.spectra = SpectrumStore()
@@ -413,6 +443,8 @@ class MainWindow(QMainWindow):
             logger=self.logger,
         )
 
+    def _init_runtime_state(self):
+        """Per-session scratch state: peak finding, PF2, image overlay, gate-name cache."""
         # for peak finding
         self.datax = None
         self.datay = None
@@ -464,7 +496,8 @@ class MainWindow(QMainWindow):
         self._resize_timer.setSingleShot(True)
         self._resize_timer.timeout.connect(self._do_resize)
 
-
+    def _wire_signals(self):
+        """Every widget/service connection, and the four adapters."""
         #################
         # 2) Signals
         #################
@@ -476,12 +509,10 @@ class MainWindow(QMainWindow):
         self.connection_manager.connectionEstablished.connect(self.setCanvasLayout)
         self.connection_manager.spectrumListChanged.connect(self.refreshSpectrumSumRegionDict)
         self.connection_manager.updatePlotRequested.connect(self._updatePlotOnGui)
-        from adapters.connection_adapter import ConnectionAdapter
         self._connection_adapter = ConnectionAdapter(
             self.connection_manager, self.wTab, self.wConf.connectButton,
             self.wConf.histo_list, self.plot_controller.removeCb,
             self, self.logger)
-        from adapters.fit_adapter import FitAdapter
         self._fit_adapter = FitAdapter(
             self.fit_manager, self.plot_controller,
             self.extraPopup, self.cutoffp, self.logger)
@@ -586,7 +617,6 @@ class MainWindow(QMainWindow):
         self.gatePopup.clearInfoSignal.connect(self.gatePopup.clearInfo)
         self.gatePopup.clearInfoSignal.connect(self.autoUpdateResume)
         self.gate_manager.updatePlotRequested.connect(self.updatePlot)
-        from adapters.gate_adapter import GateAdapter
         self._gate_adapter = GateAdapter(
             self.gate_manager, self.gatePopup,
             lambda: self.currentPlot, self.logger)
@@ -611,7 +641,6 @@ class MainWindow(QMainWindow):
         self.sumRegionPopup.clearInfoSignal.connect(self.autoUpdateResume)
         self.sum_region_manager.updatePlotRequested.connect(self.updatePlot)
         self.sum_region_manager.gateSignalsDisconnectRequested.connect(self.disconnectGateSignals)
-        from adapters.sum_region_adapter import SumRegionAdapter
         self._sum_region_adapter = SumRegionAdapter(
             self.sum_region_manager, lambda: self.currentPlot,
             self.sumRegionPopup, self.integratePopup,
@@ -726,11 +755,6 @@ class MainWindow(QMainWindow):
         self.shortcutZoomDrag.activated.connect(self.customZoomButtonCallback)
 
 
-        self.currentPlot = self.wTab.plot(self.wTab.currentIndex()) # definition of current plot
-
-        # per-tab button/canvas wiring — single source of truth:
-        # the same routine that rebinds on tab switch does the initial bind
-        self.bindDynamicSignal()
 
     ################################
     # 3) Implementation of Signals
