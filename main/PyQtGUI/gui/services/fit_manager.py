@@ -1441,8 +1441,16 @@ class FitManager(QObject):
             raise ValueError(
                 f"This looks like a shape file, not a calibration file:\n{path}")
 
-        with open(path, "r") as f:
-            txt = f.read()
+        # The dialog offers "All files (*)", so this has to survive a binary
+        # pick. Read bytes and refuse binary outright rather than decoding it
+        # with replacement: the last-resort parse below takes the first two
+        # numbers it finds anywhere, and a binary file full of ASCII digits
+        # would sail through it as a silently wrong calibration.
+        with open(path, "rb") as f:
+            raw = f.read()
+        txt = raw.decode("utf-8", errors="replace")
+        if b"\x00" in raw or (txt and txt.count("�") / len(txt) > 0.3):
+            raise ValueError(f"This looks like a binary file, not a calibration file:\n{path}")
 
         def _finite_pair(a, b):
             a, b = float(a), float(b)
