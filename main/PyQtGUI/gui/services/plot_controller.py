@@ -88,6 +88,8 @@ class PlotController(QObject):
     # Axis scaling
     # ------------------------------------------------------------------
 
+    # sets x, y scales for 1d and x, y, z scales for 2d depending on the scale
+    # identifier and on axisIsLog; does all the scaling operations
     def setAxisScale(self, ax, index, *scale):
         self.logger.debug('setAxisScale - index: %s', index)
 
@@ -164,6 +166,7 @@ class PlotController(QObject):
                     self.setCmapNorm("linear", index)
                 self._set_spectrum_info(spectrum=spectrum, index=index)
 
+    # where the color bar is defined
     def setCmapNorm(self, scale, index):
         self.logger.info('setCmapNorm')
         validScales = ["linear", "log", "linearCentered"]
@@ -206,6 +209,7 @@ class PlotController(QObject):
                 cp.figure.colorbar(spectrum, cax=cax, orientation='vertical')
             # else: norm already updated on spectrum; the linked colorbar redraws automatically
 
+    # callback for histo_autoscale, calls setAxisScale
     def autoScaleAxisBox(self, forIndex):
         self.logger.info('autoScaleAxisBox - forIndex: %s', forIndex)
         try:
@@ -253,6 +257,7 @@ class PlotController(QObject):
     # Range / min-max helpers
     # ------------------------------------------------------------------
 
+    # data max within a user defined range. For 2D give two ranges (x,y), for 1D range x.
     def getMinMaxInRange(self, index, **limits):
         self.logger.debug('getMinMaxInRange - limits: %s', limits)
         result = None
@@ -296,6 +301,8 @@ class PlotController(QObject):
                 return self.minZ, self.maxZ
         return result
 
+    # have seen a malloc error if the data array is too large, so split it into
+    # sub-arrays with sub-(min, max) and take the global (min, max) of those
     def customMinMax(self, data):
         """Return (min, max) of the positive counts in `data`, one vectorized pass.
 
@@ -314,6 +321,7 @@ class PlotController(QObject):
             return self.minZ, self.maxZ
         return positive.min(), positive.max()
 
+    # axis limits in the form [[xmin, xmax], [ymin, ymax]]
     def getAxisProperties(self, index):
         self.logger.info('getAxisProperties')
         try:
@@ -329,6 +337,7 @@ class PlotController(QObject):
     # Zoom / toolbar callbacks
     # ------------------------------------------------------------------
 
+    # callback for plusButton/minusButton
     def zoomInOut(self, arg):
         self.logger.info('zoomInOut - arg: %s', arg)
         cp = self._get_current_plot()
@@ -366,6 +375,7 @@ class PlotController(QObject):
         self.logger.info('zoomCallback')
         self._get_current_plot().zoomPress = True
 
+    # used by customZoom button, triggers the toolbar zoom action
     def customZoomButtonCallback(self):
         self.logger.info('customZoomButtonCallback')
         cp = self._get_current_plot()
@@ -380,6 +390,8 @@ class PlotController(QObject):
             cp.zoom_action.setChecked(True)
             cp.customZoomButton.setDown(True)
 
+    # used by customHome button; resets the axis limits to the ReST definitions,
+    # for the plot at index or for all plots when index is not given
     def customHomeButtonCallback(self, index=None):
         self.logger.info('customHomeButtonCallback - index: %s', index)
         index_list = [idx for idx, name in self._get_geo().items() if index is None]
@@ -421,6 +433,8 @@ class PlotController(QObject):
             self._set_spectrum_info(spectrum=spectrum, index=idx)
         self._get_current_plot().canvas.draw()
 
+    # used by logButton; sets the log scale for the plot at index, or for all
+    # plots on logAll/unlogAll. Calls setAxisScale
     def logButtonCallback(self, *arg):
         self.logger.info('logButtonCallback - arg: %s', arg)
         index       = None
@@ -456,6 +470,7 @@ class PlotController(QObject):
             self.setAxisScale(ax, idx, "log")
         cp.canvas.draw()
 
+    # callback on right click on customZoomButton
     def zoom_handle_right_click(self):
         self.logger.info('zoom_handle_right_click')
         menu  = QMenu()
@@ -471,6 +486,7 @@ class PlotController(QObject):
             menuPos  = QtCore.QPoint(menuPosX, menuPosY)
             menu.exec_(menuPos)
 
+    # callback on right click on customHomeButton
     def handle_right_click(self):
         self.logger.info('handle_right_click')
         menu  = QMenu()
@@ -482,6 +498,7 @@ class PlotController(QObject):
         menuPos  = QtCore.QPoint(menuPosX, menuPosY)
         menu.exec_(menuPos)
 
+    # callback on right click on logButton
     def log_handle_right_click(self):
         self.logger.info('log_handle_right_click')
         menu  = QMenu()
@@ -591,6 +608,7 @@ class PlotController(QObject):
             self.updatePlot()
         self.cutoffPopupCloseRequested.emit()
 
+    # called by cutoffButton, sets the information in the cutoff window
     def cutoffButtonCallback(self, *arg):
         self.logger.info('cutoffButtonCallback')
         cp    = self._get_current_plot()
@@ -619,6 +637,7 @@ class PlotController(QObject):
             self.logger.warning('cutoffButtonCallback - you broke something really bad - spectrum dict: %s',
                                 self._get_spectrum_info("cutoff", index=index))
 
+    # used in zoomCallback to save the new axis limits
     def updatePlotLimits(self):
         self.logger.debug('updatePlotLimits')
         cp    = self._get_current_plot()
@@ -648,6 +667,7 @@ class PlotController(QObject):
     # Colorbar / canvas helpers
     # ------------------------------------------------------------------
 
+    # remove colorbar
     def removeCb(self, axis):
         im = axis.images
         if im is not None and len(im) > 0:
@@ -657,6 +677,7 @@ class PlotController(QObject):
             except Exception:
                 self.logger.debug('removeCb - IndexError exception', exc_info=True)
 
+    # select axes based on indexing, used only in add()
     def select_plot(self, index):
         self.logger.info('select_plot - index: %s', index)
         cp = self._get_current_plot()
@@ -681,6 +702,8 @@ class PlotController(QObject):
     # Plot setup and rendering
     # ------------------------------------------------------------------
 
+    # set up histogram limits according to the ReST info.
+    # Called from add(), when the plot is first added
     def setupPlot(self, axis, index):
         self.logger.debug('setupPlot - index: %s', index)
         self._layout_dirty = True
@@ -750,6 +773,8 @@ class PlotController(QObject):
                     cax.set_label(label)
                     self._get_current_plot().figure.colorbar(spectrum, cax=cax, orientation='vertical')
 
+    # geometrically add plots in the right place and call the plotting.
+    # Should be called only by addPlot and by on_dblclick when entering or leaving enlarged mode
     def add(self, index):
         self.logger.info('add - index: %s', index)
         cp = self._get_current_plot()
@@ -869,6 +894,8 @@ class PlotController(QObject):
                 w = np.ma.masked_where(w > maxCutoff, w)
         return w
 
+    # fill the spectrum with new data. Called from addPlot and updatePlot;
+    # does not draw the plot itself
     def plotPlot(self, index, cmap=None):
         self.logger.debug('plotPlot - index: %s', index)
         name     = self._name_from_index(index)
@@ -941,6 +968,8 @@ class PlotController(QObject):
             self.logger.debug('_tick_signature - exception; forcing redraw', exc_info=True)
             return None, None
 
+    # callback for the histo_geo_update button, also used in various functions.
+    # Redraws the spectrum, updates the axis scales and redraws the gates
     def updatePlot(self, force=True):
         cp = self._get_current_plot()
         auto_scale_status = cp.histo_autoscale.isChecked()

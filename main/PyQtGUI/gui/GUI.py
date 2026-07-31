@@ -431,7 +431,7 @@ class MainWindow(QMainWindow):
             auto_index=self.autoIndex,
             next_index=self.nextIndex,
             bind_dynamic_signal=self.bindDynamicSignal,
-            draw_gate=self.drawGate,
+            draw_gate=self.gate_manager.drawGate,
             clean_popup_exit=self.cleanPopupExit,
             auto_update_start=self.autoUpdateStart,
             stop_auto_update_thread=self.stopAutoUpdateThread,
@@ -507,7 +507,7 @@ class MainWindow(QMainWindow):
         self.connectConfig.ok.clicked.connect(self.okConnect)
         self.connectConfig.cancel.clicked.connect(self.closeConnect)
         self.connection_manager.connectionEstablished.connect(self.setCanvasLayout)
-        self.connection_manager.spectrumListChanged.connect(self.refreshSpectrumSumRegionDict)
+        self.connection_manager.spectrumListChanged.connect(self.sum_region_manager.refreshSpectrumSumRegionDict)
         self.connection_manager.updatePlotRequested.connect(self._updatePlotOnGui)
         self._connection_adapter = ConnectionAdapter(
             self.connection_manager, self.wTab, self.wConf.connectButton,
@@ -562,7 +562,7 @@ class MainWindow(QMainWindow):
 
         # config menu signals
         self.wConf.histo_geo_add.clicked.connect(self.addPlot)
-        self.wConf.histo_geo_update.clicked.connect(lambda: self.updatePlot())
+        self.wConf.histo_geo_update.clicked.connect(lambda: self.plot_controller.updatePlot())
         self.wConf.extraButton.clicked.connect(self.spfunPopup)
 
         ### Bashir added for auto update #########################
@@ -587,7 +587,7 @@ class MainWindow(QMainWindow):
 
         
         #### Bashir added
-        self.wConf.cmapSelector.currentTextChanged.connect(self.onColormapChange)
+        self.wConf.cmapSelector.currentTextChanged.connect(self.plot_controller.onColormapChange)
         # palette, old_cmap, and geometry_applied live on PlotController
 
         # self.wConf.darkModeButton.clicked.connect(self.toggleDarkMode)
@@ -615,8 +615,8 @@ class MainWindow(QMainWindow):
         self.gatePopup.gateActionCreate.clicked.connect(
             lambda: self.gate_manager.createGate(self.currentPlot.selected_plot_index))
         self.gatePopup.clearInfoSignal.connect(self.gatePopup.clearInfo)
-        self.gatePopup.clearInfoSignal.connect(self.autoUpdateResume)
-        self.gate_manager.updatePlotRequested.connect(self.updatePlot)
+        self.gatePopup.clearInfoSignal.connect(self.connection_manager.autoUpdateResume)
+        self.gate_manager.updatePlotRequested.connect(self.plot_controller.updatePlot)
         self._gate_adapter = GateAdapter(
             self.gate_manager, self.gatePopup,
             lambda: self.currentPlot, self.logger)
@@ -638,9 +638,9 @@ class MainWindow(QMainWindow):
                 *self._current_plot_ctx(),
                 self.sumRegionPopup.sumRegionNameList.currentText()))
         self.sumRegionPopup.clearInfoSignal.connect(self.sumRegionPopup.clearInfo)
-        self.sumRegionPopup.clearInfoSignal.connect(self.autoUpdateResume)
-        self.sum_region_manager.updatePlotRequested.connect(self.updatePlot)
-        self.sum_region_manager.gateSignalsDisconnectRequested.connect(self.disconnectGateSignals)
+        self.sumRegionPopup.clearInfoSignal.connect(self.connection_manager.autoUpdateResume)
+        self.sum_region_manager.updatePlotRequested.connect(self.plot_controller.updatePlot)
+        self.sum_region_manager.gateSignalsDisconnectRequested.connect(self.gate_manager.disconnectGateSignals)
         self._sum_region_adapter = SumRegionAdapter(
             self.sum_region_manager, lambda: self.currentPlot,
             self.sumRegionPopup, self.integratePopup,
@@ -659,11 +659,11 @@ class MainWindow(QMainWindow):
 
         self.cutoffp.okButton.clicked.connect(self.okCutoff)
         self.cutoffp.cancelButton.clicked.connect(self.cancelCutoff)
-        self.cutoffp.resetButton.clicked.connect(lambda: self.resetCutoff(True))
+        self.cutoffp.resetButton.clicked.connect(lambda: self.plot_controller.resetCutoff(True))
 
         #### Bashir added for zooming hotkeys ####
-        QShortcut(QKeySequence("+"), self.wTab.plot(self.wTab.currentIndex())).activated.connect(lambda: self.zoomInOut("in"))
-        QShortcut(QKeySequence("-"), self.wTab.plot(self.wTab.currentIndex())).activated.connect(lambda: self.zoomInOut("out"))
+        QShortcut(QKeySequence("+"), self.wTab.plot(self.wTab.currentIndex())).activated.connect(lambda: self.plot_controller.zoomInOut("in"))
+        QShortcut(QKeySequence("-"), self.wTab.plot(self.wTab.currentIndex())).activated.connect(lambda: self.plot_controller.zoomInOut("out"))
         ###############################################
 
         # copy attributes
@@ -722,7 +722,9 @@ class MainWindow(QMainWindow):
         self.extraPopup.peak.jup_save.clicked.connect(lambda: self.createDf())
 
         self.extraPopup.options.gateAnnotation.clicked.connect(self.gate_manager.gateAnnotationCallBack)
-        self.extraPopup.options.gateHide.clicked.connect(self.updatePlot)
+        # lambda, not a direct connect: clicked carries a bool that would land on
+        # updatePlot's force parameter and turn the redraw into a skippable one
+        self.extraPopup.options.gateHide.clicked.connect(lambda: self.plot_controller.updatePlot())
         self.extraPopup.options.debugMode.clicked.connect(self.debugModeCallBack)
         ##### Bashir commented out the auto update in the main gate
         # self.extraPopup.options.autoUpdate.valueChanged.connect(self.autoUpdateStart)
@@ -752,7 +754,7 @@ class MainWindow(QMainWindow):
         # zoom (click-drag)
         self.shortcutZoomDrag = QShortcut(QKeySequence("Alt+Z"), self)
         # self.shortcutZoomDrag.activated.connect(self.zoomKeyCallback)
-        self.shortcutZoomDrag.activated.connect(self.customZoomButtonCallback)
+        self.shortcutZoomDrag.activated.connect(self.plot_controller.customZoomButtonCallback)
 
 
 
@@ -775,22 +777,22 @@ class MainWindow(QMainWindow):
                 self.wTab.plot(index).customHomeButton.disconnect()
                 self.wTab.setClickBound(index, False)
 
-        self.wTab.plot(self.wTab.currentIndex()).zoom_action.triggered.connect(self.zoomCallback)
-        self.wTab.plot(self.wTab.currentIndex()).histo_autoscale.clicked.connect(lambda: self.autoScaleAxisBox(None))
-        self.wTab.plot(self.wTab.currentIndex()).customZoomButton.clicked.connect(self.customZoomButtonCallback)
+        self.wTab.plot(self.wTab.currentIndex()).zoom_action.triggered.connect(self.plot_controller.zoomCallback)
+        self.wTab.plot(self.wTab.currentIndex()).histo_autoscale.clicked.connect(lambda: self.plot_controller.autoScaleAxisBox(None))
+        self.wTab.plot(self.wTab.currentIndex()).customZoomButton.clicked.connect(self.plot_controller.customZoomButtonCallback)
         self.wTab.plot(self.wTab.currentIndex()).customZoomButton.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        self.wTab.plot(self.wTab.currentIndex()).customZoomButton.customContextMenuRequested.connect(self.zoom_handle_right_click)
-        self.wTab.plot(self.wTab.currentIndex()).plusButton.clicked.connect(lambda: self.zoomInOut("in"))
-        self.wTab.plot(self.wTab.currentIndex()).minusButton.clicked.connect(lambda: self.zoomInOut("out"))
-        self.wTab.plot(self.wTab.currentIndex()).cutoffButton.clicked.connect(self.cutoffButtonCallback)
+        self.wTab.plot(self.wTab.currentIndex()).customZoomButton.customContextMenuRequested.connect(self.plot_controller.zoom_handle_right_click)
+        self.wTab.plot(self.wTab.currentIndex()).plusButton.clicked.connect(lambda: self.plot_controller.zoomInOut("in"))
+        self.wTab.plot(self.wTab.currentIndex()).minusButton.clicked.connect(lambda: self.plot_controller.zoomInOut("out"))
+        self.wTab.plot(self.wTab.currentIndex()).cutoffButton.clicked.connect(self.plot_controller.cutoffButtonCallback)
         self.wTab.plot(self.wTab.currentIndex()).cutoffButton.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         self.wTab.plot(self.wTab.currentIndex()).copyButton.clicked.connect(self.copyPopup)
-        self.wTab.plot(self.wTab.currentIndex()).customHomeButton.clicked.connect(lambda: self.customHomeButtonCallback(self.currentPlot.selected_plot_index))
+        self.wTab.plot(self.wTab.currentIndex()).customHomeButton.clicked.connect(lambda: self.plot_controller.customHomeButtonCallback(self.currentPlot.selected_plot_index))
         self.wTab.plot(self.wTab.currentIndex()).customHomeButton.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        self.wTab.plot(self.wTab.currentIndex()).customHomeButton.customContextMenuRequested.connect(self.handle_right_click)
-        self.wTab.plot(self.wTab.currentIndex()).logButton.clicked.connect(lambda: self.logButtonCallback(self.currentPlot.selected_plot_index))
+        self.wTab.plot(self.wTab.currentIndex()).customHomeButton.customContextMenuRequested.connect(self.plot_controller.handle_right_click)
+        self.wTab.plot(self.wTab.currentIndex()).logButton.clicked.connect(lambda: self.plot_controller.logButtonCallback(self.currentPlot.selected_plot_index))
         self.wTab.plot(self.wTab.currentIndex()).logButton.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        self.wTab.plot(self.wTab.currentIndex()).logButton.customContextMenuRequested.connect(self.log_handle_right_click)
+        self.wTab.plot(self.wTab.currentIndex()).logButton.customContextMenuRequested.connect(self.plot_controller.log_handle_right_click)
 
         self.resizeID = self.wTab.plot(self.wTab.currentIndex()).canvas.mpl_connect("resize_event", self.on_resize)
         self.pressID = self.wTab.plot(self.wTab.currentIndex()).canvas.mpl_connect("button_press_event", self.on_press)
@@ -947,7 +949,7 @@ class MainWindow(QMainWindow):
             self.currentPlot.zoom_action.triggered.emit()
             self.currentPlot.zoom_action.setChecked(False)
             self.currentPlot.customZoomButton.setDown(False)
-            QTimer.singleShot(100, self.updatePlotLimits)
+            QTimer.singleShot(100, self.plot_controller.updatePlotLimits)
             self.currentPlot.zoomPress = False
 
 
@@ -1070,16 +1072,16 @@ class MainWindow(QMainWindow):
             pass
         else :
             wPlot.cutoffButton.setDown(False)
-            self.resetCutoff(False)
+            self.plot_controller.resetCutoff(False)
 
         # If we are not zooming on one histogram we can select one histogram
         # and a red rectangle will contour the plot
         if self.currentPlot.isEnlarged == False:
             self.logger.debug('on_singleclick - isEnlarged FALSE')
-            self.removeRectangle()
+            self.plot_controller.removeRectangle()
             self.currentPlot.isSelected = True
             self.currentPlot.next_plot_index = self.currentPlot.selected_plot_index
-            self.currentPlot.rec = self.createRectangle(self.currentPlot.figure.axes[index])
+            self.currentPlot.rec = self.plot_controller.createRectangle(self.currentPlot.figure.axes[index])
             #tried to blit here but not successful (?) important delay for canvas with many plots
             self.currentPlot.canvas.draw_idle()
 
@@ -1105,7 +1107,7 @@ class MainWindow(QMainWindow):
                 if name == "empty" or index == -1:
                     self.logger.warning('on_dblclick - empty axes cannot enlarge')
                     return
-                self.removeRectangle()
+                self.plot_controller.removeRectangle()
 
                 self.logger.debug('on_dblclick - entering expanded spectrum view')
 
@@ -1156,8 +1158,8 @@ class MainWindow(QMainWindow):
                 #setup single pad canvas
                 self.currentPlot.InitializeCanvas(1,1,False)
                 autoscale_status = self.currentPlot.histo_autoscale.isChecked()
-                self.add(idx)
-                self.updatePlot()
+                self.plot_controller.add(idx)
+                self.plot_controller.updatePlot()
                 
                 ###################################################################
 
@@ -1231,29 +1233,29 @@ class MainWindow(QMainWindow):
 
                     # if name is not None and name != "" and name != "empty":
                     if name is not None and name != "" and name != "empty" and index == idx:
-                        self.add(index)
+                        self.plot_controller.add(index)
                         ax = self.getSpectrumViewInfo("axis", index=index)
                         
                         #reset the axis limits as it was before enlarge
                         #dont need to specify if log scale, it is checked inside setAxisScale, if 2D histo in log its z axis is set too.
                         dim = self.getSpectrumStoreInfo("dim", index=index)
                         if dim == 1:
-                            self.plotPlot(index)
+                            self.plot_controller.plotPlot(index)
                             if not autoscale_status and hasattr(self.currentPlot, "_saved_ylims") and index in self.currentPlot._saved_ylims:
                                 ax.set_ylim(*self.currentPlot._saved_ylims[index])   # <-- restore y only
                             else:
                                 if autoscale_status:
-                                    self.setAxisScale(ax, index, "x", "y")
+                                    self.plot_controller.setAxisScale(ax, index, "x", "y")
 
                         elif dim == 2:
-                            self.plotPlot(index, self.plot_controller.old_cmap)
+                            self.plot_controller.plotPlot(index, self.plot_controller.old_cmap)
                             self.setSpectrumViewInfo(cmap=self.plot_controller.old_cmap, index=idx)
                             # if autoscale_status:
-                            self.setAxisScale(ax, index, "x", "y", "z")
-                        self.drawGate(index)
+                            self.plot_controller.setAxisScale(ax, index, "x", "y", "z")
+                        self.gate_manager.drawGate(index)
                 #drawing back the dashed red rectangle on the unenlarged spectrum
-                self.removeRectangle()
-                self.currentPlot.recDashed = self.createDashedRectangle(self.currentPlot.figure.axes[tempIdxEnlargedSpectrum])
+                self.plot_controller.removeRectangle()
+                self.currentPlot.recDashed = self.plot_controller.createDashedRectangle(self.currentPlot.figure.axes[tempIdxEnlargedSpectrum])
                 #self.updatePlot() #replaced by the content of updatePlot in the above for loop (avoid looping twice)
                 # self.currentPlot.figure.tight_layout()
                 # self.drawAllGates()
@@ -1307,9 +1309,9 @@ class MainWindow(QMainWindow):
         self.logger.info('closeTab')
         #For now, if change tab while working on gate, close any ongoing gate action
         if self.currentPlot.toCreateGate or self.currentPlot.toEditGate or self.gatePopup.isVisible():
-            self.cancelGate()
+            self.gate_manager.cancelGate()
         if self.currentPlot.toCreateSumRegion or self.sumRegionPopup.isVisible():
-            self.cancelSumRegion()
+            self.sum_region_manager.cancelSumRegion()
 
         # Can't use removeTab of QTabWidget on current tab so change the current index to another tab
         newIndex = 0
@@ -1333,9 +1335,9 @@ class MainWindow(QMainWindow):
         self.logger.info('renameTab')
         #For now, if change tab while working on gate, close any ongoing gate action
         if self.currentPlot.toCreateGate or self.currentPlot.toEditGate or self.gatePopup.isVisible():
-            self.cancelGate()
+            self.gate_manager.cancelGate()
         if self.currentPlot.toCreateSumRegion or self.sumRegionPopup.isVisible():
-            self.cancelSumRegion()
+            self.sum_region_manager.cancelSumRegion()
 
         self.tabp.setWindowTitle("Rename tab...")
         self.tabp.setGeometry(200,350,100,50)
@@ -1366,14 +1368,14 @@ class MainWindow(QMainWindow):
         # self.setCanvasLayout()
         # print("clickedTab - index: %s",index)
         # End current auto update thread, to avoid thread issue, will start a new thread if/when tab is not empty
-        self._stop_auto_thread()
+        self.connection_manager._stop_auto_thread()
 
         # For now, if change tab while working on gate, close any ongoing gate action
         if self.currentPlot.toCreateGate or self.currentPlot.toEditGate or self.gatePopup.isVisible():
-            self.cancelGate()
+            self.gate_manager.cancelGate()
             return
         if self.currentPlot.toCreateSumRegion or self.sumRegionPopup.isVisible():
-            self.cancelSumRegion()
+            self.sum_region_manager.cancelSumRegion()
             return
 
         # Abord zoom action if click a tab
@@ -1395,7 +1397,7 @@ class MainWindow(QMainWindow):
         else:
             try:
                 self.tabGeoWidgetAndFlags(index)
-                self.removeRectangle()
+                self.plot_controller.removeRectangle()
                 self.bindDynamicSignal()
 
                 # If tab not empty, (re)start auto update
@@ -1440,7 +1442,7 @@ class MainWindow(QMainWindow):
         else: 
             self.wTab.swapTabDict(indexFrom, indexTo)
             self.tabGeoWidgetAndFlags(indexFrom)
-            self.removeRectangle()
+            self.plot_controller.removeRectangle()
             self.bindDynamicSignal()
 
         # change only default tab text ! might be confusing not sure if useful
@@ -1565,7 +1567,7 @@ class MainWindow(QMainWindow):
         """Called by SumRegionManager.cleanPopupExit to handle gate-side cleanup."""
         if (self.currentPlot.toCreateGate or self.currentPlot.toEditGate) \
                 and not self.gatePopup.isVisible():
-            self.cancelGate(doClose)
+            self.gate_manager.cancelGate(doClose)
 
     #get full per-tab slots dict for the current tab:
     def getSpectrumViewDict(self):
@@ -1726,7 +1728,7 @@ class MainWindow(QMainWindow):
             for index in range(len(geo)):
                 try:
                     h_name = geo[index]
-                    x_range, y_range = self.getAxisProperties(index)
+                    x_range, y_range = self.plot_controller.getAxisProperties(index)
                     scale = True if self.getSpectrumViewInfo("log", index=index) else False
                     properties[index] = {"name": h_name, "x": x_range, "y": y_range, "scale": scale}
                 except Exception:
@@ -1863,7 +1865,7 @@ class MainWindow(QMainWindow):
             self.currentPlot.next_plot_index = -1
 
         self.addPlot()
-        self.updatePlot()
+        self.plot_controller.updatePlot()
         self.currentPlot.isLoaded = False
         return notFound
 
@@ -1931,10 +1933,10 @@ class MainWindow(QMainWindow):
         bad file."""
         # quiesce: same guards clickedTab uses, then stop the auto-update tick
         if self.currentPlot.toCreateGate or self.currentPlot.toEditGate or self.gatePopup.isVisible():
-            self.cancelGate()
+            self.gate_manager.cancelGate()
         if self.currentPlot.toCreateSumRegion or self.sumRegionPopup.isVisible():
-            self.cancelSumRegion()
-        self._stop_auto_thread()
+            self.sum_region_manager.cancelSumRegion()
+        self.connection_manager._stop_auto_thread()
 
         # rebuild the tab set with existing primitives only (danger
         # zone: deleteTab reindexes the parallel dicts and plt.closes figures)
@@ -1992,63 +1994,8 @@ class MainWindow(QMainWindow):
     #############################
     # 8) Zoom/Scaling operations
     #############################
-
-    # can sets x, y scales for 1d and x, y, z scales for 2d depending on the scale identifier and if axisIsLog
-    # basically do all the scaling operations
-    def setAxisScale(self, ax, index, *scale):   return self.plot_controller.setAxisScale(ax, index, *scale)
-
-
-
-    # Where is defined the color bar
-    def setCmapNorm(self, scale, index):         return self.plot_controller.setCmapNorm(scale, index)
-
-
-    #Callback for plusButton/minusButton
-    def zoomInOut(self, arg):                    return self.plot_controller.zoomInOut(arg)
-
-
-    # Callback for histo_autoscale, calls setAxisScale
-    def autoScaleAxisBox(self, forIndex):        return self.plot_controller.autoScaleAxisBox(forIndex)
-
-
-    # get data max within user defined range
-    # For 2D have to give two ranges (x,y), for 1D range x.
-    def getMinMaxInRange(self, index, **limits):  return self.plot_controller.getMinMaxInRange(index, **limits)
-
-
-    # Have seen malloc error if data array too large
-    # Divide data array in sub-arrays with sub-(min, max) and then find the global-(min, max)
-    def customMinMax(self, data):                return self.plot_controller.customMinMax(data)
-
-
-    #return the axis limits in a certain format [[xmin, xmax], [ymin, ymax]]
-    def getAxisProperties(self, index):          return self.plot_controller.getAxisProperties(index)
-            
-
-    def zoomCallback(self, event):               return self.plot_controller.zoomCallback(event)
-
-    #Used by customZoom button, trigger toolbar zoom action
-    def customZoomButtonCallback(self):          return self.plot_controller.customZoomButtonCallback()
-
-
-    #Used by customHome button, reset the axis limits to ReST definitions, for the specified plot at index or for all plots if index not provided
-    def customHomeButtonCallback(self, index=None): return self.plot_controller.customHomeButtonCallback(index)
-
-
-    #Used by logButton, defines the log scale, for the specified plot at index or for all plots if logAll/unlogAll, calls setAxisScale
-    def logButtonCallback(self, *arg):           return self.plot_controller.logButtonCallback(*arg)
-
-
-    #callback when right click on customZoomButton
-    def zoom_handle_right_click(self):           return self.plot_controller.zoom_handle_right_click()
-
-    #callback when right click on customHomeButton
-    def handle_right_click(self):                return self.plot_controller.handle_right_click()
-
-
-    #callback when right click on logButton
-    def log_handle_right_click(self):            return self.plot_controller.log_handle_right_click()
-
+    # The scaling, zoom and cutoff operations themselves live on PlotController;
+    # what stays here reads the popup fields and hands them over as arguments.
 
     #button of the cutoff window, sets the cutoff values in the spectrum dict
     def okCutoff(self):
@@ -2060,41 +2007,17 @@ class MainWindow(QMainWindow):
     def cancelCutoff(self):
         self.cutoffp.close()
 
-    def resetCutoff(self, doUpdate):             return self.plot_controller.resetCutoff(doUpdate)
-
-    #called by cutoffButton, sets the information in the cutoff window
-    def cutoffButtonCallback(self, *arg):        return self.plot_controller.cutoffButtonCallback(*arg)
-
-    #Used in zoomCallBack to save the new axis limits
-    def updatePlotLimits(self):                  return self.plot_controller.updatePlotLimits()
-
 
     ##################################
     ## 9) Histogram operations
     ##################################
-
-    # remove colorbar
-    def removeCb(self, axis):                    return self.plot_controller.removeCb(axis)
-
-
-    # select axes based on indexing, used only in add()
-    def select_plot(self, index):                return self.plot_controller.select_plot(index)
-
+    # Rendering lives on PlotController. What stays here reads a widget the
+    # service no longer holds — the tab layout, the spectrum combo.
 
     # returns position in grid based on indexing
     def plotPosition(self, index):
         return self.plot_controller.plotPosition(
             index, self.wTab.tabLayout(self.wTab.currentIndex()))
-
-
-    # setup histogram limits according to the ReST info
-    # called in add(), when the plot is first added
-    def setupPlot(self, axis, index):            return self.plot_controller.setupPlot(axis, index)
-
-
-    # geometrically add plots to the right place and calls plotting
-    # should be called only by addPlot and on_dblclick when entering/exiting enlarged mode
-    def add(self, index):                        return self.plot_controller.add(index)
 
 
     # Callback for histo_geo_add button
@@ -2108,27 +2031,11 @@ class MainWindow(QMainWindow):
             selected, self.wTab.isClickBound(self.wTab.currentIndex()))
 
 
-    #why not using np.linspace(vmin, vmax, bins)
-    def createRange(self, bins, vmin, vmax):     return self.plot_controller.createRange(bins, vmin, vmax)
-
-
-    # fill spectrum with new data
-    # called in addPlot and updatePlot
-    # dont actually draw the plot in this function
-    def plotPlot(self, index, cmap=None):        return self.plot_controller.plotPlot(index, cmap)
-
-
     ### Bashir added for auto-update signal
+    # Kept as a slot on this side: the auto-update worker emits from its own
+    # thread, and the decorator is what makes the delivery a queued one.
     @pyqtSlot()
     def _updatePlotOnGui(self):                  return self.plot_controller._updatePlotOnGui()
-    #Callback for histo_geo_update button
-    #also used in various functions
-    #redraw plot spectrum, update axis scales, redraw gates
-    def updatePlot(self):                        return self.plot_controller.updatePlot()
-
-
-    ####### Bashir added for color map #######################
-    def onColormapChange(self, cmap_name: str):  return self.plot_controller.onColormapChange(cmap_name)
 
 
     ############################################################################
@@ -2339,8 +2246,8 @@ class MainWindow(QMainWindow):
                     if spectrum is not None:
                         spectrum.set_clim(zlim_src[0], zlim_src[1])
                 if copy_scale:
-                    self.setAxisScale(ax, index, "log")
-            self.updatePlot()
+                    self.plot_controller.setAxisScale(ax, index, "log")
+            self.plot_controller.updatePlot()
         except Exception:
             self.logger.exception('applyCopy - copy properties failed')
 
@@ -2483,14 +2390,15 @@ class MainWindow(QMainWindow):
         self.extraPopup.show()
 
     # ------------------------------------------------------------------
-    # Fit methods — delegated to FitManager (see gui/services/fit_manager.py)
+    # Fit methods — FitManager does the work (see gui/services/fit_manager.py).
+    # What is left here gathers the popup fields and the current-plot context
+    # the service is not allowed to read for itself.
     # ------------------------------------------------------------------
     def fit(self):
         return self.fit_manager.fit(*self._current_plot_ctx(), *self._fit_inputs())
     def deleteFit(self):
         return self.fit_manager.deleteFit(*self._current_plot_ctx(),
                                           self.extraPopup.delete_fitIdx_list.text())
-    def listFitLineLabels(self, ax):     return self.fit_manager.listFitLineLabels(ax)
     def printFitLineLabels(self): return self.fit_manager.printFitLineLabels(*self._current_plot_ctx())
     def setFitLineLabel(self, ax, line, resultsText, spectrumName):
         return self.fit_manager.setFitLineLabel(ax, line, resultsText, spectrumName)
@@ -2500,19 +2408,13 @@ class MainWindow(QMainWindow):
         return self.fit_manager.axisLimitsForFit(
             ax, self.extraPopup.fit_range_min.text(), self.extraPopup.fit_range_max.text())
 
-    # ------------------------------------------------------------------
-    # Gate methods — delegated to GateManager (see gui/services/gate_manager.py)
-    # ------------------------------------------------------------------
-    def drawGate(self, index):                   return self.gate_manager.drawGate(index)
-    def cancelGate(self, doClose=True):          return self.gate_manager.cancelGate(doClose)
-    def disconnectGateSignals(self):             return self.gate_manager.disconnectGateSignals()
-    def addLine(self, *a, **kw):                 return self.gate_manager.addLine(*a, **kw)
-    def removePrevLine(self):                    return self.gate_manager.removePrevLine()
-    def clickOnGateLine(self, event):            return self.gate_manager.clickOnGateLine(event)
-    def dist(self, x, y):                        return self.gate_manager.dist(x, y)
+    # Gate methods live entirely on GateManager now (gui/services/gate_manager.py);
+    # call it directly. The gate popup is wired to it in _wire_signals.
 
     # ------------------------------------------------------------------
-    # SumRegion methods — delegated to SumRegionManager (see gui/services/sum_region_manager.py)
+    # SumRegion methods — SumRegionManager does the work
+    # (see gui/services/sum_region_manager.py). What is left here reads the
+    # region-name combo and the current-plot context on its behalf.
     # ------------------------------------------------------------------
     def setSumRegion(self, index, line):
         name = self.nameFromIndex(index)
@@ -2522,7 +2424,6 @@ class MainWindow(QMainWindow):
         return self.sum_region_manager.getSumRegion(index, name)
     def deleteSumRegionDict(self, label):
         return self.sum_region_manager.deleteSumRegionDict(label, self.currentPlot.figure.axes)
-    def refreshSpectrumSumRegionDict(self):      return self.sum_region_manager.refreshSpectrumSumRegionDict()
     def saveSumRegion(self, index):
         name = self.nameFromIndex(index)
         return self.sum_region_manager.saveSumRegion(
@@ -2531,14 +2432,12 @@ class MainWindow(QMainWindow):
     def okSumRegion(self):
         return self.sum_region_manager.okSumRegion(
             self.sumRegionPopup.sumRegionNameList.currentText())
-    def cancelSumRegion(self, doClose=True):     return self.sum_region_manager.cancelSumRegion(doClose)
     def cleanPopupExit(self, doClose=True):
         return self.sum_region_manager.cleanPopupExit(doClose, self.sumRegionPopup.isVisible())
     def deleteSumRegion(self):
         return self.sum_region_manager.deleteSumRegion(
             *self._current_plot_ctx(), self.sumRegionPopup.sumRegionNameList.currentText())
     def integrate(self):                         return self.sum_region_manager.integrate(*self._current_plot_ctx())
-    def okIntegrate(self):                       return self.sum_region_manager.okIntegrate()
     def copySelectionIntegrateTable(self):
         # the integrate table lives here now; this reads it + writes clipboard.
         resultTable = self.integratePopup.resultsText
@@ -2553,13 +2452,13 @@ class MainWindow(QMainWindow):
             if rowValues:
                 allValues.append("\t".join(rowValues))
         QApplication.clipboard().setText("\n".join(allValues))
-    def setPrecisionIntegrationResult(self, d):  return self.sum_region_manager.setPrecisionIntegrationResult(d)
     def integrateGateLocal(self, idx, lines):
         name = self.nameFromIndex(idx)
         return self.sum_region_manager.integrateGateLocal(idx, name, lines)
 
-    # -- ConnectionManager shims + popup adapters (the popup widget and
-    #    its field reads live here; the service takes plain arguments) --
+    # -- Connect popup adapters: the popup widget and its field reads live
+    #    here, the service takes plain arguments. Everything else on
+    #    ConnectionManager is called directly. --
     def connectShMem(self):
         return self.connection_manager.connectShMem(
             str(self.connectConfig.server.text()),
@@ -2578,11 +2477,6 @@ class MainWindow(QMainWindow):
         self.logger.info('closeConnect callback')
         self.connectConfig.close()
     def autoUpdateStart(self):           return self.connection_manager.autoUpdateStart(self.wConf.autoUpdate2.currentIndex())
-    def autoUpdateResume(self):          return self.connection_manager.autoUpdateResume()
-    def updateSpectrumList(self, init=False): return self.connection_manager.updateSpectrumList(init)
-    def updateFromTraces(self, tracesDetails): return self.connection_manager.updateFromTraces(tracesDetails)
-    def _stop_auto_thread(self):         return self.connection_manager._stop_auto_thread()
-    def _stop_rest_thread(self):         return self.connection_manager._stop_rest_thread()
 
 
 
@@ -2709,7 +2603,7 @@ class MainWindow(QMainWindow):
             minxREST = self.getSpectrumStoreInfo("minx", index=index)
             maxxREST = self.getSpectrumStoreInfo("maxx", index=index)
 
-            xtmp = self.createRange(binx, minxREST, maxxREST)
+            xtmp = self.plot_controller.createRange(binx, minxREST, maxxREST)
             ytmp = (self.getSpectrumStoreInfo("data", index=index)).tolist()
 
             xmin, xmax = ax.get_xlim()
@@ -2800,7 +2694,7 @@ class MainWindow(QMainWindow):
             binx = self.getSpectrumStoreInfo("binx", name=name)
             minx = self.getSpectrumStoreInfo("minx", name=name)
             maxx = self.getSpectrumStoreInfo("maxx", name=name)
-            xtmp = self.createRange(binx, minx, maxx)
+            xtmp = self.plot_controller.createRange(binx, minx, maxx)
             ytmp = self.getSpectrumStoreInfo("data", name=name)
             xc = np.asarray(xtmp[:-1]) + 0.5 * np.diff(np.asarray(xtmp))
             return xc, np.asarray(ytmp)[1:]
@@ -3457,7 +3351,7 @@ class MainWindow(QMainWindow):
             binx     = self.getSpectrumStoreInfo("binx", index=index)
             minxREST = self.getSpectrumStoreInfo("minx", index=index)
             maxxREST = self.getSpectrumStoreInfo("maxx", index=index)
-            xtmp = self.createRange(binx, minxREST, maxxREST)
+            xtmp = self.plot_controller.createRange(binx, minxREST, maxxREST)
             ytmp = self.getSpectrumStoreInfo("data", index=index)
             # bin centres to match the counts array; the fit window is chosen
             # automatically from the data around the click (plan A)
@@ -3862,13 +3756,10 @@ class MainWindow(QMainWindow):
         stopnotebook()   # no-op when not running; otherwise avoid an orphan server
         event.accept()
 
-    def createRectangle(self, plot):             return self.plot_controller.createRectangle(plot)
 
 
-    def createDashedRectangle(self, plot):       return self.plot_controller.createDashedRectangle(plot)
 
 
-    def removeRectangle(self):                  return self.plot_controller.removeRectangle()
 
     def debugModeCallBack(self):
         if self.extraPopup.options.debugMode.isChecked():
