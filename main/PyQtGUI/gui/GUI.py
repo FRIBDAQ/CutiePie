@@ -99,7 +99,8 @@ from services.peak_finder import (
     PEAK_ALGORITHMS, find_peaks_in_range, format_peak_labels, format_peak_output,
     autocomponent_refit, find_duplicate_mu, fit_composite, fit_composite_auto,
     fix_peak_window, format_composite_fit_row, nearest_component_index,
-    fwhm_to_sigma, nearest_window_edge, sigma_to_fwhm, validate_gauss_edit,
+    fwhm_to_sigma, nearest_window_edge, primary_component, sigma_to_fwhm,
+    validate_gauss_edit,
 )
 from services.figure_overlay import compute_overlay_position, apply_joystick_move, apply_fine_move
 from services.log_throttle import LogThrottle
@@ -3076,8 +3077,10 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _peak2_result_mu(r):
-        """μ of a composite fit's primary (first) component."""
-        return r["components"][0]["mu"]
+        """μ of a composite fit's primary component — the same one the results
+        table quotes, so the status line and the row never name different peaks
+        for one fit. Single-component fits are unaffected either way."""
+        return primary_component(r)["mu"]
 
     def _peak2_load_shape_menus(self):
         """Restore the last-used shape-menu selections from QSettings (signals
@@ -3421,7 +3424,10 @@ class MainWindow(QMainWindow):
                     return
                 # duplicate suppression (auto mode only): an off-peak flank
                 # click re-fits an already-fitted peak on the same spectrum;
-                # skip it if the centroid lands within ~1 bin of an existing fit
+                # skip it if the centroid lands within ~1 bin of an existing fit.
+                # Both sides use the primary component, so the comparison is
+                # between the peaks the two fits are reported by; with the
+                # one-component default that is the only component there is.
                 same = [rec for rec in self.peak2_fits if rec.get("name") == name]
                 new_mu = self._peak2_result_mu(r)
                 dup = find_duplicate_mu(

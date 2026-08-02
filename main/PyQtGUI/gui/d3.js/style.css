@@ -1,7 +1,0 @@
-.fixedContainer {
-    position: fixed;
-    padding: 2em;
-    left: 50%;
-    top: 0%;
-    transform: translateX(-50%);
-}

@@ -1231,3 +1231,60 @@ def test_E51_tie_goes_to_lower_index():
 
 def test_E51_empty_is_none():
     assert nearest_component_index([], 100.0) is None
+
+
+# ===================== primary component (one canonical peak per fit) ===========
+
+from services.peak_finder import primary_component
+
+
+def test_E52_primary_is_the_largest_by_area():
+    r = {"components": [{"mu": 100.0, "area": 10.0},
+                        {"mu": 200.0, "area": 90.0},
+                        {"mu": 300.0, "area": 50.0}]}
+    assert primary_component(r)["mu"] == 200.0
+
+
+def test_E52_primary_ignores_component_order():
+    comps = [{"mu": 100.0, "area": 10.0}, {"mu": 200.0, "area": 90.0}]
+    assert primary_component({"components": comps})["mu"] == 200.0
+    assert primary_component({"components": comps[::-1]})["mu"] == 200.0
+
+
+def test_E52_equal_areas_go_to_the_first():
+    r = {"components": [{"mu": 100.0, "area": 42.0}, {"mu": 200.0, "area": 42.0}]}
+    assert primary_component(r)["mu"] == 100.0
+
+
+def test_E52_single_component_is_that_component():
+    r = {"components": [{"mu": 207.0, "area": 3.0}]}
+    assert primary_component(r) is r["components"][0]
+
+
+def test_E52_no_components_is_none():
+    assert primary_component({"components": []}) is None
+    assert primary_component({"ok": False, "error": "boom"}) is None
+
+
+def _fit_small_then_big():
+    """Two-component fit whose FIRST component is the weaker peak — seeds fix the
+    component order, so components[0] and the strongest component differ here."""
+    rng = np.random.default_rng(7)
+    x = np.arange(0.0, 400.0, 1.0)
+    y = (_gauss_line(x, A=40.0, mu=200.0, sigma=6.0, m=0.0, b=30.0)
+         + 220.0 * np.exp(-0.5 * ((x - 250.0) / 6.0) ** 2))
+    y = rng.poisson(np.clip(y, 0, None)).astype(float)
+    spec = {"signal": "gaussian", "n_components": 2, "background": "poly1"}
+    return fit_composite(x, y, 170.0, 280.0, spec,
+                         seeds={"mu1": 200.0, "mu2": 250.0})
+
+
+def test_E52_row_quotes_the_primary_component():
+    r = _fit_small_then_big()
+    assert r["ok"]
+    primary = primary_component(r)
+    # the fixture only bites if the two rules really disagree
+    assert primary is not r["components"][0]
+    mu_cell = format_composite_fit_row(9, r)["cells"][1]
+    assert mu_cell[1] == pytest.approx(primary["mu"])
+    assert mu_cell[1] != pytest.approx(r["components"][0]["mu"])

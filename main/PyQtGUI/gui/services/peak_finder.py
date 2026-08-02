@@ -836,6 +836,22 @@ def nearest_component_index(components, x):
                key=lambda i: abs(float(components[i]["mu"]) - float(x)))
 
 
+def primary_component(r):
+    """The component a multi-component fit is reported by: the largest by area
+    (ties → lowest index). None for a result with no components.
+
+    Every surface that quotes ONE number for a whole fit — the results-table
+    row, the status line after a drag/edit/shape change, the duplicate check on
+    a fresh click — has to pick the same component, or the same fit reads as two
+    different peaks depending on where you look. Area is the choice because it
+    is what makes a component the one the fit is about; the component order is
+    the order the parameters were seeded in, which means nothing to the user."""
+    comps = r.get("components") or ()
+    if not comps:
+        return None
+    return max(comps, key=lambda c: c["area"])
+
+
 def find_duplicate_mu(new_mu, existing_mus, tol):
     """Index of the first entry in ``existing_mus`` within ``tol`` (x units) of
     ``new_mu``, else ``None``.
@@ -976,7 +992,7 @@ def format_composite_fit_row(peak_no, r, tag=None):
         return format_gauss_fit_row(peak_no, _composite_gl_flat(r), tag=tag)
     comps = r["components"]
     k = len(comps)
-    primary = max(comps, key=lambda c: c["area"])
+    primary = primary_component(r)
     total_area = float(sum(c["area"] for c in comps))
     marker = " *" if tag else ""
     mult = f"×{k}" if k > 1 else ""     # only a genuine doublet+ shows the count
