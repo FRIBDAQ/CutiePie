@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 # import modules and packages
 
-import sys, os, ast
+import sys, os
 import cv2
 import logging, logging.handlers
 import threading, time, re
 from copy import deepcopy
-from numbers import Number
 import numpy as np
 
 import signal, ctypes
@@ -56,7 +55,7 @@ from PyQt5.QtWidgets import (
     QListWidgetItem, QShortcut, QTabBar,
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
-from PyQt5.QtGui import QCursor, QKeySequence, QMouseEvent, QPalette
+from PyQt5.QtGui import QCursor, QKeySequence, QMouseEvent
 from PyQt5.QtCore import (
     pyqtSignal, pyqtSlot, Qt, QObject, QTimer,
     QSettings, QDir,
@@ -110,6 +109,7 @@ from services.gate_manager import GateManager
 from services.sum_region_manager import SumRegionManager
 from services.connection_manager import ConnectionManager
 from services.plot_controller import PlotController
+from controllers.copy_properties_controller import CopyPropertiesController
 from adapters.connection_adapter import ConnectionAdapter
 from adapters.fit_adapter import FitAdapter
 from adapters.gate_adapter import GateAdapter
@@ -442,6 +442,21 @@ class MainWindow(QMainWindow):
             max_y=self.maxY,
             min_z=self.minZ,
             max_z=self.maxZ,
+            parent_widget=self,
+            logger=self.logger,
+        )
+
+        self.copy_props = CopyPropertiesController(
+            copy_attr=self.copyAttr,
+            get_selected_index=lambda: self.currentPlot.selected_plot_index,
+            set_autoscale=lambda on: self.currentPlot.histo_autoscale.setChecked(on),
+            get_store_info=self.getSpectrumStoreInfo,
+            get_view_info=self.getSpectrumViewInfo,
+            set_view_info=self.setSpectrumViewInfo,
+            get_geo=self.getGeo,
+            name_from_index=self.nameFromIndex,
+            plot_position=self.plotPosition,
+            plot_controller=self.plot_controller,
             parent_widget=self,
             logger=self.logger,
         )
@@ -2177,264 +2192,34 @@ class MainWindow(QMainWindow):
         return indexToChange
 
 
+    # Copy Properties lives on CopyPropertiesController (ARCH.md §7 D6). These
+    # stay because they are what the popup's buttons are connected to.
+
     #callback for copyAttr.okAttr
     def okCopy(self):
-        self.logger.info('okCopy')
-        self.applyCopy()
-        self.closeCopy()
+        self.copy_props.okCopy()
 
     #callback for copyAttr.applyAttr
     def applyCopy(self):
-        self.logger.info('applyCopy')
-        try:
-            # read each property checkbox by name; a positional list built from
-            # findChildren() would silently re-point if CopyProperties ever
-            # reorders or gains a checkbox. histoAll is the master toggle, not a
-            # property, so it is not one of these.
-            copy_xlim  = self.copyAttr.axisLimitX.isChecked()
-            copy_ylim  = self.copyAttr.axisLimitY.isChecked()
-            copy_scale = self.copyAttr.axisScale.isChecked()
-            copy_minz  = self.copyAttr.histoScaleminZ.isChecked()
-            copy_maxz  = self.copyAttr.histoScalemaxZ.isChecked()
-
-            self.logger.debug('applyCopy - x: %s, y: %s, scale: %s, minz: %s, maxz: %s',
-                              copy_xlim, copy_ylim, copy_scale, copy_minz, copy_maxz)
-
-            dim = self.getSpectrumStoreInfo("dim", index=self.currentPlot.selected_plot_index)
-            indexes = []
-            xlim_src = []
-            ylim_src = []
-            zlim_src = []
-            scale_src = None
-
-            # creating list of target histograms
-            discard = ["Ok", "Cancel", "Apply", "Select all", "Deselect all"]
-            for instance in self.copyAttr.findChildren(QPushButton):
-                if instance.text() not in discard and instance.isChecked():
-                    # the pad index copyPopup stored on the button, not one
-                    # re-derived from the label and the current column count
-                    padIndex = instance.property("padIndex")
-                    if padIndex is None:
-                        self.logger.warning('applyCopy - target button %s carries no pad index, skipped',
-                                            instance.text())
-                        continue
-                    indexes.append(int(padIndex))
-
-            self.logger.debug('applyCopy - indexes : %s', indexes)
-
-
-            # src values to copy to destination
-            xlim_src = ast.literal_eval(self.copyAttr.axisLimLabelX.text())
-            ylim_src = ast.literal_eval(self.copyAttr.axisLimLabelY.text())
-            scale_src = self.copyAttr.axisSLabel.text()
-            scale_src_bool = True if scale_src == "Log" else False
-            zlim_src = [float(self.copyAttr.histoScaleValueminZ.text()), float(self.copyAttr.histoScaleValuemaxZ.text())]
-
-            self.logger.debug('applyCopy - xlim_src, ylim_src, scale_src, zlim_src : %s, %s, %s, %s', xlim_src, ylim_src, scale_src, zlim_src)
-
-            # autoscale off, or the trailing updatePlot recomputes y/z from the
-            # data and discards the copied values (same pattern as
-            # zoomInOut / cutoffButtonCallback)
-            self.currentPlot.histo_autoscale.setChecked(False)
-
-            # copy to destination
-            for index in indexes:
-                # the target axes are read up front because the y bottom has to
-                # be clamped before it is stored, not only before it is drawn: a
-                # linear source pad reports a zero or slightly negative bottom,
-                # and a log-scaled target rejects that outright (matplotlib warns
-                # and keeps its own, so only half the range copies). Clamp to the
-                # same floor setAxisScale uses for its log branch. With no axes
-                # yet the scale is unknowable, so the raw value is stored and
-                # setAxisScale clamps it on read as before.
-                ax = self.getSpectrumViewInfo("axis", index=index)
-                ymin_dst, ymax_dst = ylim_src[0], ylim_src[1]
-                if ax is not None and ax.get_yscale() == "log" and ymin_dst <= 0:
-                    ymin_dst = 0.001
-
-                # set the limits for x,y
-                if copy_xlim:
-                    self.setSpectrumViewInfo(minx=xlim_src[0], index=index)
-                    self.setSpectrumViewInfo(maxx=xlim_src[1], index=index)
-                if copy_ylim:
-                    self.setSpectrumViewInfo(miny=ymin_dst, index=index)
-                    self.setSpectrumViewInfo(maxy=ymax_dst, index=index)
-                # set log/lin scale
-                if copy_scale:
-                    self.setSpectrumViewInfo(log=scale_src_bool, index=index)
-                # set minZ/maxZ (either box copies both bounds)
-                if dim == 2 and (copy_minz or copy_maxz):
-                    self.setSpectrumViewInfo(minz=zlim_src[0], index=index)
-                    self.setSpectrumViewInfo(maxz=zlim_src[1], index=index)
-                # apply to the target axes directly: updatePlot's only
-                # limits-application path is autoscale-gated, so view-tier
-                # writes alone never reach the screen (okCutoff precedent)
-                if ax is None:
-                    continue
-                if copy_xlim:
-                    ax.set_xlim(xlim_src[0], xlim_src[1])
-                if copy_ylim:
-                    ax.set_ylim(ymin_dst, ymax_dst)
-                if dim == 2 and (copy_minz or copy_maxz):
-                    spectrum = self.getSpectrumViewInfo("spectrum", index=index)
-                    if spectrum is not None:
-                        spectrum.set_clim(zlim_src[0], zlim_src[1])
-                if copy_scale:
-                    self.plot_controller.setAxisScale(ax, index, "log")
-            self.plot_controller.updatePlot()
-        except Exception:
-            self.logger.exception('applyCopy - copy properties failed')
-
+        self.copy_props.applyCopy()
 
     #callback for copyAttr.cancelAttr
     def closeCopy(self):
-        self.logger.info('closeCopy')
-        discard = ["Ok", "Cancel", "Apply", "Select all", "Deselect all"]
-        for instance in self.copyAttr.findChildren(QPushButton):
-            if instance.text() not in discard:
-                instance.deleteLater()
-
-        self.copyAttr.close()
-
+        self.copy_props.closeCopy()
 
     #open copy properties popup
     def copyPopup(self):
-        self.logger.info('copyPopup - self.currentPlot.selected_plot_index: %s', self.currentPlot.selected_plot_index)
-        if self.copyAttr.isVisible():
-            self.copyAttr.close()
-        index = self.currentPlot.selected_plot_index
-        name = self.nameFromIndex(index)
-        dim = self.getSpectrumStoreInfo("dim", index=index)
+        self.copy_props.copyPopup()
 
-        if dim is None : 
-            self.logger.debug('copyPopup - dim is None', exc_info=True)
-            return
-
-        # setting up info for source histogram
-        self.copyAttr.histoLabel.setText(name)
-        # hdim = 2 if self.wConf.button2D.isChecked() else 1
-        if dim == 2 :
-            spectrum = self.getSpectrumViewInfo("spectrum", index=index)
-            zmin, zmax = spectrum.get_clim()
-            self.copyAttr.histoScaleValueminZ.setText(f"{zmin}")
-            self.copyAttr.histoScaleValuemaxZ.setText(f"{zmax}")
-        self.copyAttr.axisSLabel.setText("Log" if self.getSpectrumViewInfo("log", index=index) else "Linear")
-        xmin = self.getSpectrumViewInfo("minx", index=index)
-        xmax = self.getSpectrumViewInfo("maxx", index=index)
-        ymin = self.getSpectrumViewInfo("miny", index=index)
-        ymax = self.getSpectrumViewInfo("maxy", index=index)
-        # A pad can legitimately have no stored y range. The display tier gets
-        # one only as a side effect of setAxisScale, which the render tick calls
-        # just while autoscale is on, and a 1D spectrum that arrived on a
-        # binding trace starts out with miny/maxy None (the connect-time path
-        # fills them from the shared-memory header, the trace path has nothing
-        # to fill them from). The axes always know their limits, and they are
-        # what this label is meant to report, so read them when the stored
-        # range is not a number. Tested for truth rather than against None: a
-        # pad whose slot exists but was never drawn carries the DisplaySlot
-        # empty-list default, which is not None and has no get_ylim.
-        ax = self.getSpectrumViewInfo("axis", index=index)
-        if ax:
-            if not isinstance(xmin, Number) or not isinstance(xmax, Number):
-                xmin, xmax = ax.get_xlim()
-            if not isinstance(ymin, Number) or not isinstance(ymax, Number):
-                ymin, ymax = ax.get_ylim()
-        if not all(isinstance(v, Number) for v in (xmin, xmax, ymin, ymax)):
-            self.logger.warning('copyPopup - pad %s has no usable axis range (x: %s, %s  y: %s, %s); not opening',
-                                index, xmin, xmax, ymin, ymax)
-            return
-        self.copyAttr.axisLimLabelX.setText(f"[{xmin:.1f},{xmax:.1f}]")
-        self.copyAttr.axisLimLabelY.setText(f"[{ymin:.1f},{ymax:.1f}]")
-
-        #reset QFormLayout
-        rowCount = self.copyAttr.copy_log.rowCount()
-        for i in range(rowCount) :
-            self.copyAttr.copy_log.removeRow(0)
-
-        try:
-            for idx, nameTarget in self.getGeo().items():
-                if dim == self.getSpectrumStoreInfo("dim", index=idx) and idx != index:
-                    instance = QPushButton(nameTarget, self)
-                    instance.setCheckable(True)
-                    instance.setStyleSheet('QPushButton {color: red;}')
-                    # the pad this button stands for, carried on the button
-                    # itself. applyCopy used to recover it by scraping the row
-                    # and column back out of the label text and multiplying by
-                    # the column count read at Apply time, so re-applying a
-                    # geometry while the popup was open sent the properties to
-                    # different pads than the ones the user picked.
-                    instance.setProperty("padIndex", int(idx))
-                    row, col = self.plotPosition(idx)
-                    self.copyAttr.copy_log.addRow("row: "+str(row)+" col: "+str(col), instance)
-                    instance.clicked.connect(lambda state, instance=instance: self.connectCopy(instance))
-        except KeyError as e:
-            self.logger.warning('copyPopup - KeyError occured', exc_info=True)
-            # print(f"KeyError occured: {e}")
-        self.copyAttr.show()
-
-
-    #callback to change color when press spectrum button name, 
+    #callback on press of a target spectrum button
     def connectCopy(self, instance):
-        self.logger.info('connectCopy')
-        if (instance.palette().color(QPalette.Text).name() == "#008000"):
-            instance.setStyleSheet('QPushButton {color: red;}')
-        else:
-            instance.setStyleSheet('QPushButton {color: green;}')
-
+        self.copy_props.connectCopy(instance)
 
     def selectAll(self):
-        self.logger.info('selectAll')
-        flag = False
-        basic = ["Ok", "Cancel", "Apply"]
-        discard = ["Ok", "Cancel", "Apply", "Select all", "Deselect all"]
-        for instance in self.copyAttr.findChildren(QPushButton):
-            if instance.text() not in discard:
-                instance.setChecked(True)
-                instance.setStyleSheet('QPushButton {color: green;}')
-            else:
-                if instance.text() not in basic:
-                    if instance.text() == "Select all":
-                        instance.setText("Deselect all")
-                    else:
-                        instance.setText("Select all")
-                        flag = True
-
-        if flag == True:
-            for instance in self.copyAttr.findChildren(QPushButton):
-                if instance.text() not in discard:
-                    instance.setChecked(False)
-                    instance.setStyleSheet('QPushButton {color: red;}')
-                    flag = False
-
+        self.copy_props.selectAll()
 
     def histAllAttr(self, b):
-        self.logger.info('histAllAttr - b.text(): %s',  b.text())
-        if b.text() == "Select all properties":
-            if b.isChecked() == True:
-                self.copyAttr.axisLimitX.setChecked(True)
-                self.copyAttr.axisLimitY.setChecked(True)
-                self.copyAttr.axisScale.setChecked(True)
-                self.copyAttr.histoScaleminZ.setChecked(True)
-                self.copyAttr.histoScalemaxZ.setChecked(True)
-            else:
-                self.copyAttr.axisLimitX.setChecked(False)
-                self.copyAttr.axisLimitY.setChecked(False)
-                self.copyAttr.axisScale.setChecked(False)
-                self.copyAttr.histoScaleminZ.setChecked(False)
-                self.copyAttr.histoScalemaxZ.setChecked(False)
-
-        dim = self.getSpectrumStoreInfo("dim", index=self.currentPlot.selected_plot_index)
-
-        if dim == 1:
-            self.copyAttr.histoScaleminZ.setEnabled(False)
-            self.copyAttr.histoScaleValueminZ.setEnabled(False)
-            self.copyAttr.histoScalemaxZ.setEnabled(False)
-            self.copyAttr.histoScaleValuemaxZ.setEnabled(False)
-        else:
-            self.copyAttr.histoScaleminZ.setEnabled(True)
-            self.copyAttr.histoScaleValueminZ.setEnabled(True)
-            self.copyAttr.histoScalemaxZ.setEnabled(True)
-            self.copyAttr.histoScaleValuemaxZ.setEnabled(True)
+        self.copy_props.histAllAttr(b)
 
 
 

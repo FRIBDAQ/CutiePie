@@ -233,11 +233,14 @@ class FakePlotController:
 
 @pytest.fixture
 def win(monkeypatch):
+    """A bare MainWindow wired to a real CopyPropertiesController.
+
+    The only thing that changed when the cluster moved out (ARCH.md §7 D6):
+    this fixture now builds the controller that __init__ builds in production,
+    since __init__ is deliberately not run. Every test body below is unchanged
+    from before the extraction — that is the behavior-preservation proof.
+    """
     gui = gui_stubs.import_gui()
-    # the popup constructs QPushButton(name, self); the fake stands in so the
-    # buttons it builds are the ones findChildren hands back
-    monkeypatch.setattr(gui, "QPushButton",
-                        lambda text, parent=None: FakeButton(text))
     w = gui.MainWindow.__new__(gui.MainWindow)
     w.logger = logging.getLogger("test.copyproperties")
     w.spectra = SpectrumStore()
@@ -246,6 +249,26 @@ def win(monkeypatch):
     w.copyAttr = FakeCopyAttr()
     w.plot_controller = FakePlotController()
     w.figure = Figure()
+
+    from controllers import copy_properties_controller as cpc
+    # the popup constructs QPushButton(name, parent); the fake stands in so the
+    # buttons it builds are the ones findChildren hands back
+    monkeypatch.setattr(cpc, "QPushButton",
+                        lambda text, parent=None: FakeButton(text))
+    w.copy_props = cpc.CopyPropertiesController(
+        copy_attr=w.copyAttr,
+        get_selected_index=lambda: w.currentPlot.selected_plot_index,
+        set_autoscale=lambda on: w.currentPlot.histo_autoscale.setChecked(on),
+        get_store_info=w.getSpectrumStoreInfo,
+        get_view_info=w.getSpectrumViewInfo,
+        set_view_info=w.setSpectrumViewInfo,
+        get_geo=w.getGeo,
+        name_from_index=w.nameFromIndex,
+        plot_position=w.plotPosition,
+        plot_controller=w.plot_controller,
+        parent_widget=w,
+        logger=w.logger,
+    )
     return w
 
 
@@ -467,16 +490,23 @@ def test_apply_leaves_a_linear_target_bottom_alone(win):
 
 
 def test_apply_stores_the_raw_value_when_the_pad_has_no_axes(win):
-    # with no axes the scale is unknowable, so the raw value is stored and
-    # setAxisScale clamps it on read as it always did
+    # PIN (BUGS.md E25b): with no axes the scale is unknowable, so the raw
+    # value is stored and setAxisScale clamps it on read. An undrawn pad's slot
+    # holds the DisplaySlot empty-list default rather than None, and testing
+    # that against None sent `[]` into get_yscale(); the blanket except then
+    # swallowed the AttributeError and the whole Apply was lost, every target
+    # included. The source values here are deliberately distinct from what
+    # setGeo copies out of the store, so a no-op cannot pass this test.
     add_pad(win, "src", 0)
     add_pad(win, "dst", 1, with_axes=False)
-    prime_apply(win, source_range=("[0.0,100.0]", "[0.0,50.0]"))
+    prime_apply(win, source_range=("[0.0,100.0]", "[7.0,50.0]"))
     win.copyAttr.axisLimitY._checked = True
     win.copyAttr.buttons = action_buttons() + [target_button(1)]
     win.applyCopy()
-    assert win.getSpectrumViewInfo("miny", index=1) == 0.0
+    assert win.getSpectrumViewInfo("miny", index=1) == 7.0
+    assert win.getSpectrumViewInfo("maxy", index=1) == 50.0
     assert win.plot_controller.scale_calls == []
+    assert win.plot_controller.update_calls == 1        # the Apply completed
 
 
 def test_apply_copies_z_only_for_a_2d_source(win):
