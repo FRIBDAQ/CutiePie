@@ -45,4 +45,4 @@ EXTRA_DIST = Main.py GUI.py connectConfigGUI.py MenuAndConfigGUI.py \
 	services/dataframe_export.py services/display_slot.py \
 	services/figure_overlay.py services/geometry_io.py services/log_throttle.py services/peak_finder.py \
 	services/shape_file.py services/tab_session.py \
-	controllers/__init__.py controllers/copy_properties_controller.py controllers/geometry_controller.py
+	controllers/__init__.py controllers/copy_properties_controller.py controllers/geometry_controller.py controllers/overlay_controller.py controllers/jupyter_controller.py

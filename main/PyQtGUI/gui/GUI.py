@@ -2,7 +2,6 @@
 # import modules and packages
 
 import sys, os
-import cv2
 import logging, logging.handlers
 import threading, time, re
 from copy import deepcopy
@@ -51,14 +50,14 @@ from PyQt5 import QtCore
 from PyQt5.QtWidgets import (
     QApplication, QDialog,
     QFileDialog, QFormLayout, QGridLayout, QHBoxLayout, QInputDialog,
-    QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox, QPushButton,
+    QLabel, QLineEdit, QMainWindow, QMenu, QPushButton,
     QListWidgetItem, QShortcut, QTabBar,
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
 from PyQt5.QtGui import QCursor, QKeySequence, QMouseEvent
 from PyQt5.QtCore import (
     pyqtSignal, pyqtSlot, Qt, QObject, QTimer,
-    QSettings, QDir,
+    QSettings,
 )
 
 
@@ -93,7 +92,6 @@ from SpecialFunctionsGUI import SpecialFunctions # all the extra functions we de
 from PlotGUI import Tabs # area defined for the Tabs
 from services.spectrum_store import SpectrumStore
 from services.display_slot import DisplaySlot, SLOT_KEYS
-from services.dataframe_export import export_spectrum_csv
 from services.peak_finder import (
     PEAK_ALGORITHMS, find_peaks_in_range, format_peak_labels, format_peak_output,
     autocomponent_refit, find_duplicate_mu, fit_composite, fit_composite_auto,
@@ -101,7 +99,6 @@ from services.peak_finder import (
     fwhm_to_sigma, nearest_window_edge, primary_component, sigma_to_fwhm,
     validate_gauss_edit,
 )
-from services.figure_overlay import compute_overlay_position, apply_joystick_move, apply_fine_move
 from services.log_throttle import LogThrottle
 from services.fit_manager import FitManager
 from services.gate_manager import GateManager
@@ -110,6 +107,8 @@ from services.connection_manager import ConnectionManager
 from services.plot_controller import PlotController
 from controllers.copy_properties_controller import CopyPropertiesController
 from controllers.geometry_controller import GeometryController
+from controllers.overlay_controller import OverlayController
+from controllers.jupyter_controller import JupyterController
 from adapters.connection_adapter import ConnectionAdapter
 from adapters.fit_adapter import FitAdapter
 from adapters.gate_adapter import GateAdapter
@@ -121,9 +120,7 @@ from MenuSumRegion import MenuSumRegion #class for the gate creation/edition pop
 from OutputIntegrate import OutputIntegratePopup #popup for gate/summing region integrate outputs
 # from OutputIntegrate import TableModel #table model for popup for gate/summing region
 
-from logger import log, setup_logging, set_logger
-from notebook_process import testnotebook, startnotebook, stopnotebook
-from WebWindow import WebWindow
+from notebook_process import stopnotebook
 
 
 #from collapseMenu import Spoiler
@@ -442,6 +439,27 @@ class MainWindow(QMainWindow):
             max_y=self.maxY,
             min_z=self.minZ,
             max_z=self.maxZ,
+            parent_widget=self,
+            logger=self.logger,
+        )
+
+        self.overlay_controller = OverlayController(
+            imaging=self.extraPopup.imaging,
+            get_current_plot=lambda: self.currentPlot,
+            get_selected_index=lambda: self.currentPlot.selected_plot_index,
+            get_grid=lambda: (int(self.wConf.histo_geo_row.currentText()),
+                              int(self.wConf.histo_geo_col.currentText())),
+            plot_position=self.plotPosition,
+            open_image_dialog=lambda: self.openFigureDialog(),
+            parent_widget=self,
+            logger=self.logger,
+        )
+
+        self.jupyter_controller = JupyterController(
+            peak_tab=self.extraPopup.peak,
+            get_store_dict=self.getSpectrumStoreDict,
+            get_statistics=self.connection_manager.getSpectrumStatistics,
+            qt_logger_factory=QtLogger,
             parent_widget=self,
             logger=self.logger,
         )
@@ -3139,6 +3157,10 @@ class MainWindow(QMainWindow):
     ############################
 
 
+    # Image overlay lives on OverlayController (ARCH.md §7 D3). These stay
+    # because they are what the Special Functions -> Imaging buttons and
+    # sliders are connected to.
+
     def openFigureDialog(self):
         self.logger.info('openFigureDialog')
         options = QFileDialog.Options()
@@ -3147,260 +3169,41 @@ class MainWindow(QMainWindow):
         if fileName:
             return fileName
 
-    def loadFigure(self):
-        self.logger.info('loadFigure')
-        fileName = self.openFigureDialog()
-        if not fileName:
-            return
-        self.extraPopup.imaging.loadLISE_name.setText(fileName)
-        try:
-            if os.path.isfile(fileName):
-                self.LISEpic = cv2.imread(fileName, 0)
-        except Exception:
-            # Best-effort image load — a bad path / unreadable file must not
-            # crash the GUI, but must not be silent either.
-            self.logger.exception('loadFigure - image load failed')
+    def loadFigure(self):      self.overlay_controller.loadFigure()
 
-    def _removeOverlayArtist(self):
-        """Detach the overlay image and its axes if one is drawn; True when
-        there was something to remove.
+    def addFigure(self):       self.overlay_controller.addFigure()
 
-        The axes goes too. drawFigure adds a fresh one on every call and only
-        the image used to be removed, so a slider drag (valueChanged fires
-        continuously) appended one empty axes per tick to figure.axes — the
-        same list the pad lookups index (`list(figure.axes).index(inaxes)`), so
-        a click on a leaked axes answers with an index past the end of the grid.
-        A geometry change or an enlarge detaches the axes behind our back
-        (InitializeCanvas delaxes everything), hence the membership test. Both
-        artists are removed from whatever figure they were drawn on rather than
-        from currentPlot's, which is a different figure once the user has
-        switched tabs."""
-        if self.imgplot is None:
-            return False
-        self.imgplot.remove()
-        self.imgplot = None
-        if self.overlay_ax is not None:
-            fig = self.overlay_ax.figure
-            if fig is not None and self.overlay_ax in fig.axes:
-                fig.delaxes(self.overlay_ax)
-            self.overlay_ax = None
-        return True
+    def deleteFigure(self):    self.overlay_controller.deleteFigure()
 
-    def _fineMove(self, direction):
-        if not self._removeOverlayArtist():
-            return
-        self.xstart, self.ystart = apply_fine_move(self.xstart, self.ystart, direction)
-        self.drawFigure()
+    def fineUpMove(self):      self.overlay_controller.fineUpMove()
 
-    def fineUpMove(self):    self._fineMove("up")
+    def fineDownMove(self):    self.overlay_controller.fineDownMove()
 
-    def fineDownMove(self):  self._fineMove("down")
+    def fineLeftMove(self):    self.overlay_controller.fineLeftMove()
 
-    def fineLeftMove(self):  self._fineMove("left")
+    def fineRightMove(self):   self.overlay_controller.fineRightMove()
 
-    def fineRightMove(self): self._fineMove("right")
+    def moveFigure(self):      self.overlay_controller.moveFigure()
 
-    def _redrawOverlay(self):
-        """Slider handlers: redraw the overlay in place, or do nothing when
-        none is up. Deliberately leaves onFigure alone — routing these through
-        deleteFigure cleared the flag while the image stayed on screen, and the
-        next Add then drew a second overlay over the first."""
-        if self._removeOverlayArtist():
-            self.drawFigure()
+    def transFigure(self):     self.overlay_controller.transFigure()
 
-    def moveFigure(self):
-        self.logger.info('moveFigure')
-        try:
-            if not self._removeOverlayArtist():
-                return
-            self.xstart, self.ystart = apply_joystick_move(
-                self.xstart, self.ystart,
-                self.extraPopup.imaging.joystick.direction,
-                self.extraPopup.imaging.joystick.distance)
-            self.drawFigure()
-        except Exception:
-            # Best-effort overlay nudge — a bad joystick read must not crash the
-            # GUI, but must not be silent either. (The missing-overlay case is
-            # handled above now, not by this clause.)
-            self.logger.exception('moveFigure - overlay move failed')
+    def zoomFigureX(self):     self.overlay_controller.zoomFigureX()
 
-    def indexToStartPosition(self, index):
-        self.logger.info('indexToStartPosition')
-        row = int(self.wConf.histo_geo_row.currentText())
-        col = int(self.wConf.histo_geo_col.currentText())
-        i, j = self.plotPosition(index)
-        self.xstart, self.ystart = compute_overlay_position(row, col, i, j)
-
-    def drawFigure(self):
-        self.logger.info('drawFigure')
-        if self.LISEpic is None:
-            # Reachable from a redraw when a later Load failed under a live
-            # overlay (cv2.imread answers None instead of raising): the image
-            # is gone from the canvas, so the flag must not still claim one.
-            self.logger.warning('drawFigure - no image loaded')
-            self.onFigure = False
-            return
-        self.alpha = self.extraPopup.imaging.alpha_slider.value()/10
-        self.zoomX = self.extraPopup.imaging.zoomX_slider.value()/10
-        self.zoomY = self.extraPopup.imaging.zoomY_slider.value()/10
-
-        self.overlay_ax = ax = self.currentPlot.figure.add_axes(
-            [self.xstart, self.ystart, self.zoomX, self.zoomY], frameon=True)
-        ax.axis('off')
-        self.imgplot = ax.imshow(self.LISEpic,
-                                 aspect='auto',
-                                 alpha=self.alpha)
-
-        self.currentPlot.canvas.draw()
-
-    def deleteFigure(self):
-        self.logger.info('deleteFigure')
-        if not self._removeOverlayArtist():
-            return
-        self.onFigure = False
-        self.currentPlot.canvas.draw()
-
-    def transFigure(self):
-        self.logger.info('transFigure')
-        self.extraPopup.imaging.alpha_label.setText("Transparency Level ({} %)".format(self.extraPopup.imaging.alpha_slider.value()*10))
-        self._redrawOverlay()
-
-    def zoomFigureX(self):
-        self.logger.info('zoomFigureX')
-        self.extraPopup.imaging.zoomX_label.setText("Zoom X Level ({} %)".format(self.extraPopup.imaging.zoomX_slider.value()*10))
-        self._redrawOverlay()
-
-    def zoomFigureY(self):
-        self.logger.info('zoomFigureY')
-        self.extraPopup.imaging.zoomY_label.setText("Zoom Y Level ({} %)".format(self.extraPopup.imaging.zoomY_slider.value()*10))
-        self._redrawOverlay()
-
-    def addFigure(self):
-        self.logger.info('addFigure')
-        if self.LISEpic is None:
-            QMessageBox.warning(self, "Overlay", "Load an image first.")
-            return
-        # plotPosition returns None for an unselected pad, so the unpack in
-        # indexToStartPosition raises TypeError — this is the case the old
-        # `except NameError: raise` was reaching for and never caught.
-        if self.currentPlot.selected_plot_index is None:
-            QMessageBox.warning(self, "Overlay", "Please select one histogram.")
-            return
-        if self.onFigure:
-            return
-        self.indexToStartPosition(self.currentPlot.selected_plot_index)
-        self.drawFigure()
-        self.onFigure = True
+    def zoomFigureY(self):     self.overlay_controller.zoomFigureY()
 
     ############################
     # 16) Jupyter Notebook
     ############################
 
-    #Create dataframe for Jupyter and web
-    def createDf(self):
-        self.logger.info('createDf')
-        try:
-            export_spectrum_csv(self.getSpectrumStoreDict(),
-                                self.extraPopup.peak.jup_df_filename.text(),
-                                statistics_fetcher=self.connection_manager.getSpectrumStatistics().get)
-        except Exception:
-            # Export is best-effort: a failure here must not crash the GUI or
-            # block jupyterStart (the notebook can still open). But it must not
-            # be silent either — otherwise the notebook loads stale/missing data
-            # with no clue why. Log the traceback instead of swallowing it.
-            self.logger.exception('createDf - spectrum export failed')
+    # Jupyter lives on JupyterController (ARCH.md §7 D4). These stay because
+    # they are the Special Functions button targets, and closeEvent calls
+    # jupyterStop on the way out.
 
-    def jupyterStop(self):
-        self.logger.info('jupyterStop')
-        # stop the notebook process
-        log("Sending interrupt signal to jupyter-notebook")
-        self.extraPopup.peak.jup_start.setEnabled(True)
-        self.extraPopup.peak.jup_stop.setEnabled(False)
-        self.extraPopup.peak.jup_start.setStyleSheet("background-color:#3CB371;")
-        self.extraPopup.peak.jup_stop.setStyleSheet("")
-        if getattr(self, "jupyterView", None) is not None:
-            self.jupyterView.close()
-            self.jupyterView = None
-        stopnotebook()
+    def createDf(self):        self.jupyter_controller.createDf()
 
-    def jupyterStart(self):
-        self.logger.info('jupyterStart')
-        # dump df to gzip
-        self.createDf()
-        #starting jupyter server
-        s = QSettings()
-        execname = s.value(SETTING_EXECUTABLE, "jupyter-notebook")
-        if not testnotebook(execname):
-            while True:
-                QMessageBox.information(None, "Error", "It appears that Jupyter Notebook isn't where it usually is. " +
-                                        "Ensure you've installed Jupyter correctly and then press Ok to " +
-                                        "find the executable 'jupyter-notebook'", QMessageBox.Ok)
-                if testnotebook(execname):
-                    break
-                path, _ = QFileDialog.getOpenFileName(None, "Find jupyter-notebook executable", QDir.homePath())
-                if not path:
-                    # user cancelled: abort starting Jupyter, keep the GUI alive
-                    # (the old tuple-truthiness check made Cancel unreachable,
-                    # and the cancel path called sys.exit(0) — killing the GUI)
-                    self.logger.warning('jupyterStart - jupyter-notebook not located; start aborted by user')
-                    return
-                execname = path
-                if testnotebook(execname):
-                    log("Jupyter found at %s" % execname)
-                    #save setting
-                    s.setValue(SETTING_EXECUTABLE, execname)
-                    break
+    def jupyterStart(self):    self.jupyter_controller.jupyterStart()
 
-        # setup logging
-        # try to write to a log file, or redirect to stdout if debugging
-        logname = "JupyterQtPy-"+time.strftime("%Y%m%d-%H%M%S")+".log"
-        logfile = os.path.join(str(QDir.currentPath()), ".JupyterQtPy", logname)
-        if not os.path.isdir(os.path.dirname(logfile)):
-            os.mkdir(os.path.dirname(logfile))
-            try:
-                if DEBUG:
-                    raise IOError()  # force logging to console
-                setup_logging(logfile)
-            except IOError:
-                # no writable directory, log to console
-                setup_logging(None)
-
-        # workdir
-        directory = s.value(SETTING_BASEDIR, QDir.currentPath())
-
-        # setting window — anchored on self: a parentless local QMainWindow
-        # is finalized by the cyclic GC after this method returns (the
-        # WebWindow<->CustomWebView reference cycle is its only holder) and
-        # the window silently disappears mid-session
-        self.jupyterView = view = WebWindow(None, None)
-        view.setWindowTitle("Jupyter CutiePie: %s" % directory)
-        # logging on docked console
-        qtlogger = QtLogger(view)
-        qtlogger.newlog.connect(view.loggerdock.log)
-        set_logger(lambda message: qtlogger.newlog.emit(message))
-
-        log("Setting home directory --> "+str(directory))
-
-        # start the notebook process
-        try:
-            webaddr = startnotebook(execname, directory=directory)
-        except (RuntimeError, ValueError) as e:
-            self.logger.error('jupyterStart - notebook failed to start: %s', e)
-            view.close()
-            self.jupyterView = None
-            setup_logging(logfile)
-            QMessageBox.warning(self, "Jupyter",
-                                "The Jupyter notebook server failed to start:\n%s" % e)
-            return
-        view.loadmain(webaddr)
-
-        # resume regular logging
-        setup_logging(logfile)
-
-        self.extraPopup.peak.jup_start.setEnabled(False)
-        self.extraPopup.peak.jup_stop.setEnabled(True)
-        self.extraPopup.peak.jup_start.setStyleSheet("")
-        self.extraPopup.peak.jup_stop.setStyleSheet("background-color:#DC143C;")
+    def jupyterStop(self):     self.jupyter_controller.jupyterStop()
 
     ##############################
     # 17) Misc tools

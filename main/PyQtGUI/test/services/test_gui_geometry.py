@@ -216,7 +216,7 @@ def win(monkeypatch):
         setattr(w, name, (lambda n: lambda *a: w.calls.append(n))(name))
     w.box = recording_message_box()
     w.box.calls = []
-    monkeypatch.setattr(gui, "QMessageBox", w.box)
+    monkeypatch.setattr(gui, "QMessageBox", w.box, raising=False)
 
     # The only thing that changed when the cluster moved out (ARCH.md §7 D7):
     # this fixture now builds the controller that __init__ builds in

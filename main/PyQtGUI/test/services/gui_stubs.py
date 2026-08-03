@@ -34,6 +34,7 @@ and ~118 signal connections, none of which a seam-level test wants.
 import importlib
 import logging
 import sys
+import tempfile
 import types
 
 import qt_stubs
@@ -48,7 +49,17 @@ class _StubWidget:
 
 # The Qt names GUI.py and its siblings import beyond what qt_stubs already
 # provides. Measured by importing GUI against a recording stub, 2026-08-03.
-_EXTRA_QTCORE = ("QDir", "QLineF", "QPointF", "QRectF", "QUrl")
+_EXTRA_QTCORE = ("QLineF", "QPointF", "QRectF", "QUrl")
+
+# QDir is reached for two path helpers, not constructed. They answer with the
+# system temp dir so a test that lets production code build a log directory
+# cannot litter the repo; override per test when the path matters.
+_QT_CLASSMETHODS = {
+    "PyQt5.QtCore": {
+        "QDir": {"currentPath": lambda: tempfile.gettempdir(),
+                 "homePath": lambda: tempfile.gettempdir()},
+    },
+}
 
 _EXTRA_QTGUI = ("QCloseEvent", "QCursor", "QMouseEvent", "QPainter")
 
@@ -79,6 +90,14 @@ def _widen_stub_pyqt5():
             if not hasattr(module, name):
                 setattr(module, name, type(name, (_StubWidget,), {}))
                 installed.append(f"{mod_name}.{name}")
+
+    for mod_name, classes in _QT_CLASSMETHODS.items():
+        module = sys.modules[mod_name]
+        for cls_name, members in classes.items():
+            if not hasattr(module, cls_name):
+                body = {k: staticmethod(v) for k, v in members.items()}
+                setattr(module, cls_name, type(cls_name, (_StubWidget,), body))
+                installed.append(f"{mod_name}.{cls_name}")
 
     for mod_name, classes in _QT_ENUMS.items():
         module = sys.modules[mod_name]
