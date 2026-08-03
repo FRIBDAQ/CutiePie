@@ -42,6 +42,7 @@ EXTRA_DIST = Main.py GUI.py connectConfigGUI.py MenuAndConfigGUI.py \
 	services/fit_manager.py services/gate_manager.py services/sum_region_manager.py \
 	services/connection_manager.py services/plot_controller.py adapters/__init__.py \
 	adapters/fit_adapter.py adapters/connection_adapter.py adapters/gate_adapter.py adapters/sum_region_adapter.py \
-	controllers/__init__.py controllers/copy_properties_controller.py controllers/dataframe_export.py controllers/display_slot.py \
-	controllers/figure_overlay.py controllers/geometry_io.py controllers/log_throttle.py controllers/peak_finder.py \
-	controllers/shape_file.py controllers/tab_session.py
+	services/dataframe_export.py services/display_slot.py \
+	services/figure_overlay.py services/geometry_io.py services/log_throttle.py services/peak_finder.py \
+	services/shape_file.py services/tab_session.py \
+	controllers/__init__.py controllers/copy_properties_controller.py
