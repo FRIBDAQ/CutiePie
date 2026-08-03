@@ -40,4 +40,8 @@ EXTRA_DIST = Main.py GUI.py connectConfigGUI.py MenuAndConfigGUI.py \
 	WebWindow.py notebook_process.py logger.py jupyterqtpy_notebook_config.py SpecialFunctionsGUI.py PyREST.py CopyPropertiesGUI.py \
 	services/__init__.py services/spectrum_store.py services/thread_workers.py \
 	services/fit_manager.py services/gate_manager.py services/sum_region_manager.py \
-	services/connection_manager.py services/plot_controller.py adapters/fit_adapter.py controllers/copy_properties_controller.py
+	services/connection_manager.py services/plot_controller.py adapters/__init__.py \
+	adapters/fit_adapter.py adapters/connection_adapter.py adapters/gate_adapter.py adapters/sum_region_adapter.py \
+	controllers/__init__.py controllers/copy_properties_controller.py controllers/dataframe_export.py controllers/display_slot.py \
+	controllers/figure_overlay.py controllers/geometry_io.py controllers/log_throttle.py controllers/peak_finder.py \
+	controllers/shape_file.py controllers/tab_session.py
