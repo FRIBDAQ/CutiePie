@@ -6,6 +6,7 @@ import cv2
 import logging, logging.handlers
 import threading, time, re
 from copy import deepcopy
+from numbers import Number
 import numpy as np
 
 import signal, ctypes
@@ -2322,6 +2323,24 @@ class MainWindow(QMainWindow):
         xmax = self.getSpectrumViewInfo("maxx", index=index)
         ymin = self.getSpectrumViewInfo("miny", index=index)
         ymax = self.getSpectrumViewInfo("maxy", index=index)
+        # A pad can legitimately have no stored y range. The display tier gets
+        # one only as a side effect of setAxisScale, which the render tick calls
+        # just while autoscale is on, and a 1D spectrum that arrived on a
+        # binding trace starts out with miny/maxy None (the connect-time path
+        # fills them from the shared-memory header, the trace path has nothing
+        # to fill them from). The axes always know their limits, and they are
+        # what this label is meant to report, so read them when the stored
+        # range is not a number.
+        ax = self.getSpectrumViewInfo("axis", index=index)
+        if ax is not None:
+            if not isinstance(xmin, Number) or not isinstance(xmax, Number):
+                xmin, xmax = ax.get_xlim()
+            if not isinstance(ymin, Number) or not isinstance(ymax, Number):
+                ymin, ymax = ax.get_ylim()
+        if not all(isinstance(v, Number) for v in (xmin, xmax, ymin, ymax)):
+            self.logger.warning('copyPopup - pad %s has no usable axis range (x: %s, %s  y: %s, %s); not opening',
+                                index, xmin, xmax, ymin, ymax)
+            return
         self.copyAttr.axisLimLabelX.setText(f"[{xmin:.1f},{xmax:.1f}]")
         self.copyAttr.axisLimLabelY.setText(f"[{ymin:.1f},{ymax:.1f}]")
 
