@@ -93,7 +93,6 @@ from SpecialFunctionsGUI import SpecialFunctions # all the extra functions we de
 from PlotGUI import Tabs # area defined for the Tabs
 from services.spectrum_store import SpectrumStore
 from services.display_slot import DisplaySlot, SLOT_KEYS
-from services import geometry_io
 from services.dataframe_export import export_spectrum_csv
 from services.peak_finder import (
     PEAK_ALGORITHMS, find_peaks_in_range, format_peak_labels, format_peak_output,
@@ -110,6 +109,7 @@ from services.sum_region_manager import SumRegionManager
 from services.connection_manager import ConnectionManager
 from services.plot_controller import PlotController
 from controllers.copy_properties_controller import CopyPropertiesController
+from controllers.geometry_controller import GeometryController
 from adapters.connection_adapter import ConnectionAdapter
 from adapters.fit_adapter import FitAdapter
 from adapters.gate_adapter import GateAdapter
@@ -442,6 +442,36 @@ class MainWindow(QMainWindow):
             max_y=self.maxY,
             min_z=self.minZ,
             max_z=self.maxZ,
+            parent_widget=self,
+            logger=self.logger,
+        )
+
+        self.geometry_controller = GeometryController(
+            tabs=self.wTab,
+            conf=self.wConf,
+            spectra=self.spectra,
+            get_current_plot=lambda: self.currentPlot,
+            set_current_plot=lambda plot: setattr(self, "currentPlot", plot),
+            get_store_info=self.getSpectrumStoreInfo,
+            get_view_info=self.getSpectrumViewInfo,
+            set_view_info=self.setSpectrumViewInfo,
+            get_geo=self.getGeo,
+            set_geo=self.setGeo,
+            plot_controller=self.plot_controller,
+            gate_manager=self.gate_manager,
+            sum_region_manager=self.sum_region_manager,
+            connection_manager=self.connection_manager,
+            gate_popup=self.gatePopup,
+            sum_region_popup=self.sumRegionPopup,
+            set_canvas_layout=self.setCanvasLayout,
+            add_plot=self.addPlot,
+            auto_update_start=self.autoUpdateStart,
+            bind_dynamic_signal=self.bindDynamicSignal,
+            tab_geo_widget_and_flags=self.tabGeoWidgetAndFlags,
+            # late-bound: the dialogs are attributes that tests and future code
+            # may replace, so resolve them per call rather than at construction
+            open_file_dialog=lambda: self.openFileNameDialog(),
+            save_file_dialog=lambda: self.saveFileDialog(),
             parent_widget=self,
             logger=self.logger,
         )
@@ -1763,261 +1793,30 @@ class MainWindow(QMainWindow):
     ##########################################
 
 
-    def saveGeo(self):
-        fileName = self.saveFileDialog()
-        self.logger.info('saveGeo - fileName: %s', fileName)
-        if not fileName:
-            return
-        try:
-            properties = {}
-            geo = self.getGeo()
-            for index in range(len(geo)):
-                try:
-                    h_name = geo[index]
-                    x_range, y_range = self.plot_controller.getAxisProperties(index)
-                    scale = True if self.getSpectrumViewInfo("log", index=index) else False
-                    properties[index] = {"name": h_name, "x": x_range, "y": y_range, "scale": scale}
-                except Exception:
-                    self.logger.debug('saveGeo - pad %s skipped', index, exc_info=True)
-                    properties[index] = {"name": '', "x": None, "y": None, "scale": None}
-            ##### Bashir changed to examine the apply button
-            tmp_text = geometry_io.serialize_geometry(
-                self.wConf.histo_geo_row.currentText(),
-                self.wConf.histo_geo_col.currentText(),
-                properties)
-            #######################################################################
-            with open(fileName, "w") as f:
-                f.write(tmp_text)
-        except Exception:
-            # was a bare `except:` that logged at debug and still showed
-            # the success dialog (shown before the write, at that)
-            self.logger.exception('saveGeo - failed to save %s', fileName)
-            QMessageBox.warning(self, "Saving...", "Could not save the window configuration — see the log.")
-            return
-        QMessageBox.about(self, "Saving...", "Window configuration saved!")
+    # Geometry save/load lives on GeometryController (ARCH.md §7 D7). These
+    # stay because they are what the File menu actions are connected to, and
+    # because other call sites (openGeo, the Jupyter export) use the dialogs.
 
+    def saveGeo(self):
+        self.geometry_controller.saveGeo()
 
     def saveGeoAll(self):
-        """Save EVERY tab's geometry as one v2 session file (design
-        2026-07-10). Reads the per-tab VIEW tier (slots), not live axes —
-        background tabs' axes aren't reliably current, and the view tier is
-        exactly what load consumes. (Single-tab saveGeo keeps its live-axes
-        read — deliberate asymmetry.) Enlarged state is transient: never saved."""
-        fileName = self.saveFileDialog()
-        self.logger.info('saveGeoAll - fileName: %s', fileName)
-        if not fileName:
-            return
-        try:
-            tabs = []
-            for tabIdx in sorted(self.wTab.sessions.indices()):
-                nRow, nCol = self.wTab.tabLayout(tabIdx)
-                plotW = self.wTab.plot(tabIdx)
-                slots = self.wTab.tabSlots(tabIdx) if tabIdx in self.wTab.sessions else {}
-                properties = {}
-                for index in range(nRow * nCol):
-                    try:
-                        h_name = plotW.h_dict_geo.get(index, "")
-                        slot = slots.get(index)
-                        x_range = y_range = None
-                        scale = False
-                        if slot is not None:
-                            # slot fields default to [] (DisplaySlot); 0.0 is a
-                            # legitimate limit, so test emptiness, not truthiness
-                            if slot.minx not in ("", [], None) and slot.maxx not in ("", [], None):
-                                x_range = [float(slot.minx), float(slot.maxx)]
-                            if slot.miny not in ("", [], None) and slot.maxy not in ("", [], None):
-                                y_range = [float(slot.miny), float(slot.maxy)]
-                            scale = bool(slot.log) if slot.log not in ([], None) else False
-                        properties[index] = {"name": h_name if h_name != "empty" else "",
-                                             "x": x_range, "y": y_range, "scale": scale}
-                    except Exception:
-                        self.logger.debug('saveGeoAll - tab %s pad %s skipped',
-                                          tabIdx, index, exc_info=True)
-                        properties[index] = {"name": '', "x": None, "y": None, "scale": None}
-                tabs.append({"name": self.wTab.tabText(tabIdx), "row": nRow,
-                             "col": nCol, "geo": properties})
-            tmp_text = geometry_io.serialize_session(tabs)
-            with open(fileName, "w") as f:
-                f.write(tmp_text)
-        except Exception:
-            self.logger.exception('saveGeoAll - failed to save %s', fileName)
-            QMessageBox.warning(self, "Saving...", "Could not save the session — see the log.")
-            return
-        QMessageBox.about(self, "Saving...", "All tabs saved!")
-
+        self.geometry_controller.saveGeoAll()
 
     def _resolveSpectrumName(self, name):
-        """Return a spectrum name present in the store that matches `name`, tolerating
-        case differences (legacy .win files often store names upper-cased). Returns the
-        exact name if it exists, a unique case-insensitive match otherwise, or None."""
-        if self.getSpectrumStoreInfo("dim", name=name) is not None:
-            return name
-        lowered = name.lower()
-        matches = [n for n in self.spectra.all_names() if n.lower() == lowered]
-        return matches[0] if len(matches) == 1 else None
+        return self.geometry_controller._resolveSpectrumName(name)
 
     def _applyGeometryToCurrentTab(self, infoGeo):
-        """Apply one tab's geometry payload ({"row","col","geo"}) to the
-        CURRENT tab. Extracted verbatim from loadGeo so the single-tab load
-        and the session load (loadGeoAll) run the same code. Returns the
-        list of spectrum names that could not be resolved."""
-        ### Bashir added -1
-        row = infoGeo["row"] - 1
-        col = infoGeo["col"] - 1
-        # change index in combobox to the actual loaded values
-        #### Bashir changed to examine the apply button
-        # self.wConf.histo_geo_row.setValue(row)
-        # self.wConf.histo_geo_col.setValue(col)
-        index_row = row
-        index_col = col
-        #####################################################
-
-# Later usage of index_row / index_col continues to work
-
-        notFound = []
-        if index_row >= 0 and index_col >= 0:
-            #### Bashir changed to examine the apply button
-            self.wConf.histo_geo_row.setCurrentIndex(index_row)
-            self.wConf.histo_geo_col.setCurrentIndex(index_col)
-            # self.wConf.histo_geo_row.setValue(index_row)
-            # self.wConf.histo_geo_col.setValue(index_col)
-            #####################################################
-            self.setCanvasLayout()
-            for index, val_dict in infoGeo["geo"].items():
-                if not val_dict["name"]:
-                    continue
-                resolved = self._resolveSpectrumName(val_dict["name"])
-                if resolved is None:
-                    notFound.append(val_dict["name"])
-                    continue
-
-                self.setGeo(index, resolved)
-                self.setSpectrumViewInfo(log=val_dict["scale"], index=index)
-                # Old .win files may omit the view range (no "Expanded"); when it
-                # is absent the spectrum keeps its natural full range from the store.
-                if val_dict.get("x") is not None:
-                    self.setSpectrumViewInfo(minx=val_dict["x"][0], index=index)
-                    self.setSpectrumViewInfo(maxx=val_dict["x"][1], index=index)
-                if val_dict.get("y") is not None:
-                    self.setSpectrumViewInfo(miny=val_dict["y"][0], index=index)
-                    self.setSpectrumViewInfo(maxy=val_dict["y"][1], index=index)
-
-            if len(notFound) > 0:
-                self.logger.warning('loadGeo - definition not found for: %s', notFound)
-
-            self.currentPlot.isLoaded = True
-            self.wTab.setSelectedPad(self.wTab.currentIndex(), None)
-            self.currentPlot.selected_plot_index = None
-            self.currentPlot.next_plot_index = -1
-
-        self.addPlot()
-        self.plot_controller.updatePlot()
-        self.currentPlot.isLoaded = False
-        return notFound
-
+        return self.geometry_controller.applyGeometryToCurrentTab(infoGeo)
 
     def loadGeo(self):
-        fileName = self.openFileNameDialog()
-        self.logger.info('loadGeo - fileName: %s', fileName)
-        if not fileName:
-            return
-        # Detect the format instead of assuming a single-tab file: a multi-tab
-        # session dropped here used to crash with KeyError 'row'.
-        tagged = geometry_io.read_geometry_any(fileName, self.logger)
-        if tagged is None:
-            QMessageBox.warning(self, "Load Geometry",
-                                "Not a readable geometry file — nothing was changed.")
-            return
-        kind, payload = tagged
-        if kind == "session":
-            nTabs = len(payload.get("tabs") or [])
-            reply = QMessageBox.question(
-                self, "Load Geometry",
-                f"This file is a multi-tab session ({nTabs} tabs). "
-                "Load all tabs? This replaces your current tabs.",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-            if reply == QMessageBox.Yes:
-                self._applySession(payload["tabs"])
-            return
-        self._applyGeometryToCurrentTab(payload)
-
+        self.geometry_controller.loadGeo()
 
     def loadGeoAll(self):
-        """Load a session file, REPLACING all tabs (user-approved semantics,
-        design 2026-07-10). The file is parsed and validated COMPLETELY before
-        any tab is touched, so a bad file can never half-destroy the
-        workspace. A v1 single-tab file here loads as a one-tab session."""
-        fileName = self.openFileNameDialog()
-        self.logger.info('loadGeoAll - fileName: %s', fileName)
-        if not fileName:
-            return
-        tagged = geometry_io.read_geometry_any(fileName, self.logger)
-        if tagged is None:
-            QMessageBox.warning(self, "Load All Tabs",
-                                "Not a readable geometry/session file — nothing was changed.")
-            return
-        kind, payload = tagged
-        try:
-            if kind == "single":
-                tabsInfo = [{"name": "Tab 1", "row": int(payload["row"]),
-                             "col": int(payload["col"]), "geo": payload["geo"]}]
-            else:
-                tabsInfo = payload["tabs"]
-        except (KeyError, TypeError, ValueError):
-            QMessageBox.warning(self, "Load All Tabs",
-                                "Geometry file is missing required fields — nothing was changed.")
-            return
-
-        self._applySession(tabsInfo)
-
+        self.geometry_controller.loadGeoAll()
 
     def _applySession(self, tabsInfo):
-        """Replace ALL tabs with the parsed session `tabsInfo` (a list of
-        {"name","row","col","geo"}). Shared by loadGeoAll and loadGeo's
-        session branch. Callers must have parsed + validated the file first —
-        this only mutates the workspace, so it can never half-destroy it on a
-        bad file."""
-        # quiesce: same guards clickedTab uses, then stop the auto-update tick
-        if self.currentPlot.toCreateGate or self.currentPlot.toEditGate or self.gatePopup.isVisible():
-            self.gate_manager.cancelGate()
-        if self.currentPlot.toCreateSumRegion or self.sumRegionPopup.isVisible():
-            self.sum_region_manager.cancelSumRegion()
-        self.connection_manager._stop_auto_thread()
-
-        # rebuild the tab set with existing primitives only (danger
-        # zone: deleteTab reindexes the parallel dicts and plt.closes figures)
-        self.wTab.setCurrentIndex(0)
-        self.currentPlot = self.wTab.plot(0)
-        while len(self.wTab.sessions) > 1:
-            self.wTab.deleteTab(len(self.wTab.sessions) - 1)
-        for k in range(1, len(tabsInfo)):
-            self.wTab.addTab(k)
-
-        notFoundByTab = {}
-        for k, tabInfo in enumerate(tabsInfo):
-            self.wTab.setCurrentIndex(k)
-            self.tabGeoWidgetAndFlags(k)
-            infoGeo = {"row": tabInfo["row"], "col": tabInfo["col"], "geo": tabInfo["geo"]}
-            try:
-                notFound = self._applyGeometryToCurrentTab(infoGeo)
-            except TypeError:
-                self.logger.debug('_applySession - TypeError applying tab %s', k, exc_info=True)
-                notFound = []
-            if notFound:
-                notFoundByTab[str(tabInfo.get("name") or f"Tab {k+1}")] = notFound
-            self.wTab.setTabText(k, str(tabInfo.get("name") or f"Tab {k+1}"))
-
-        self.wTab.setCurrentIndex(0)
-        self.tabGeoWidgetAndFlags(0)
-        self.bindDynamicSignal()
-        if notFoundByTab:
-            lines = "\n".join(f"{tab}: {', '.join(names)}"
-                              for tab, names in notFoundByTab.items())
-            QMessageBox.warning(self, "Load All Tabs",
-                                "Some spectra were not found on the connected SpecTcl; "
-                                "their pads were left empty:\n\n" + lines)
-        self.autoUpdateStart()
-
+        self.geometry_controller.applySession(tabsInfo)
 
     def openFileNameDialog(self):
         self.logger.info('openFileNameDialog')
