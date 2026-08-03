@@ -2330,9 +2330,11 @@ class MainWindow(QMainWindow):
         # fills them from the shared-memory header, the trace path has nothing
         # to fill them from). The axes always know their limits, and they are
         # what this label is meant to report, so read them when the stored
-        # range is not a number.
+        # range is not a number. Tested for truth rather than against None: a
+        # pad whose slot exists but was never drawn carries the DisplaySlot
+        # empty-list default, which is not None and has no get_ylim.
         ax = self.getSpectrumViewInfo("axis", index=index)
-        if ax is not None:
+        if ax:
             if not isinstance(xmin, Number) or not isinstance(xmax, Number):
                 xmin, xmax = ax.get_xlim()
             if not isinstance(ymin, Number) or not isinstance(ymax, Number):
