@@ -2210,11 +2210,14 @@ class MainWindow(QMainWindow):
             discard = ["Ok", "Cancel", "Apply", "Select all", "Deselect all"]
             for instance in self.copyAttr.findChildren(QPushButton):
                 if instance.text() not in discard and instance.isChecked():
-                    labelPos = self.copyAttr.copy_log.labelForField(instance)
-                    #following gives [row, col]
-                    geoPositionSpectrum = [int(i) for i in labelPos.text().split() if i.isdigit()]
-                    indexSpectrum = int(self.wConf.histo_geo_col.currentText())*geoPositionSpectrum[0]+geoPositionSpectrum[1]
-                    indexes.append(indexSpectrum)
+                    # the pad index copyPopup stored on the button, not one
+                    # re-derived from the label and the current column count
+                    padIndex = instance.property("padIndex")
+                    if padIndex is None:
+                        self.logger.warning('applyCopy - target button %s carries no pad index, skipped',
+                                            instance.text())
+                        continue
+                    indexes.append(int(padIndex))
 
             self.logger.debug('applyCopy - indexes : %s', indexes)
 
@@ -2333,6 +2336,13 @@ class MainWindow(QMainWindow):
                     instance = QPushButton(nameTarget, self)
                     instance.setCheckable(True)
                     instance.setStyleSheet('QPushButton {color: red;}')
+                    # the pad this button stands for, carried on the button
+                    # itself. applyCopy used to recover it by scraping the row
+                    # and column back out of the label text and multiplying by
+                    # the column count read at Apply time, so re-applying a
+                    # geometry while the popup was open sent the properties to
+                    # different pads than the ones the user picked.
+                    instance.setProperty("padIndex", int(idx))
                     row, col = self.plotPosition(idx)
                     self.copyAttr.copy_log.addRow("row: "+str(row)+" col: "+str(col), instance)
                     instance.clicked.connect(lambda state, instance=instance: self.connectCopy(instance))
@@ -3298,6 +3308,14 @@ class MainWindow(QMainWindow):
             for yc in y_comp:
                 (ln,) = ax.plot(r["xx"], yc, color="tab:red", lw=0.8, ls=":")
                 comps.append(ln)
+        # Nothing reads this gid. Every current path finds fit artists through
+        # the fit records instead, each of which holds its own artist tuple, so
+        # the tag is part of no lifecycle here and is not load-bearing however
+        # much it looks it. It is kept rather than deleted for the deferred
+        # redraw-on-zoom work: that has to cope with artists orphaned on a pad
+        # whose axes was rebuilt underneath us, and a tag on the artist is the
+        # only handle on those once the records point at dead objects. If that
+        # work lands without needing it, delete it then.
         for art in (curve, bgline, fill, handles, *comps):
             if hasattr(art, "set_gid"):
                 art.set_gid("peakfit2")
