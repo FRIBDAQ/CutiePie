@@ -97,8 +97,20 @@ class PlotController(QObject):
         axisIsLog     = self._get_spectrum_info("log", index=index)
         axisIsAutoScale = cp.histo_autoscale.isChecked()
         name          = self._name_from_index(index)
+        dim           = self._spectra.get(name, "dim")
 
-        if self._spectra.get(name, "dim") == 1:
+        # A pad the store no longer knows has dim None, not 2. Changing the
+        # geometry blanks the pad-to-name map while the per-tab slots keep the
+        # artist that was drawn there, and a spectrum deleted server-side leaves
+        # the same gap. Without this guard the test below falls through to the
+        # 2D branch and calls set_clim on whatever the slot holds, which for a
+        # 1D pad is a Line2D.
+        if dim not in (1, 2):
+            self.logger.warning('setAxisScale - index %s names no spectrum in the store (%s); skipped',
+                                index, name)
+            return
+
+        if dim == 1:
             xmin = self._get_spectrum_info("minx", index=index)
             xmax = self._get_spectrum_info("maxx", index=index)
             if "x" in scale and xmin is not None and xmax is not None:

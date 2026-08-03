@@ -234,6 +234,26 @@ def test_set_axis_scale_1d_autoscale_uses_visible_range(rig):
     assert ax.get_ylim()[1] == pytest.approx(9 * 1.1)
 
 
+def test_set_axis_scale_skips_pad_the_store_no_longer_knows(rig):
+    # Regression: the dimension test was `if dim == 1: ... else: <2D path>`, so a
+    # pad whose name the store cannot resolve (dim None) took the 2D branch and
+    # called set_clim on the per-tab slot's artist. Changing the geometry clears
+    # the pad-to-name map but leaves the slots, so the artist is still the 1D
+    # Line2D and the call raised AttributeError inside applyCopy.
+    ax = rig.add_1d()
+    line = make_line(ax)
+    rig.set_info(index=0, spectrum=line, minz=0.0, maxz=100.0, log=True)
+    before = (ax.get_xlim(), ax.get_ylim(), ax.get_yscale())
+
+    rig.geo[0] = "empty"                         # what InitializeCanvas leaves behind
+    rig.pc.setAxisScale(ax, 0, "log")            # must not raise AttributeError
+    assert (ax.get_xlim(), ax.get_ylim(), ax.get_yscale()) == before
+
+    del rig.geo[0]                               # index past the new, smaller grid
+    rig.pc.setAxisScale(ax, 0, "log")
+    assert (ax.get_xlim(), ax.get_ylim(), ax.get_yscale()) == before
+
+
 # ---------------------------------------------------------------- rendering
 
 def make_line(ax):
