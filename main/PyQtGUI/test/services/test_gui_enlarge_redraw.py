@@ -46,6 +46,7 @@ def win(monkeypatch):
     FigureCanvasAgg(w.figure)
     w.pads = [w.figure.add_subplot(2, 2, i + 1) for i in range(4)]
     w.axes_by_index = {i: ax for i, ax in enumerate(w.pads)}
+    w.names = {i: f"spec{i}" for i in range(4)}
     w.currentPlot = types.SimpleNamespace(figure=w.figure, canvas=w.figure.canvas,
                                           isEnlarged=False, _saved_axes=None)
 
@@ -54,7 +55,9 @@ def win(monkeypatch):
         peak_tab=types.SimpleNamespace(),
         spectra=None, get_store_info=None,
         get_view_info=lambda field, index=None: w.axes_by_index.get(index),
-        plot_controller=None, logger=w.logger,
+        plot_controller=None,
+        name_from_index=lambda index: w.names.get(index),
+        logger=w.logger,
     )
     monkeypatch.setattr(
         type(w), "peak2_fits",
@@ -229,3 +232,43 @@ def test_the_redraw_runs_after_the_pad_is_re_added():
             and isinstance(n.func, ast.Attribute) and n.func.attr == "add"
             and n.lineno > 0]
     assert adds and redraw.lineno > max(adds)
+
+
+# ------------------------------------------------- fits are not resurrected
+
+def test_a_fit_whose_spectrum_was_removed_is_not_redrawn(win):
+    """Removing a spectrum clears its pad but leaves the fit record behind, so
+    a later redraw would put the fit back on a pad that no longer holds it."""
+    add_fit(win, 0)
+    win.pads[0].clear()            # what the removal adapter does
+    win.names[0] = None            # the pad holds nothing now
+    win.peakFit2RedrawAll()
+    assert drawn_on(win, 0) == 0
+
+
+def test_a_fit_is_not_redrawn_onto_a_different_spectrum(win):
+    """A geometry change can leave a different spectrum at the same pad index.
+    Redrawing by index alone would draw the old fit over the new data."""
+    add_fit(win, 0)
+    win.pads[0].clear()
+    win.names[0] = "somethingelse"
+    win.peakFit2RedrawAll()
+    assert drawn_on(win, 0) == 0
+
+
+def test_a_record_the_redraw_refuses_forgets_its_artists(win):
+    """So nothing else is left holding handles to artists that are gone."""
+    rec = add_fit(win, 0)
+    win.pads[0].clear()
+    win.names[0] = None
+    win.peakFit2RedrawAll()
+    assert rec["artists"] == ()
+
+
+def test_the_guard_does_not_block_an_ordinary_redraw(win):
+    """The pad still holds the same spectrum, so the round trip restores it."""
+    add_fit(win, 0)
+    enter_enlarged(win, 0)
+    leave_enlarged(win, 0)
+    win.peakFit2RedrawAll()
+    assert drawn_on(win, 0) == 4

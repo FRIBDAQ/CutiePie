@@ -3,6 +3,7 @@ menus, the results table and the edit popup. The fitting maths is Qt-free in
 ``services/peak_finder.py``."""
 
 import logging
+import time
 
 import numpy as np
 
@@ -30,6 +31,10 @@ class _NumericItem(QTableWidgetItem):
 
 
 class PeakFit2Controller:
+
+    # how long after an armed fit a second press is treated as half of a
+    # double-click rather than a new fit
+    _DOUBLE_CLICK_GRACE = 0.5   # seconds
 
     _PEAK2_SIGNAL_BY_LABEL = {"Gaussian": "gaussian", "Crystal ball": "crystal_ball"}
     _PEAK2_BG_BY_LABEL = {"Linear": "poly1", "Quadratic": "poly2", "Cubic": "poly3"}
@@ -65,6 +70,7 @@ class PeakFit2Controller:
         self.peak2_fits = []
         self.peak2_count = 0
         self._peak2_edit_linking = False
+        self._last_fit_press = 0.0
 
     # ------------------------------------------------------------------
     # arming and canvas connections
@@ -683,6 +689,14 @@ class PeakFit2Controller:
             return
         if not (self.peak2_armed or self.peak2_fix_armed):
             return
+        # A double-click slow enough that matplotlib does not pair it arrives
+        # as two independent presses, so an armed finder would fit on the way
+        # into enlarged mode; ignore a second press that lands too soon.
+        now = time.monotonic()
+        if now - self._last_fit_press < self._DOUBLE_CLICK_GRACE:
+            self._last_fit_press = now
+            return
+        self._last_fit_press = now
         self._peak2_fit_at_press(event)
 
     def _peak2_fit_at_press(self, event):
@@ -909,6 +923,16 @@ class PeakFit2Controller:
                 ax = self._get_view_info("axis", index=rec["index"])
             except Exception:
                 ax = None
+            # the pad may hold a different spectrum now, or none at all: a
+            # removed spectrum or a geometry change clears the pad without
+            # touching this record, and redrawing then puts an old fit on
+            # somebody else's data
+            if self._name_from_index is not None:
+                try:
+                    if self._name_from_index(rec["index"]) != rec.get("name"):
+                        ax = None
+                except Exception:
+                    ax = None
             if ax is None:
                 rec["artists"] = ()
                 continue

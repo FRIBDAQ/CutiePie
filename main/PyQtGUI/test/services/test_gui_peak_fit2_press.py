@@ -709,3 +709,63 @@ def test_a_record_without_a_fill_is_skipped(win):
     rec = drawn_fit(win)
     rec["artists"] = rec["artists"][:2]
     assert win._peak2_try_edit(fill_event(win)) is False
+
+
+# ------------------------------------------------- the enlarge-gesture guard
+
+def test_a_slow_double_click_does_not_fit_twice(win, monkeypatch):
+    """A double-click slow enough that matplotlib does not pair it arrives as
+    two independent presses, each with dblclick False. Armed, the first one
+    used to drop a fit nobody asked for on the way into enlarged mode."""
+    import controllers.peak_fit2_controller as pfc
+    clock = [100.0]
+    monkeypatch.setattr(pfc.time, "monotonic", lambda: clock[0])
+    win.peak2_armed = True
+    win.onPeakFit2Press(Event(inaxes=win.ax, xdata=50.0))
+    clock[0] += 0.20                      # inside the double-click interval
+    win.onPeakFit2Press(Event(inaxes=win.ax, xdata=50.0))
+    # asserted on the FITTER, not on the record count: duplicate suppression
+    # would keep the count at 1 whether or not the press was debounced
+    assert len(win.calls) == 1
+
+
+def test_two_deliberate_clicks_still_fit_twice(win, monkeypatch):
+    """The guard must not cost an ordinary second fit: wait past the interval
+    and the click works as it always did."""
+    import controllers.peak_fit2_controller as pfc
+    clock = [100.0]
+    monkeypatch.setattr(pfc.time, "monotonic", lambda: clock[0])
+    win.peak2_armed = True
+    win.onPeakFit2Press(Event(inaxes=win.ax, xdata=50.0))
+    clock[0] += 2.0
+    win.nameFromIndex = lambda index: "beta"      # a different spectrum
+    win.onPeakFit2Press(Event(inaxes=win.ax, xdata=50.0))
+    assert len(win.calls) == 2
+    assert len(win.peak2_fits) == 2
+
+
+def test_the_guard_does_not_block_a_drag_grab(win, monkeypatch):
+    """Only the FIT is debounced. Grabbing an end handle is a deliberate press
+    and must still work immediately after another one."""
+    import controllers.peak_fit2_controller as pfc
+    clock = [100.0]
+    monkeypatch.setattr(pfc.time, "monotonic", lambda: clock[0])
+    rec = drawn_fit(win)
+    win.peak2_armed = True
+    win.onPeakFit2Press(Event(inaxes=win.ax, xdata=50.0))
+    clock[0] += 0.10
+    x_px = win.ax.transData.transform((rec["result"]["xx"][0], 0.0))[0]
+    win.onPeakFit2Press(Event(inaxes=win.ax, xdata=40.0, x=x_px))
+    assert win.peak2_drag is not None
+
+
+def test_the_guard_does_not_block_a_right_click_edit(win, monkeypatch):
+    import controllers.peak_fit2_controller as pfc
+    clock = [100.0]
+    monkeypatch.setattr(pfc.time, "monotonic", lambda: clock[0])
+    drawn_fit(win)
+    win.peak2_armed = True
+    win.onPeakFit2Press(Event(inaxes=win.ax, xdata=50.0))
+    clock[0] += 0.10
+    win.onPeakFit2Press(fill_event(win))
+    assert win.edits_opened
