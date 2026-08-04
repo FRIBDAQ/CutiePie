@@ -47,15 +47,12 @@ os.environ['XDG_RUNTIME_DIR'] = os.getcwd()
 
 from PyQt5 import QtCore
 from PyQt5.QtWidgets import (
-    QApplication, QDialog,
-    QFileDialog, QGridLayout, QHBoxLayout,
-    QLabel, QLineEdit, QMainWindow, QMenu, QPushButton,
-    QShortcut, QTabBar,
-    QVBoxLayout, QWidget,
+    QApplication, QFileDialog, QGridLayout, QMainWindow, QMenu,
+    QShortcut, QTabBar, QWidget,
 )
 from PyQt5.QtGui import QCursor, QKeySequence, QMouseEvent
 from PyQt5.QtCore import (
-    pyqtSignal, pyqtSlot, Qt, QObject, QTimer,
+    pyqtSignal, pyqtSlot, Qt, QTimer,
 )
 
 
@@ -100,6 +97,7 @@ from controllers.geometry_controller import GeometryController
 from controllers.overlay_controller import OverlayController
 from controllers.jupyter_controller import JupyterController
 from controllers.peak_scan_controller import PeakScanController
+from dialogs import QtLogger, TabPopup, cutoffPopup
 from view_state import ViewState
 from controllers.peak_fit2_controller import PeakFit2Controller
 from adapters.connection_adapter import ConnectionAdapter
@@ -2194,117 +2192,8 @@ class MainWindow(QMainWindow):
 
 
 # redirect logging
-class QtLogger(QObject):
-    newlog = pyqtSignal(str)
-
-    def __init__(self, parent):
-        super(QtLogger, self).__init__(parent)
 
 
-class TabPopup(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-
-        self.lineedit = QLineEdit(self)
-        self.okButton = QPushButton("Ok", self)
-        self.cancelButton = QPushButton("Cancel", self)
-
-        layButt = QHBoxLayout()
-        layButt.addWidget(self.okButton)
-        layButt.addWidget(self.cancelButton)
-
-        layout = QVBoxLayout()
-        layout.addWidget(self.lineedit)
-        layout.addLayout(layButt)
-        self.setLayout(layout)
 
 
-class cutoffPopup(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-
-        self.lineeditXMin = QLineEdit(self)
-        self.lineeditXMax = QLineEdit(self)
-        self.labelXMin = QLabel(self)
-        self.labelXMin.setText("X Min")
-        self.labelXMax = QLabel(self)
-        self.labelXMax.setText("X Max")
-        
-        self.lineeditYMin = QLineEdit(self)
-        self.lineeditYMax = QLineEdit(self)
-        self.labelYMin = QLabel(self)
-        self.labelYMin.setText("Y Min")
-        self.labelYMax = QLabel(self)
-        self.labelYMax.setText("Y Max")
-        
-        self.lineeditZMin = QLineEdit(self)
-        self.lineeditZMax = QLineEdit(self)        
-        self.labelZMin = QLabel(self)
-        self.labelZMin.setText("Z Min")
-        self.labelZMax = QLabel(self)
-        self.labelZMax.setText("Z Max")
-        
-        self.okButton = QPushButton("Ok", self)
-        self.cancelButton = QPushButton("Cancel", self)
-        self.resetButton = QPushButton("Reset", self)
-
-        self.mainLayout = QGridLayout()
-
-    def setVisibleFields(self, value=True):
-        self.labelZMin.setVisible(value)
-        self.labelZMax.setVisible(value)
-        self.lineeditZMin.setVisible(value)
-        self.lineeditZMax.setVisible(value)
-        
-    def layout1d(self):
-        self.setVisibleFields(False)
-        fieldsLayoutX = QHBoxLayout()
-        fieldsLayoutX.addWidget(self.labelXMin)
-        fieldsLayoutX.addWidget(self.lineeditXMin)
-        fieldsLayoutX.addWidget(self.labelXMax)
-        fieldsLayoutX.addWidget(self.lineeditXMax)
-        fieldsLayoutY = QHBoxLayout()
-        fieldsLayoutY.addWidget(self.labelYMin)
-        fieldsLayoutY.addWidget(self.lineeditYMin)
-        fieldsLayoutY.addWidget(self.labelYMax)
-        fieldsLayoutY.addWidget(self.lineeditYMax)
-
-        buttonsLayout = QHBoxLayout()        
-        buttonsLayout.addWidget(self.okButton)
-        buttonsLayout.addWidget(self.resetButton)
-        buttonsLayout.addWidget(self.cancelButton)        
-        
-        self.mainLayout.addLayout(fieldsLayoutX, 1, 0, 1, 0)
-        self.mainLayout.addLayout(fieldsLayoutY, 2, 0, 1, 0)
-        self.mainLayout.addLayout(buttonsLayout, 3, 0, 1, 0)
-        self.setLayout(self.mainLayout)
-
-    def layout2d(self):
-        self.setVisibleFields(True)
-        fieldsLayoutX = QHBoxLayout()
-        fieldsLayoutX.addWidget(self.labelXMin)
-        fieldsLayoutX.addWidget(self.lineeditXMin)
-        fieldsLayoutX.addWidget(self.labelXMax)
-        fieldsLayoutX.addWidget(self.lineeditXMax)
-        fieldsLayoutY = QHBoxLayout()
-        fieldsLayoutY.addWidget(self.labelYMin)
-        fieldsLayoutY.addWidget(self.lineeditYMin)
-        fieldsLayoutY.addWidget(self.labelYMax)
-        fieldsLayoutY.addWidget(self.lineeditYMax)        
-        fieldsLayoutZ = QHBoxLayout()
-        fieldsLayoutZ.addWidget(self.labelZMin)
-        fieldsLayoutZ.addWidget(self.lineeditZMin)
-        fieldsLayoutZ.addWidget(self.labelZMax)
-        fieldsLayoutZ.addWidget(self.lineeditZMax)        
-
-        buttonsLayout = QHBoxLayout()        
-        buttonsLayout.addWidget(self.okButton)
-        buttonsLayout.addWidget(self.resetButton)
-        buttonsLayout.addWidget(self.cancelButton)        
-        
-        self.mainLayout.addLayout(fieldsLayoutX, 1, 0, 1, 0)
-        self.mainLayout.addLayout(fieldsLayoutY, 2, 0, 1, 0)
-        self.mainLayout.addLayout(fieldsLayoutZ, 3, 0, 1, 0)        
-        self.mainLayout.addLayout(buttonsLayout, 4, 0, 1, 0)
-        self.setLayout(self.mainLayout)        
 
