@@ -95,7 +95,7 @@ from services.display_slot import DisplaySlot, SLOT_KEYS
 from services.peak_finder import (
     autocomponent_refit, find_duplicate_mu, fit_composite, fit_composite_auto,
     fix_peak_window, format_composite_fit_row, nearest_component_index,
-    fwhm_to_sigma, nearest_window_edge, primary_component, sigma_to_fwhm,
+    fwhm_to_sigma, nearest_window_edge, sigma_to_fwhm,
     validate_gauss_edit,
 )
 from services.log_throttle import LogThrottle
@@ -109,6 +109,7 @@ from controllers.geometry_controller import GeometryController
 from controllers.overlay_controller import OverlayController
 from controllers.jupyter_controller import JupyterController
 from controllers.peak_scan_controller import PeakScanController
+from controllers.peak_fit2_controller import PeakFit2Controller
 from adapters.connection_adapter import ConnectionAdapter
 from adapters.fit_adapter import FitAdapter
 from adapters.gate_adapter import GateAdapter
@@ -491,6 +492,18 @@ class MainWindow(QMainWindow):
             open_file_dialog=lambda: self.openFileNameDialog(),
             save_file_dialog=lambda: self.saveFileDialog(),
             parent_widget=self,
+            logger=self.logger,
+        )
+
+        self.peak_fit2_controller = PeakFit2Controller(
+            peak_tab=self.extraPopup.peak,
+            spectra=self.spectra,
+            get_store_info=self.getSpectrumStoreInfo,
+            get_view_info=self.getSpectrumViewInfo,
+            plot_controller=self.plot_controller,
+            # the fit records stay on MainWindow until 8d moves the last group
+            # that writes them; read through the seam, never rebound here
+            get_fits=lambda: self.peak2_fits,
             logger=self.logger,
         )
 
@@ -2212,59 +2225,21 @@ class MainWindow(QMainWindow):
             if canvas not in keep:
                 self._peak2_disconnect(canvas)
 
+    # ---- Peak Finder 2, stage 8a ------------------------------------
+    # The shared floor moved to PeakFit2Controller (FACTORIZATION.md 8a).
+    # These shims are scaffolding, not the M31 kind: the 25 methods of 8b-8d
+    # still on this class call them by name, and they come off with the last
+    # of those. The two label maps below are the controller's dicts by
+    # reference, not copies, so the reverse lookup in _peak2_sync_menus_to_spec
+    # cannot drift from the forward one.
+    _PEAK2_SIGNAL_BY_LABEL = PeakFit2Controller._PEAK2_SIGNAL_BY_LABEL
+    _PEAK2_BG_BY_LABEL = PeakFit2Controller._PEAK2_BG_BY_LABEL
+
     def _peak2_spectrum_arrays(self, name):
-        """(xc, y) — bin-centre x and counts for the spectrum called `name`, or
-        None. Mirrors the fit handler's array setup; used by drag-refit, the
-        edit popup and the shape-menu refit.
+        return self.peak_fit2_controller._peak2_spectrum_arrays(name)
 
-        Keyed by NAME, never by pad index: a pad index only means anything
-        against the tab that is currently showing (nameFromIndex reads
-        currentPlot.h_dict_geo, and answers with the enlarged spectrum for any
-        index while a pad is enlarged). A fit records the spectrum it was made
-        on, and a refit triggered from the popup can happen while a different
-        tab is up or after the geometry moved that spectrum, so resolving the
-        index again would hand back a different spectrum's counts. The store is
-        name-keyed and tab-independent, so this stays correct either way; an
-        unknown name yields None and the callers report 'spectrum unavailable'."""
-        # Ask the store outright rather than inferring absence from the TypeError
-        # a None binx would raise downstream: a removed spectrum is an expected
-        # state, not an error, and the explicit test cannot be defeated by a
-        # record that survives removal with some fields still readable.
-        if not self.spectra.contains(name):
-            self.logger.debug('_peak2_spectrum_arrays - %s is no longer in the store', name)
-            return None
-        try:
-            binx = self.getSpectrumStoreInfo("binx", name=name)
-            minx = self.getSpectrumStoreInfo("minx", name=name)
-            maxx = self.getSpectrumStoreInfo("maxx", name=name)
-            xtmp = self.plot_controller.createRange(binx, minx, maxx)
-            ytmp = self.getSpectrumStoreInfo("data", name=name)
-            xc = np.asarray(xtmp[:-1]) + 0.5 * np.diff(np.asarray(xtmp))
-            return xc, np.asarray(ytmp)[1:]
-        except Exception:
-            self.logger.debug('_peak2_spectrum_arrays failed for %s', name, exc_info=True)
-            return None
-
-    @staticmethod
-    def _peak2_live_axes(rec):
-        """The axes this fit is still drawn on, or None once the pad went away
-        under it.
-
-        Two teardowns have to be caught and they leave different wreckage.
-        Removing a spectrum clears its pad (`_on_spectrum_removed_rest` calls
-        `ax.clear()`), which sets every cleared artist's `.axes` to None.
-        Applying a new geometry instead DETACHES the old axes
-        (`InitializeCanvas` runs `figure.delaxes`), which leaves both
-        `artist.axes` and `axes.figure` pointing at real objects and only drops
-        the axes out of `figure.axes`. So a plain None test waves the geometry
-        case straight through, and the refit then draws onto a pad that is no
-        longer part of the figure — invisible, and reported as success.
-        Attachment is the test that catches both."""
-        arts = rec.get("artists") or ()
-        ax = arts[0].axes if arts else None
-        if ax is None or ax.figure is None:
-            return None
-        return ax if ax in ax.figure.axes else None
+    def _peak2_live_axes(self, rec):
+        return self.peak_fit2_controller._peak2_live_axes(rec)
 
     def _peak2_try_grab(self, event):
         """Drag-to-refit: if the left-press landed within the pick radius of a
@@ -2568,32 +2543,14 @@ class MainWindow(QMainWindow):
             self._peak2_sync_connections()
 
     def _peak2_status(self, msg):
-        """Show the latest Peak Finder 2 status/feedback line (armed/config/
-        skip/failed/error)."""
-        self.extraPopup.peak.peak2_status.setText(msg)
+        self.peak_fit2_controller._peak2_status(msg)
 
-    _PEAK2_SIGNAL_BY_LABEL = {"Gaussian": "gaussian", "Crystal ball": "crystal_ball"}
-    _PEAK2_BG_BY_LABEL = {"Linear": "poly1", "Quadratic": "poly2", "Cubic": "poly3"}
 
     def _peak2_current_spec(self):
-        """The fit spec selected in the shape menus. Single component here; a
-        multi-component fit only arises from the auto-add-on-drag."""
-        p = self.extraPopup.peak
-        return {
-            "signal": self._PEAK2_SIGNAL_BY_LABEL.get(p.peak2_signal.currentText(),
-                                                      "gaussian"),
-            "n_components": 1,
-            "background": self._PEAK2_BG_BY_LABEL.get(p.peak2_bg.currentText(),
-                                                      "poly1"),
-            "tail_side": p.peak2_cb_tail.currentText(),
-        }
+        return self.peak_fit2_controller._peak2_current_spec()
 
-    @staticmethod
-    def _peak2_result_mu(r):
-        """μ of a composite fit's primary component — the same one the results
-        table quotes, so the status line and the row never name different peaks
-        for one fit. Single-component fits are unaffected either way."""
-        return primary_component(r)["mu"]
+    def _peak2_result_mu(self, r):
+        return self.peak_fit2_controller._peak2_result_mu(r)
 
     def _peak2_load_shape_menus(self):
         """Restore the last-used shape-menu selections from QSettings (signals
@@ -2787,51 +2744,10 @@ class MainWindow(QMainWindow):
             return False
 
     def _peak2_draw(self, ax, r):
-        """Draw one fit result on `ax` (curve + dashed bg + blue net-area fill +
-        square end-handles, plus thin dashed per-component curves when the fit
-        has more than one component) and return the artist tuple; the curve is
-        always index 0 and the fill index 2 (drag-grab / edit-hit rely on that).
-        Factored out so a fit record can be redrawn from its stored curves at
-        any time (lifecycle safety)."""
-        (curve,) = ax.plot(r["xx"], r["y_fit"], color="tab:red", lw=1.8)
-        (bgline,) = ax.plot(r["xx"], r["y_bg"], color="grey", lw=1.0, ls="--")
-        fill = ax.fill_between(r["xx"], r["y_bg"], r["y_fit"],
-                               where=r["y_fit"] >= r["y_bg"],
-                               color="tab:blue", alpha=0.45)
-        # square end-handles (grab targets for drag-to-refit)
-        (handles,) = ax.plot([r["xx"][0], r["xx"][-1]],
-                             [r["y_fit"][0], r["y_fit"][-1]],
-                             marker="s", ms=6, ls="None",
-                             color="tab:red", mec="black", mew=0.6, zorder=6)
-        # per-component overlays (each drawn over the background); only when the
-        # fit is a genuine multi-component one — a single component == the curve
-        comps = []
-        y_comp = r.get("y_comp") or []
-        if len(y_comp) > 1:
-            for yc in y_comp:
-                (ln,) = ax.plot(r["xx"], yc, color="tab:red", lw=0.8, ls=":")
-                comps.append(ln)
-        # Nothing reads this gid. Every current path finds fit artists through
-        # the fit records instead, each of which holds its own artist tuple, so
-        # the tag is part of no lifecycle here and is not load-bearing however
-        # much it looks it. It is kept rather than deleted for the deferred
-        # redraw-on-zoom work: that has to cope with artists orphaned on a pad
-        # whose axes was rebuilt underneath us, and a tag on the artist is the
-        # only handle on those once the records point at dead objects. If that
-        # work lands without needing it, delete it then.
-        for art in (curve, bgline, fill, handles, *comps):
-            if hasattr(art, "set_gid"):
-                art.set_gid("peakfit2")
-        return (curve, bgline, fill, handles, *comps)
+        return self.peak_fit2_controller._peak2_draw(ax, r)
 
     def _peak2_max_window_bins(self):
-        """The Config cap (max fit window in bins), or None when unset."""
-        try:
-            raw = QSettings().value("PeakFinder2/max_window_bins", "", type=str)
-            n = int(raw)
-            return n if n > 0 else None
-        except Exception:
-            return None
+        return self.peak_fit2_controller._peak2_max_window_bins()
 
     def peakFit2Config(self):
         """Config dialog: max fit window in bins (empty = no cap)."""
@@ -2975,30 +2891,7 @@ class MainWindow(QMainWindow):
             self._peak2_status("[error] Fit failed — see log.")
 
     def peakFit2RedrawAll(self):
-        """Redraw every recorded fit from its stored curves onto its pad's
-        current axis (recovers from axis rebuilds, e.g. enlarge/un-enlarge)."""
-        self.logger.info('peakFit2RedrawAll - %d record(s)', len(self.peak2_fits))
-        canvases = set()
-        for rec in self.peak2_fits:
-            for art in rec.get("artists") or ():
-                try:
-                    art.remove()
-                except Exception:
-                    self.logger.debug('peakFit2RedrawAll - stale artist', exc_info=True)
-            try:
-                ax = self.getSpectrumViewInfo("axis", index=rec["index"])
-            except Exception:
-                ax = None
-            if ax is None:
-                rec["artists"] = ()
-                continue
-            rec["artists"] = self._peak2_draw(ax, rec["result"])
-            canvases.add(ax.figure.canvas)
-        for canvas in canvases:
-            try:
-                canvas.draw_idle()
-            except Exception:
-                self.logger.debug('peakFit2RedrawAll - redraw failed', exc_info=True)
+        self.peak_fit2_controller.peakFit2RedrawAll()
 
     def peakFit2Clear(self):
         """Remove every Peak Finder 2 artist and clear its output box."""
