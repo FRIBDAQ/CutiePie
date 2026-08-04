@@ -49,7 +49,7 @@ os.environ['XDG_RUNTIME_DIR'] = os.getcwd()
 from PyQt5 import QtCore
 from PyQt5.QtWidgets import (
     QApplication, QDialog,
-    QFileDialog, QFormLayout, QGridLayout, QHBoxLayout, QInputDialog,
+    QFileDialog, QFormLayout, QGridLayout, QHBoxLayout,
     QLabel, QLineEdit, QMainWindow, QMenu, QPushButton,
     QShortcut, QTabBar,
     QTableWidgetItem, QVBoxLayout, QWidget,
@@ -504,6 +504,19 @@ class MainWindow(QMainWindow):
             # the fit records stay on MainWindow until 8d moves the last group
             # that writes them; read through the seam, never rebound here
             get_fits=lambda: self.peak2_fits,
+            tabs=self.wTab,
+            get_current_plot=lambda: self.currentPlot,
+            # late-bound: both popups are attributes that can be replaced, and
+            # a torn-down one must read as "not blocking"
+            get_gate_popup=lambda: self.gatePopup,
+            get_sum_popup=lambda: self.sumRegionPopup,
+            # 8c still owns the press handler and the arming flags it reads
+            press_handler=lambda event: self.onPeakFit2Press(event),
+            get_armed=lambda: self.peak2_armed,
+            set_armed=lambda v: setattr(self, "peak2_armed", v),
+            get_fix_armed=lambda: self.peak2_fix_armed,
+            set_fix_armed=lambda v: setattr(self, "peak2_fix_armed", v),
+            parent_widget=self,
             logger=self.logger,
         )
 
@@ -542,9 +555,9 @@ class MainWindow(QMainWindow):
         # records [{number, index, name, result, artists}, ...] (full curves
         # stored so fits can be redrawn/refit independent of artist survival)
         # and the running peak counter
-        # per-canvas press-handler registry {canvas: cid}; the unified handler
-        # stays connected wherever fits live so future drag/edit survive Stop
-        self.peak2_conns = {}
+        # the per-canvas press-handler registry moved onto PeakFit2Controller
+        # with the connect/sync methods (FACTORIZATION.md 8b); these two flags
+        # stay until 8c moves the press handlers that read them
         self.peak2_armed = False
         self.peak2_fix_armed = False
         self.peak2_drag = None   # active drag-to-refit context, or None
@@ -2185,45 +2198,22 @@ class MainWindow(QMainWindow):
     # 14b) Peak Finder 2 — click-to-fit (gaussian + linear background)
     ############################
 
+    # ---- Peak Finder 2, stage 8b ------------------------------------
+    # Arming and canvas connections moved to PeakFit2Controller. Four of these
+    # are .connect() targets in _wire_signals; the other four are called by the
+    # 8c/8d methods still on this class. All eight come off with the last group.
+
     def _peak2_connect(self, canvas):
-        """Ensure the unified press handler is connected on `canvas`."""
-        if canvas is None or canvas in self.peak2_conns:
-            return
-        self.peak2_conns[canvas] = canvas.mpl_connect(
-            "button_press_event", self.onPeakFit2Press)
+        self.peak_fit2_controller._peak2_connect(canvas)
 
     def _peak2_disconnect(self, canvas):
-        cid = self.peak2_conns.pop(canvas, None)
-        if cid is not None:
-            try:
-                canvas.mpl_disconnect(cid)
-            except Exception:
-                self.logger.debug('_peak2_disconnect failed', exc_info=True)
+        self.peak_fit2_controller._peak2_disconnect(canvas)
 
     def _peak2_fit_canvases(self):
-        """Canvases that currently hold at least one recorded fit's artists."""
-        canvases = set()
-        for rec in self.peak2_fits:
-            for art in rec.get("artists") or ():
-                try:
-                    canvases.add(art.axes.figure.canvas)
-                except Exception:
-                    pass
-        return canvases
+        return self.peak_fit2_controller._peak2_fit_canvases()
 
     def _peak2_sync_connections(self):
-        """Drop the handler from canvases that are neither armed nor holding
-        fits; keep it wherever fits still live (so drag/edit will work after
-        Stop)."""
-        keep = self._peak2_fit_canvases()
-        if self.peak2_armed or self.peak2_fix_armed:
-            try:
-                keep.add(self.wTab.plot(self.wTab.currentIndex()).canvas)
-            except Exception:
-                pass
-        for canvas in list(self.peak2_conns):
-            if canvas not in keep:
-                self._peak2_disconnect(canvas)
+        self.peak_fit2_controller._peak2_sync_connections()
 
     # ---- Peak Finder 2, stage 8a ------------------------------------
     # The shared floor moved to PeakFit2Controller (FACTORIZATION.md 8a).
@@ -2502,45 +2492,10 @@ class MainWindow(QMainWindow):
         ax.figure.canvas.draw_idle()
 
     def peakFit2Toggle(self, checked):
-        """Start/Stop toggle: arm (or disarm) the current tab's canvas so each
-        left-click fits a gaussian+linear around the clicked position. The press
-        handler stays connected wherever fits remain, so future drag/edit
-        interactions survive Stop."""
-        self.logger.info('peakFit2Toggle - checked: %s', checked)
-        btn = self.extraPopup.peak.peak2_start
-        self.peak2_armed = bool(checked)
-        if checked:
-            # Start and Fix Peak are mutually exclusive arming modes
-            self.extraPopup.peak.peak2_fix.setChecked(False)
-            self._peak2_connect(self.wTab.plot(self.wTab.currentIndex()).canvas)
-            btn.setText("Stop")
-            btn.setStyleSheet("background-color:#ff6b6b;")
-            self._peak2_status(
-                "[armed] Left-click a peak on the pad to fit it. "
-                "Click Stop to disarm.")
-        else:
-            btn.setText("Start")
-            btn.setStyleSheet("background-color:#bcee68;")
-            self._peak2_sync_connections()
+        self.peak_fit2_controller.peakFit2Toggle(checked)
 
     def peakFit2FixToggle(self, checked):
-        """Fix Peak toggle: arm fixed-μ fitting on the current tab's canvas,
-        mutually exclusive with Start. While armed, each left-click fits
-        gaussian+linear with μ pinned exactly at the clicked x (window centred
-        on the click; see `_peak2_max_window_bins` for its size)."""
-        self.logger.info('peakFit2FixToggle - checked: %s', checked)
-        btn = self.extraPopup.peak.peak2_fix
-        self.peak2_fix_armed = bool(checked)
-        if checked:
-            self.extraPopup.peak.peak2_start.setChecked(False)   # mutual exclusion
-            self._peak2_connect(self.wTab.plot(self.wTab.currentIndex()).canvas)
-            btn.setStyleSheet("background-color:#ff6b6b;")
-            self._peak2_status(
-                "[armed: fix μ] Left-click at a peak centre to fit with μ "
-                "pinned there. Click Fix Peak again to disarm.")
-        else:
-            btn.setStyleSheet("background-color:#bcee68;")
-            self._peak2_sync_connections()
+        self.peak_fit2_controller.peakFit2FixToggle(checked)
 
     def _peak2_status(self, msg):
         self.peak_fit2_controller._peak2_status(msg)
@@ -2732,16 +2687,7 @@ class MainWindow(QMainWindow):
                 self.logger.debug('_peak2_row_selected - redraw failed', exc_info=True)
 
     def _peak2_other_mode_active(self):
-        """True while another pad interaction owns clicks: rubber-band
-        zoom, gate create/edit, or summing-region create. An armed Peak
-        Finder 2 must not also fit on those presses."""
-        cp = self.currentPlot
-        if cp.zoomPress or cp.toCreateGate or cp.toEditGate or cp.toCreateSumRegion:
-            return True
-        try:
-            return self.gatePopup.isVisible() or self.sumRegionPopup.isVisible()
-        except Exception:
-            return False
+        return self.peak_fit2_controller._peak2_other_mode_active()
 
     def _peak2_draw(self, ax, r):
         return self.peak_fit2_controller._peak2_draw(ax, r)
@@ -2750,31 +2696,7 @@ class MainWindow(QMainWindow):
         return self.peak_fit2_controller._peak2_max_window_bins()
 
     def peakFit2Config(self):
-        """Config dialog: max fit window in bins (empty = no cap)."""
-        self.logger.info('peakFit2Config')
-        current = self._peak2_max_window_bins()
-        text, ok = QInputDialog.getText(
-            self, "Peak Finder — Config",
-            "Max fit window (in bins), empty = no cap:\n"
-            "With a cap set, clicks that can't be fitted are skipped silently.",
-            text="" if current is None else str(current))
-        if not ok:
-            return
-        s = QSettings()
-        text = text.strip()
-        if text == "":
-            s.setValue("PeakFinder2/max_window_bins", "")
-            self._peak2_status("[config] Max window: no cap.")
-            return
-        try:
-            n = int(text)
-            if n <= 0:
-                raise ValueError
-        except ValueError:
-            self._peak2_status("[config] Max window must be a positive integer or empty — unchanged.")
-            return
-        s.setValue("PeakFinder2/max_window_bins", str(n))
-        self._peak2_status(f"[config] Max window: {n} bins.")
+        self.peak_fit2_controller.peakFit2Config()
 
     def onPeakFit2Press(self, event):
         """Unified Peak Finder 2 press handler. Priority: (1) an end-handle grab
