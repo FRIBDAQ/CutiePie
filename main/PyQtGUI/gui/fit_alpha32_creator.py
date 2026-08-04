@@ -154,18 +154,25 @@ def parse_wmode(v, default=2):
     k = int(round(f))
     return k if k in (0, 1, 2) else int(default)
 
-def _inside01(v):
+def _inside01(v, default=0.5):
     f = _as_float(v)
+    if not np.isfinite(f):
+        f = _as_float(default)
     if not np.isfinite(f):
         f = 0.5
     return float(np.clip(f, 0.0, 1.0))
 
 
 class AlphaEMG32Fit:
-    def __init__(self, param_1=1, param_2=2, param_3=10):
+    def __init__(self, param_1=1, param_2=2, param_3=10,
+                 eta_vary=True, eta_value=0):
         self.param_1 = param_1
         self.param_2 = param_2
         self.param_3 = param_3
+        # eta_vary lets the fit find the tail mixture; otherwise it is pinned,
+        # to the popup box when that holds a number and to eta_value when not.
+        self.eta_vary = bool(eta_vary)
+        self.eta_value = float(eta_value)
 
     def start(self, x, y, xmin, xmax, fitpar, axis, fit_results):
         # Finite data only
@@ -374,14 +381,18 @@ class AlphaEMG32Fit:
         ''' 
 
 
-        '''
-        pars.add('eta1', value=_inside01(eta1_0), min=1e-6, max=1-1e-6, vary=True)
-        pars.add('eta2', value=_inside01(eta2_0), min=1e-6, max=1-1e-6, vary=True)
-        pars.add('eta3', value=_inside01(eta3_0), min=1e-6, max=1-1e-6, vary=True)
-        '''
-        pars.add('eta1', value=_inside01(eta1_ui), vary=False)
-        pars.add('eta2', value=_inside01(eta2_ui), vary=False)
-        pars.add('eta3', value=_inside01(eta3_ui), vary=False)
+        # eta is the fast/slow tail mixture. A blank popup box falls back to
+        # the configured eta_value rather than to a bare 0.5, which silently
+        # put half of every peak's area in the slow tail.
+        for name, ui, seed in (('eta1', eta1_ui, eta1_0),
+                               ('eta2', eta2_ui, eta2_0),
+                               ('eta3', eta3_ui, eta3_0)):
+            if self.eta_vary:
+                pars.add(name, value=_inside01(ui, default=seed),
+                         min=1e-6, max=1-1e-6, vary=True)
+            else:
+                pars.add(name, value=_inside01(ui, default=self.eta_value),
+                         vary=False)
 
         # Fixed bin width
         pars.add('bw', value=max(bw, 0.0), vary=False, min=0.0)
@@ -612,5 +623,7 @@ class AlphaEMG32Fit:
 
 
 class AlphaEMG32FitBuilder:
-    def __call__(self, param_1=1, param_2=2, param_3=10, **_ignored):
-        return AlphaEMG32Fit(param_1=param_1, param_2=param_2, param_3=param_3)
+    def __call__(self, param_1=1, param_2=2, param_3=10,
+                 eta_vary=True, eta_value=0, **_ignored):
+        return AlphaEMG32Fit(param_1=param_1, param_2=param_2, param_3=param_3,
+                             eta_vary=eta_vary, eta_value=eta_value)

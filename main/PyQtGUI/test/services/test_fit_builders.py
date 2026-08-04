@@ -118,3 +118,92 @@ def test_start_suppresses_invalid_only_for_the_duration_of_the_fit():
         assert np.geterr()["invalid"] == "warn"          # and restored on the way out
     finally:
         np.seterr(invalid=old)
+
+
+# ------------------------------------------------- the eta config seam (M33)
+
+# AlphaEMG32 needs lmfit, which this environment does not have, so these read
+# the source the way the caching check above does.
+
+def _alpha_tree(stem):
+    return ast.parse((GUI / (stem + ".py")).read_text())
+
+
+def _signature(tree, cls_name, func):
+    cls = next(n for n in ast.walk(tree)
+               if isinstance(n, ast.ClassDef) and n.name == cls_name)
+    fn = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == func)
+    return {a.arg: (ast.unparse(d) if d is not None else None)
+            for a, d in zip(fn.args.args[1:],
+                            [None] * (len(fn.args.args) - 1 - len(fn.args.defaults))
+                            + list(fn.args.defaults))}
+
+
+def test_alpha32_builder_accepts_the_eta_config():
+    """`Main.py` registers AlphaEMG32 with eta_vary/eta_value; the builder used
+    to swallow both in `**_ignored`, so the configured 1% tail mixture never
+    reached the model."""
+    sig = _signature(_alpha_tree("fit_alpha32_creator"), "AlphaEMG32FitBuilder", "__call__")
+    assert "eta_vary" in sig and "eta_value" in sig
+
+
+def test_alpha32_builder_passes_the_eta_config_on():
+    """Accepting them is not enough — they have to reach the fit object."""
+    tree = _alpha_tree("fit_alpha32_creator")
+    cls = next(n for n in ast.walk(tree)
+               if isinstance(n, ast.ClassDef) and n.name == "AlphaEMG32FitBuilder")
+    call = ast.unparse(cls)
+    assert "eta_vary=eta_vary" in call and "eta_value=eta_value" in call
+
+
+def test_alpha32_fit_takes_the_eta_seam():
+    sig = _signature(_alpha_tree("fit_alpha32_creator"), "AlphaEMG32Fit", "__init__")
+    assert "eta_vary" in sig and "eta_value" in sig
+
+
+def test_alpha32_eta_defaults_match_alpha12():
+    """The two creators expose the same seam, so a config written for one reads
+    the same way against the other."""
+    a32 = _signature(_alpha_tree("fit_alpha32_creator"), "AlphaEMG32Fit", "__init__")
+    a12 = _signature(_alpha_tree("fit_alpha12_creator"), "AlphaEMG12Fit", "__init__")
+    assert (a32["eta_vary"], a32["eta_value"]) == (a12["eta_vary"], a12["eta_value"])
+
+
+def test_alpha32_still_tolerates_an_unknown_config_key():
+    """Creators are user-facing API: an unrecognised key must not raise."""
+    sig_src = ast.unparse(next(
+        n for n in ast.walk(_alpha_tree("fit_alpha32_creator"))
+        if isinstance(n, ast.ClassDef) and n.name == "AlphaEMG32FitBuilder"))
+    assert "**_ignored" in sig_src
+
+
+def test_alpha32_eta_setup_is_not_hidden_in_a_string_block():
+    """The free-eta branch used to sit inside a `'''` block, so only the fixed
+    one ran and the config could not have worked whatever was passed."""
+    tree = _alpha_tree("fit_alpha32_creator")
+    # the names live in a loop tuple now, so look for the constants themselves:
+    # anything inside a dead `'''` block would be string text, not a Constant
+    live = [n for n in ast.walk(tree)
+            if isinstance(n, ast.Constant) and n.value in ("eta1", "eta2", "eta3")]
+    dead = [n for n in ast.walk(tree)
+            if isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant)
+            and isinstance(n.value.value, str) and "pars.add('eta" in n.value.value]
+    assert live, "the fit adds no eta parameters at all"
+    assert not dead, "an eta branch is commented out with a string literal"
+
+
+def test_alpha32_eta_honours_vary():
+    """Both branches must exist: pinned when the config says so, free when not."""
+    src = (GUI / "fit_alpha32_creator.py").read_text()
+    assert "if self.eta_vary:" in src
+    assert "vary=True" in src and "vary=False" in src
+
+
+def test_the_blank_eta_default_is_stated_by_the_caller():
+    """A blank popup box used to fall back to a bare 0.5 buried in _inside01,
+    which is what put half of every peak's area in the slow tail."""
+    tree = _alpha_tree("fit_alpha32_creator")
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == "_inside01")
+    assert any(a.arg == "default" for a in fn.args.args), \
+        "_inside01 still hides its fallback from the caller"
