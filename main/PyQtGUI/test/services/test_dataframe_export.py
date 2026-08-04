@@ -1,12 +1,9 @@
-"""Headless net for the Jupyter dataframe-export cluster extracted from GUI.py.
-
-Pins the reshape + ndarray-flatten + gzip-CSV behavior that was previously
-buried in MainWindow.createDf: the nested store dict becomes a columnar table
-(one row per spectrum), 1-D count arrays flatten to lists and 2-D to nested
-lists, non-array fields pass through, and the file round-trips back through
-pandas. Qt-free (pandas/numpy only), so it runs in the system python3 with no
-PyQt5.
-"""
+"""Headless net for the Jupyter dataframe-export cluster extracted from
+GUI.py. Pins the reshape + ndarray-flatten + gzip-CSV behavior that was
+previously buried in MainWindow.createDf: the nested store dict becomes a
+columnar table (one row per spectrum), 1-D count arrays flatten to lists and
+2-D to nested lists, non-array fields pass through, and the file round-trips
+back through pandas."""
 
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../gui'))
@@ -146,13 +143,11 @@ def test_export_writes_readable_gzip_csv(tmp_path):
 
 
 def test_export_uses_fast_gzip_level(tmp_path):
-    """The export must compress at the fast level, not the default 9.
-
-    Pinned via the gzip header's XFL byte (offset 8), which the deflate spec
-    sets to 2 for "best compression" and 4 for "fastest" — the only in-artifact
+    """The export must compress at the fast level, not the default 9. Pinned
+    via the gzip header's XFL byte (offset 8), which the deflate spec sets to
+    2 for "best compression" and 4 for "fastest" — the only in-artifact
     evidence of the level, since the decompressed bytes are identical either
-    way. Level 9 spent most of the export wall clock for a file a couple of MB
-    smaller, which nobody was waiting on."""
+    way."""
     d = {'h1': _spectrum(2, np.arange(4096).reshape(64, 64))}
     out = str(tmp_path / 'spectra.csv')
     export_spectrum_csv(d, out)

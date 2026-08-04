@@ -18,16 +18,8 @@ class SpectrumStore:
         self._store: dict = {}
 
     def set(self, name: str, allow_data_replacement: bool = False, **info) -> None:
-        """Upsert valid-key fields for the named spectrum. Invalid keys are silently ignored.
-
-        `data` arrays are live shared-memory views: replacing one
-        with an array that does not alias it silently freezes the spectrum —
-        no error, just a display that stops updating — so such writes are
-        refused and logged.
-        Callers installing views from a NEW mirror — connect/reconnect and
-        trace adds after a CPyConverter.Update() — must pass
-        allow_data_replacement=True.
-        """
+        """Upsert valid-key fields for the named spectrum. Invalid keys are
+        silently ignored."""
         valid = {k: v for k, v in info.items() if k in _VALID_KEYS}
         if not valid:
             return
@@ -62,10 +54,9 @@ class SpectrumStore:
         self._store.pop(name, None)
 
     def get_record(self, name: str):
-        """Return the live record dict for `name`, or None if absent.
-
-        Field values are shared by reference and meant to be read; use set() to
-        change them. Prefer this over as_dict() when you only need one spectrum."""
+        """Return the live record dict for `name`, or None if absent. Field
+        values are shared by reference and meant to be read; use set() to
+        change them."""
         return self._store.get(name)
 
     def contains(self, name: str) -> bool:
@@ -75,9 +66,7 @@ class SpectrumStore:
         return sorted(self._store)
 
     def as_dict(self) -> dict:
-        """Return a shallow snapshot copy of the registry: {name: record}.
-
-        The top-level mapping is copied so callers cannot add or remove spectra by
-        mutating the result. Per-spectrum record objects are shared by reference and
-        must not be mutated in place — use set()/remove() to change the store."""
+        """Return a shallow snapshot copy of the registry: {name: record}. The
+        top-level mapping is copied so callers cannot add or remove spectra by
+        mutating the result."""
         return dict(self._store)

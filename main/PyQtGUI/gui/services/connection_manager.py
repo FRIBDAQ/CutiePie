@@ -79,19 +79,10 @@ class ConnectionManager(QtCore.QObject):
     # ------------------------------------------------------------------
 
     def _shm_view_fits(self, arr, name):
-        """True when a zero-copy view's own extent fits inside the mapped mirror.
-
-        Nothing between the mirror header and here checks the declared shape:
-        CPyConverter wraps whatever address and bin counts it is given, and
-        creating the array touches no memory. The first real access is the
-        `data[0] = 0` write below, so a spectrum defined larger than the display
-        memory takes the process down with SIGSEGV and no traceback. `nbytes` is
-        shape times itemsize and reads nothing, so it is safe to ask first.
-
-        This catches a spectrum too big for the whole segment. It cannot catch
-        one that fits but is placed near the end — only the C++ side knows the
-        offset.
-        """
+        """True when a zero-copy view's own extent fits inside the mapped
+        mirror. Nothing between the mirror header and here checks the declared
+        shape: CPyConverter wraps whatever address and bin counts it is given,
+        and creating the array touches no memory."""
         size = self._mapped_shmem_size
         if size is None:
             # same fail-open as the connect-time size guard: without a
@@ -458,15 +449,10 @@ class ConnectionManager(QtCore.QObject):
             return []
 
     def getSpectrumStatistics(self, pattern="*"):
-        """Return {name: {xunderflow, xoverflow, yunderflow, yoverflow}} via the owned REST client.
-
-        One /spectcl/specstats call covers every spectrum matching the pattern
-        (much lighter than per-spectrum /spectcl/spectrum/contents, which ships
-        the full channel data). Each reply object carries per-axis
-        "underflows"/"overflows" arrays — index 0 is x, index 1 (2-D only) is y;
-        axes the server doesn't report are simply absent from that spectrum's
-        dict. Returns {} when REST is unavailable or the call fails, so callers
-        (the Jupyter df export) degrade to NaN statistics instead of aborting."""
+        """Return {name: {xunderflow, xoverflow, yunderflow, yoverflow}} via
+        the owned REST client. One /spectcl/specstats call covers every
+        spectrum matching the pattern (much lighter than per-spectrum
+        /spectcl/spectrum/contents, which ships the full channel data)."""
         if self._rest is None:
             self.logger.debug('getSpectrumStatistics - no REST client')
             return {}

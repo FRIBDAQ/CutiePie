@@ -4,9 +4,7 @@ from PyQt5 import QtCore
 
 class GateAdapter:
     """Bridges GateManager signals to the gate popup and currentPlot flags.
-    Created by MainWindow after the service and popup exist.  Owns the 13
-    _on_gate_* / _on_gm_* slot methods and 23 .connect() calls that were
-    formerly in MainWindow."""
+    Created by MainWindow after the service and popup exist."""
 
     def __init__(self, gate_manager, gate_popup, get_current_plot, logger):
         self._popup = gate_popup

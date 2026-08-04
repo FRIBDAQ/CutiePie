@@ -8,16 +8,9 @@ logger = logging.getLogger(__name__)
 
 
 def parse_binding_entry(entry):
-    """Parse a binding trace entry into (action, name, binding_id).
-
-    Entries are Tcl lists rendered as strings: ``action name bindingId``.
-    Tcl braces elements that contain spaces (``add {my spec} 5``), so a plain
-    ``split(" ")`` 3-tuple unpack mis-parses or raises on such names. The
-    action is always the first token and the binding id the last; the name is
-    everything in between, with one surrounding brace pair stripped.
-
-    Raises ValueError for entries with fewer than three tokens.
-    """
+    """Parse a binding trace entry into (action, name, binding_id). Entries are Tcl
+    lists, so a name containing spaces arrives brace-quoted and a plain split(" ")
+    mis-parses it."""
     parts = entry.split(" ")
     if len(parts) < 3:
         raise ValueError(f"malformed binding trace entry: {entry!r}")
@@ -31,17 +24,9 @@ _GLOB_METACHARACTERS = "*?[]\\"
 
 
 def lookup_spectrum_info(rest, name):
-    """Return the REST info dict for exactly `name`, or None.
-
-    ``listSpectrum(name)`` sends the name as the REST ``filter`` field, which
-    SpecTcl matches as a Tcl glob pattern — a name containing ``*``/``?``/``[``
-    can match a *different* spectrum, and blindly taking ``info[0]`` would
-    record the wrong axes/type under this name. Never trust the
-    pattern match: select by exact name, and when the pattern lookup yields no
-    exact hit for a metacharacter-bearing name, fall back to listing all
-    spectra and matching literally. Plain names keep today's single-request
-    behavior exactly.
-    """
+    """Return the REST info dict for exactly `name`, or None. ``listSpectrum`` matches
+    its argument as a Tcl glob, so a name containing ``*``/``?``/``[`` can match a
+    different spectrum — select by exact name and never trust the pattern hit."""
     candidates = rest.listSpectrum(name)
     exact = [d for d in candidates
              if isinstance(d, dict) and d.get("name") == name]
@@ -62,9 +47,7 @@ class RestWorker(QObject):
     # How many polls in a row must fail before the connection is called dead.
     # A poll fails on any transport error, and SpecTcl busy in an analysis
     # burst for longer than PyREST's 5 second timeout is enough to produce
-    # one. At one poll every retention/2 seconds, three failures means the
-    # server has been unreachable for roughly a poll interval times three
-    # before the user is told about it.
+    # one.
     _MAX_POLL_FAILURES = 3
 
     def __init__(self, rest, retention, stop_event):
@@ -114,10 +97,9 @@ class RestWorker(QObject):
                     logger.warning('RestWorker - pollTraces returned non-dict: %s', type(traces).__name__)
                     continue
 
-                # Collect removes and fetch add metadata — all on the background thread.
-                # Removes MUST be emitted before adds so the GUI thread processes them in
-                # the original SpecTcl order. A remove-then-add of the same name (rebind)
-                # would otherwise leave the spectrum absent if adds were queued first.
+                # Collect removes and fetch add metadata — all on the
+                # background thread. Removes MUST be emitted before adds so
+                # the GUI thread processes them in the original SpecTcl order.
                 remove_bindings = []
                 add_infos       = []
                 for entry in (traces.get("binding") or []):

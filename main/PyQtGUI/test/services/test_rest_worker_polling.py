@@ -1,19 +1,6 @@
-"""Trace-polling resilience for RestWorker, and the pollTraces contract it rests on.
-
-The polling loop used to end on any falsy poll result, and PyREST reported a
-failed request as an empty dict. One request that timed out therefore ended
-trace tracking for the whole session: the connect button went red and no
-further spectrum add or remove was seen until the user reconnected by hand.
-
-These tests pin the two halves of the fix. PyREST now says None for "the poll
-did not get through" and keeps the empty dict for "nothing fired", and
-RestWorker retries a failed poll instead of quitting on the first one.
-
-They run headless via qt_stubs.install_missing_runtime_stubs(); on a machine
-with the real PyQt5 and httplib2 the real modules are used instead. No OS
-thread and no socket is involved: run() is called directly and the stop event
-is set by the fake REST client when the test has seen enough polls.
-"""
+"""Trace-polling resilience for RestWorker, and the pollTraces contract it
+rests on. The polling loop used to end on any falsy poll result, and PyREST
+reported a failed request as an empty dict."""
 
 import importlib
 import os
@@ -61,12 +48,8 @@ EMPTY_DETAIL = {"binding": [], "parameter": [], "spectrum": [], "gate": []}
 
 
 class StopAfter:
-    """threading.Event stand-in that never blocks.
-
-    The worker waits on this between polls, so a real Event would make every
-    test sleep retention/2. wait() returns False (not stopped) until the test
-    or the fake REST client sets it.
-    """
+    """threading.Event stand-in that never blocks. The worker waits on this
+    between polls, so a real Event would make every test sleep retention/2."""
 
     def __init__(self):
         self._set = False
@@ -85,13 +68,9 @@ class StopAfter:
 
 
 class ScriptedRest:
-    """Replays a list of pollTraces results, one per poll.
-
-    A result of None is a failed poll, mirroring what PyREST returns when the
-    request did not get through. The script running out stops the worker the
-    way a user pressing disconnect would, so a test that reaches the end of
-    its script proves the loop was still alive there.
-    """
+    """Replays a list of pollTraces results, one per poll. A result of None is
+    a failed poll, mirroring what PyREST returns when the request did not get
+    through."""
 
     def __init__(self, script, stop):
         self._script = list(script)

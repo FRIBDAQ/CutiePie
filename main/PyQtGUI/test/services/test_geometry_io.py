@@ -1,11 +1,8 @@
-"""Headless net for the geometry-IO cluster extracted from GUI.py.
-
-Pins the on-disk format read/serialize behavior that was previously buried in
+"""Headless net for the geometry-IO cluster extracted from GUI.py. Pins the
+on-disk format read/serialize behavior that was previously buried in
 MainWindow.openGeo/parseOldGeo/saveGeo — the parse of legacy Xamine/dispwind
 ``.win`` files, the native dict-literal round-trip, the format sniff, and the
-edge cases (empty / unrecognized / no-Geometry-line). Qt-free, so it runs in the
-system python3 with no PyQt5.
-"""
+edge cases (empty / unrecognized / no-Geometry-line)."""
 
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../gui'))

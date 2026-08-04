@@ -50,25 +50,9 @@ except Exception:
 
 
 def _emg_one_tail_stable(x, A, mu, sigma, tau):
-    """
-    Numerically stable single EMG tail, same sign convention as this module
+    """Numerically stable single EMG tail, same sign convention as this module
     (u = sigma/tau + (x-mu)/sigma). Ported from fit_alpha22_creator, which
-    already carried this form.
-
-    The direct expression g*erfcx(z) blows up far to the left of the peak:
-    erfcx(z) = exp(z^2)*erfc(z) overflows to +inf once z is below about -26.6,
-    while g = exp(-dx^2/2) has already underflowed to exactly 0.0, so the
-    product is 0*inf = NaN and lmfit aborts the whole fit. The two branches
-    below are algebraically identical but each stays in range:
-      u >= 0 : g * erfcx(u)                       (erfcx(u) <= 1 there)
-      u <  0 : exp( (sigma/tau)^2/2 + (x-mu)/tau ) * erfc(u)
-    In the second branch u < 0 implies (x-mu)/tau < -(sigma/tau)^2, so that
-    exponent is always <= -(sigma/tau)^2/2 <= 0 and cannot overflow either.
-
-    NOTE: fit_alpha_base._emg_one_tail_stable is NOT interchangeable with this
-    one — it uses the opposite sign (its own module docstring says so), so
-    swapping it in would mirror the tail.
-    """
+    already carried this form."""
     x = np.asarray(x, dtype=float)
     sigma = max(float(sigma), 1e-9)
     tau   = max(float(tau),   1e-9)
@@ -131,15 +115,9 @@ def pick(ui, auto):
 
 def _get(params, name):
     """One fitted value out of an lmfit Parameters mapping, or NaN if the name
-    is absent. This model always builds all six (eta is added on both branches,
-    tau2 is the expression tau1+dtau), so a NaN in the results CSV means
-    something went wrong — it is not a normal reduced-model reading.
-
-    `params` is passed in rather than closed over: the sibling creators define
-    this nested inside `start`, where `p = res.params` is in scope, and hoisting
-    it to module level here left it reading a global `p` that never existed —
-    the `except` then turned every NameError into a NaN, so the results CSV
-    silently recorded no fitted values at all."""
+    is absent. This model always builds all six (eta is added on both
+    branches, tau2 is the expression tau1+dtau), so a NaN in the results CSV
+    means something went wrong — it is not a normal reduced-model reading."""
     try:
         return float(params[name].value)
     except Exception:

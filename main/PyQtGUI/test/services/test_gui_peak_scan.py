@@ -1,31 +1,6 @@
-"""Characterization tests for MainWindow's peak-scan cluster (ARCH.md §7 D5).
-
-Peak Finder 1: the Scan button, the checkable peak list, the four red marker
-artists per peak, and Clear. The finding math is already Qt-free in
-`services/peak_finder.py` and covered by `test_peak_finder.py`; what has never
-been covered is the layer above it — which tier the bin math reads, when the
-markers are drawn and removed, and how many times the canvas is redrawn.
-
-The pins, each naming the rule it descends from:
-
-* **E7 tier rule** `analyzePeak` builds its x axis from the STORE tier
-  (`binx`/`minx`/`maxx`) and takes only the visible window from the axes.
-  Reading the bin count from the per-tab view tier is what drew 1-D spectra at
-  the wrong x coordinates.
-* **stale artists** `populatePeakList` clears the previous scan's markers
-  before rebuilding. The fixed 12-checkbox grid this replaced redrew over its
-  own stale artist handles and leaked them onto the canvas.
-* **signal storm** `setAllPeaksChecked` blocks `itemChanged` while it flips the
-  states and redraws once, not once per row. Unblocked, every flip re-enters
-  `peakItemChanged`, which draws the canvas itself.
-* **idempotence** `isChecked` guards both directions, so a redundant check
-  cannot stack a second set of artists and a redundant uncheck cannot raise.
-* **best effort** a bad width entry or an empty view leaves the GUI alive and
-  logs; peak analysis is never allowed to take the window down.
-
-These run against the CURRENT structure and must survive the D5 move: the
-fixture may be rewired, no test body may change.
-"""
+"""Characterization tests for MainWindow's peak-scan cluster. Peak Finder 1:
+the Scan button, the checkable peak list, the four red marker artists per
+peak, and Clear."""
 
 import logging
 import os
@@ -181,11 +156,8 @@ for centre in (20, 50, 80):
         COUNTS[centre + offset] = height
 
 
-# The scan results and the four artist maps moved onto the controller with the
-# methods (ARCH.md §7 D5). These proxies let the unchanged test bodies keep
-# reading and writing them on the window, exactly as they did before the
-# extraction. Installed with monkeypatch so they come off the class again when
-# the test ends.
+    # The cluster's state lives on the controller; these proxies let the
+    # unchanged test bodies keep reading it on the window.
 _SCAN_STATE = ("datax", "datay", "peaks", "properties", "isChecked",
                "peak_pos", "peak_vl", "peak_hl", "peak_txt")
 
@@ -254,12 +226,8 @@ def artist_rows(win):
 
 
 def census(win):
-    """What is actually ON the pad: (markers, vline/hline collections, labels).
-
-    The artist dicts say what the code THINKS it drew. A leaked artist is one
-    the dict has forgotten and the axes still hold, so anything about leaks has
-    to be asserted here rather than on the dicts.
-    """
+    """What is actually ON the pad: (markers, vline/hline collections,
+    labels). The artist dicts say what the code THINKS it drew."""
     return (len(win.axes.lines), len(win.axes.collections), len(win.axes.texts))
 
 
@@ -458,9 +426,7 @@ def test_single_item_change_redraws_the_canvas(win):
 
 def test_a_second_scan_does_not_leak_the_first_scans_markers(win):
     """The stale-artist rule, asserted on the PAD. populatePeakList clears the
-    old markers before it rebuilds the list. Without that clear the dicts are
-    still overwritten with fresh handles, so only the axes can show the leak —
-    the old artists stay drawn with nothing left pointing at them."""
+    old markers before it rebuilds the list."""
     scan(win)
     after_first = census(win)
     scan(win)

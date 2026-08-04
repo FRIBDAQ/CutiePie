@@ -22,13 +22,9 @@ FIT_PREFIX = "fit-_-"
 
 
 class LoadedFitGroup:
-    """Live-editable set of drawn lines for one loaded fit on an axis.
-
-    Components can be added/removed one at a time (as the Load-Fit panel's
-    checkboxes are toggled) while staying a single deletable fit group: every
-    line shares the gid ``fit-<N>`` and exactly one shown line carries the
-    ``fit-_-<N>`` label (the group's index that Sel. All / Delete recognise).
-    Qt-free so the add/remove logic is unit-testable on a headless Agg axis."""
+    """Live-editable set of drawn lines for one loaded fit on an axis. Components can
+    be added or removed one at a time while staying a single deletable group: every
+    line shares the gid ``fit-<N>``."""
 
     def __init__(self, ax, x, data, colors, index):
         self.ax = ax
@@ -241,17 +237,9 @@ class FitManager(QObject):
 
     def _stash_fit_curve(self, fitln, fit_funct, spectrumName,
                          xdata=None, ydata=None):
-        """Remember the last drawn fit so it can be saved.
-
-        Always captures the sampled total (``fitln.component_data`` for the
-        AlphaEMG* creators, else the line's own x/y). When the creator also
-        stashes per-isotope series (``component_series``) it captures those plus
-        the isotope→chain map and per-component colors, enabling a full
-        multi-component save.
-
-        ``xdata``/``ydata`` are the raw histogram bin centers and their counts
-        (the data the fit was run against). Stashing them lets Save Fit write a
-        ``y_data`` column at one-row-per-bin resolution."""
+        """Remember the last drawn fit so it can be saved. Always captures the
+        sampled total (``fitln.component_data`` for the AlphaEMG* creators,
+        else the line's own x/y)."""
         if fitln is None:
             return
         try:
@@ -297,15 +285,11 @@ class FitManager(QObject):
             self.logger.debug('could not stash fit curve', exc_info=True)
 
     def save_fit_curve(self, path=None):
-        """Write the last drawn fit to a CSV.
-
-        AlphaEMGMultiSigma fits (which capture per-peak data) write a grouped
-        per-peak file: ``x, fit total``, then per chain the isotope sum and each
-        peak, plus a human-readable ``# per-peak parameters`` block and a real
-        header row (Excel-friendly, self-describing via ``chain/isotope/E`` names).
-        Other fits write a two-column (x, y_total) file.
-
-        `path` is supplied by tests; in the GUI it is chosen via QFileDialog."""
+        """Write the last drawn fit to a CSV. AlphaEMGMultiSigma fits (which
+        capture per-peak data) write a grouped per-peak file: ``x, fit
+        total``, then per chain the isotope sum and each peak, plus a
+        human-readable ``# per-peak parameters`` block and a real header row
+        (Excel-friendly, self-describing via ``chain/isotope/E`` names)."""
         curve = getattr(self, "_lastFitCurve", None)
         if not curve or curve.get("x") is None or len(curve["x"]) == 0:
             QMessageBox.warning(self._parent_widget, "No fit to save",
@@ -460,17 +444,9 @@ class FitManager(QObject):
 
     def _write_fit_peaks_csv(self, path, x, total_y, peaks, model="", name="",
                              y_data=None, chi2=None, redchi=None, ndof=None):
-        """Write the grouped per-peak / per-chain file (Version 2, self-describing
-        via column names — no JSON). The file holds TWO CSV tables:
-
-        1. a per-peak **parameter** table (``chain,isotope,E_keV,A,mu,sigma,
-           tau1,tau2,eta``), one row per peak — a real CSV table, not comments;
-        2. the sampled **data** table: ``x, fit total``, then per chain (sorted)
-           the isotope sum ``<chain>/<isotope>`` and each peak
-           ``<chain>/<isotope>/<E>``.
-
-        A blank line separates the two; a single ``#`` title line leads the file.
-        Both tables import cleanly into Excel/pandas."""
+        """Write the grouped per-peak / per-chain file (Version 2,
+        self-describing via column names — no JSON). The file holds TWO CSV
+        tables: 1."""
         x = np.asarray(x, dtype=float)
 
         # group peaks: chain (sorted) → isotope (first-seen order) → peaks (by E)
@@ -541,12 +517,11 @@ class FitManager(QObject):
     def _write_fit_components_csv(self, path, x, comps, model="", name="",
                                   chains=None, colors=None, y_data=None,
                                   chi2=None, redchi=None, ndof=None, total=None):
-        """Write x + one column per component, with a `# meta` JSON header that
-        records column names, the isotope→chain map, and per-component colors.
-        When ``y_data`` is given it is written as a ``y_data`` column right after
-        ``x`` (one row per data bin) and recorded in the meta columns. The meta
-        also carries the overall chi2/reduced_chi2/ndof and a per-component
-        ``redchi_local`` (local data-vs-total goodness)."""
+        """Write x + one column per component, with a `# meta` JSON header
+        that records column names, the isotope→chain map, and per-component
+        colors. When ``y_data`` is given it is written as a ``y_data`` column
+        right after ``x`` (one row per data bin) and recorded in the meta
+        columns."""
         x = np.asarray(x, dtype=float)
         names = [n for n, _ in comps]
         lead_cols = ["x"]
@@ -597,11 +572,9 @@ class FitManager(QObject):
         return dict(name=name, kind="component", chain=None, isotope=name, E=None)
 
     def _read_fit_curve_file(self, path):
-        """Parse a saved fit file. Returns
-        ``{x, components:[(name,y)…], structure:[…], chains, colors, multi}`` or
-        None if the file has no usable numeric (x, y[, …]) block. Handles the
-        Version 2 per-peak files (real header row, self-describing names), the
-        legacy ``# meta`` JSON files, and plain two-column total-only files."""
+        """Parse a saved fit file. Returns ``{x, components:[(name,y)…],
+        structure:[…], chains, colors, multi}`` or None if the file has no
+        usable numeric (x, y[, …]) block."""
         meta = None
         header_names = None
         data_start = None
@@ -612,8 +585,8 @@ class FitManager(QObject):
             return None
 
         # Locate the sampled-data table: its header row's first column is
-        # exactly "x". A per-peak parameter table above it (chain,isotope,…) is
-        # skipped. Legacy files have no such row (their header is commented).
+        # exactly "x". A per-peak parameter table above it (chain,isotope,…)
+        # is skipped.
         for idx, raw in enumerate(lines):
             s = raw.strip()
             if s.startswith("#"):
@@ -728,12 +701,10 @@ class FitManager(QObject):
         return i
 
     def _plot_fit_components(self, ax, x, comps, colors=None):
-        """Draw the given components on `ax` as ONE fit group. All lines share a
-        per-index gid ``fit-<N>``; the carrier (the total if present, else the
-        first) also gets the ``fit-_-<N>`` label so the group has an index that
-        Sel. All / Delete / clear-on-next-fit recognise. Styling: total solid,
-        isotope sums dashed, individual peaks dotted; a component and its peaks
-        share a colour. Returns (index, lines)."""
+        """Draw the given components on `ax` as ONE fit group. All lines share
+        a per-index gid ``fit-<N>``; the carrier (the total if present, else
+        the first) also gets the ``fit-_-<N>`` label so the group has an index
+        that Sel."""
         colors = colors or {}
         cycle = plt.rcParams["axes.prop_cycle"].by_key().get("color") \
             or ["C0", "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9"]
@@ -771,11 +742,9 @@ class FitManager(QObject):
 
     def load_fit_curve(self, index=None, name=None, ax=None, path=None):
         """Draw a saved fit curve onto the currently selected pad's axis.
-
-        Multi-component files draw every component and open a **modeless** panel
-        so you can add/remove components live without re-loading; total-only files
-        draw the single curve. Everything is tagged as one deletable fit group
-        (``fit-<N>`` gid + ``fit-_-<N>`` label)."""
+        Multi-component files draw every component and open a **modeless**
+        panel so you can add/remove components live without re-loading;
+        total-only files draw the single curve."""
         if ax is None:
             self.logger.warning('load_fit_curve - called without ax context; cannot draw')
             QMessageBox.warning(self._parent_widget, "No plot selected",

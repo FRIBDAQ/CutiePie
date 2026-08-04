@@ -4,20 +4,9 @@
 # AlphaMultiEMG: Sum of many EMG sub-peaks grouped by isotope.
 #   - Loads shapes from a text/CSV file with rows:
 #     isotope, half_life, energy_keV, percent, sigma, tau1, tau2, eta, flag
-#
-#     where group_flag is one of: s (start), e (end), - (middle)
-#   - Known per-subpeak amplitude ratios from Percent within each isotope.
-#   - User FITTED: one amplitude A_<isotope> per isotope (>=0).
-#   - Optional FITTED: small per-isotope shift dm_<isotope> added to every μ in that isotope.
-#   - FIXED (from file): μ (via linear calibration), σ, τ1, τ2, η.
-#   - Bin-width integration (GL7), Poisson weights, optional one-step IRLS.
-#
-# Seeds / popup order (len-tolerant):
-#   [... you can ignore most; we only care (optionally) about bw(pN), wmode(pN+1) if GUI passes them ...]
-#
-# wmode: 0=unweighted, 1=Poisson(data), 2=Poisson(model, 1-step IRLS)
-#
-# To pass the shape file & calibration, set them in fit_factory config:
+# where group_flag is one of: s (start), e (end), - (middle) - Known
+# per-subpeak amplitude ratios from Percent within each isotope. - User
+# FITTED: one amplitude A_<isotope> per isotope (>=0).
 #   fit_factory.register("AlphaMultiEMG", AlphaMultiEMGFitBuilder(),
 #                        shape_file="/path/to/shapes.txt",
 #                        calib_a=6.8941013584, calib_b=-4943.2400523,
@@ -65,18 +54,9 @@ def _peak_binned(x, A, mu, sigma, t1, t2, eta, bw):
     return _bin_integral(_emg_two_tail_stable, x, bw, A, mu, sigma, t1, t2, eta)
 
 def _load_shapes(shape_file, a, b):
-    """
-    NEW TXT format (per line):
-      isotope, half_life, energy_keV, percent, sigma, tau1, tau2, eta, flag
-    Notes:
-      • Empty isotope (',,') inherits the previous isotope.
-      • flag ∈ {'s','e','-','*'}; '*' = single-line isotope.
-      • Separator lines like ',,,,,,,,' are ignored.
-      • 'percent' may be '31.6' or '31.6%'; both OK (parsed to fraction 0..1).
-    Returns:
-      isotopes: [{name, safe, start_idx, end_idx}]
-      pulses  : [{iso_idx, name, safe, E, mu0, pct, ratio, sigma, tau1, tau2, eta}]
-    """
+    """NEW TXT format (per line): isotope, half_life, energy_keV, percent,
+    sigma, tau1, tau2, eta, flag Notes: • Empty isotope (',,') inherits the
+    previous isotope. • flag ∈ {'s','e','-','*'}; '*' = single-line isotope."""
     rows = []
     with open(shape_file, 'r', newline='') as f:
         rdr = csv.reader(f, skipinitialspace=True)

@@ -1,15 +1,7 @@
-"""Characterization tests for FitManager.
-
-These pin FitManager's CURRENT observable behavior — popup-widget effects,
-dialog calls, fit-input preparation, artist labeling/tagging — before the
-step-1 inversion (widget writes -> signals, widget reads -> method arguments).
-
-Headless strategy: qt_stubs.install_missing_runtime_stubs() provides the
-PyQt5 import surface; every Qt object FitManager *uses* at runtime
-(QMessageBox, QSettings, QTextEdit) is monkeypatched at the module attribute
-with a recording double, so the same tests run under stub AND real Qt (no
-QApplication needed). Matplotlib runs on the Agg backend; axes are real.
-"""
+"""Characterization tests for FitManager. These pin FitManager's CURRENT
+observable behavior — popup-widget effects, dialog calls, fit-input
+preparation, artist labeling/tagging — before the step-1 inversion (widget
+writes -> signals, widget reads -> method arguments)."""
 
 import importlib
 import logging

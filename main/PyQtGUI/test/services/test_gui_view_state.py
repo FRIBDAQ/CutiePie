@@ -1,23 +1,5 @@
-"""Characterization tests for MainWindow's view-state seams.
-
-These are the accessors every service is constructed against — the object
-ARCH.md §7 D9 will become. They are pinned HERE, against the current structure,
-so the extraction can be verified by this file passing unedited.
-
-The first tests to reach `MainWindow` at all (AUDIT.md H14). They run on a
-`gui_stubs.bare_window()`: a real MainWindow whose `__init__` was never run,
-with only the collaborators each method actually reads injected.
-
-Three pins below record behavior that has already produced defects, and exist
-so a refactor cannot quietly drop them:
-
-* `nameFromIndex` answers with the ENLARGED spectrum for any index while a pad
-  is enlarged (the stale-index pitfall behind H11),
-* a pad the geometry blanked reads as the string "empty", not None, and the
-  store does not hold it (the premise of BUGS.md E24),
-* the two metadata tiers are independent: store minx/maxx are the axis
-  definition, the per-tab slot's are the current view range (BUGS.md E7).
-"""
+"""Characterization tests for MainWindow's view-state seams. These are the
+accessors every service is constructed against — the object will become."""
 
 import os
 import sys
@@ -74,10 +56,8 @@ def win(monkeypatch):
     w.spectra = SpectrumStore()
     w.wTab = FakeTabs()
     w.currentPlot = FakePlot()
-    # These accessors moved to ViewState (FACTORIZATION.md stage 9). The
-    # unchanged test bodies keep driving them on the window: the methods are
-    # bound onto the instance, and the gate-name cache is proxied, exactly as
-    # MainWindow's own call sites now reach them through self.view_state.
+    # These accessors live on ViewState; bind them back onto the window so
+    # the unchanged test bodies keep driving MainWindow.
     from view_state import ViewState
     w.gate_fetches = []
     w.view_state = ViewState(
@@ -243,8 +223,8 @@ def test_set_geo_creates_a_slot_and_copies_the_store_record(win):
 
 
 def test_set_geo_never_copies_counts_into_the_display_tier(win):
-    # ARCH.md invariant / BUGS.md B4: the canonical array lives only in the
-    # store; the slot keeps the empty placeholder it was built with.
+    # invariant /: the canonical array lives only in the store; the slot keeps
+    # the empty placeholder it was built with.
     win.spectra.set("h1", dim=1, binx=4, minx=0.0, maxx=4.0, biny=0,
                     miny=0.0, maxy=0.0, data=[1, 2, 3, 4], parameters=[],
                     type="1")
@@ -312,8 +292,8 @@ def test_gate_name_returns_a_fresh_cache_entry_without_refetching(gate_win):
 
 
 def test_gate_name_serves_a_stale_entry_and_revalidates(gate_win):
-    # PERFORMANCE.md P3: the hover path must never block on HTTP, so an expired
-    # entry answers immediately with the stale value and refetches behind it.
+    # : the hover path must never block on HTTP, so an expired entry answers
+    # immediately with the stale value and refetches behind it.
     stale = time.monotonic() - (gate_win._GATE_NAME_TTL + 1.0)
     gate_win._gate_name_cache["h1"] = ("gateA", stale)
     assert gate_win.getAppliedGateName(index=0) == "gateA"
@@ -377,13 +357,10 @@ def test_the_view_dict_follows_the_tab_switch(win):
 
 
 def test_a_second_fetch_while_one_is_in_flight_starts_no_thread(win, monkeypatch):
-    """One fetch per spectrum, however many hover events arrive meanwhile.
-
-    The in-flight set is what prevents the second one, and asserting on the SET
+    """One fetch per spectrum, however many hover events arrive meanwhile. The
+    in-flight set is what prevents the second one, and asserting on the SET
     cannot show it: re-adding a member is a no-op, so the set reads the same
-    with the guard removed. What the guard actually saves is the thread, so
-    that is what this counts.
-    """
+    with the guard removed."""
     import view_state as vs
     started = []
 

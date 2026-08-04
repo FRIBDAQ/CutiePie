@@ -1,36 +1,6 @@
-"""Per-pad display state.
-
-A ``DisplaySlot`` owns the *display-tier* state for one pad in one tab: the
-matplotlib axis/artist, log flag, cutoff, and a cached copy of the spectrum's
-axis-definition fields (dim/binx/minx/... ) as they were when the pad was
-populated. It is the typed replacement for the untyped
-``wTab.spectrum_dict[tab][padIdx]`` dict that ``getSpectrumViewInfo`` /
-``setSpectrumViewInfo`` read and write.
-
-Two invariants carried over from the dict it replaces:
-
-* **No counts.** ``data`` is a permanent empty placeholder — the canonical
-  counts array lives ONLY in ``SpectrumStore`` and is derived on demand
-  Nothing may store counts here.
-* **Empty-list default.** Every field defaults to ``[]`` to match the old dict
-  template byte-for-byte: callers test truthiness (an un-set ``log`` reads as
-  ``[]`` = falsy = linear), so the default must stay falsy-and-equal-to-``[]``.
-
-How it replaced the raw dict, in order:
-
-* The mapping protocol (``__getitem__`` / ``__setitem__`` / ``__contains__``)
-  let this class drop into the existing ``spectrum_dict`` slot with every call
-  site unchanged, and ``setGeo`` began building it instead of a raw dict.
-* All production access then moved to *typed* form — the accessors and
-  ``setGeo`` use ``getattr``/``setattr``/``slot.attr`` (dynamic keys stay
-  dynamic via ``getattr``, guarded by the same whitelist as before). No
-  production code subscripts a slot anymore.
-
-The mapping shim below is therefore no longer on any production path; it is
-retained as a small, tested compatibility surface (and a safety net for any
-dynamically-built access). This module imports no Qt — it is headless-testable
-(the axis/spectrum artists are held as opaque refs).
-"""
+"""Per-pad display state: one ``DisplaySlot`` owns the display-tier state for one
+pad in one tab — axis/artist, log flag, cutoff, and a cached copy of the
+spectrum's axis-definition fields as they were when the pad was populated."""
 
 from dataclasses import dataclass, field
 

@@ -14,12 +14,9 @@
 #    A2(p6), mu2(p7), s2(p8),  t21(p9), t22(p10), eta2(p11),
 #    A3(p12), mu3(p13), s3(p14), t31(p15), t32(p16), eta3(p17),
 #    bw(p18), wmode(p19)]
-#
-# Notes:
-# - As in your AlphaEMG22, A2 and A3 seeds are interpreted as *amplitude ratios*
-#   to A1 if provided (positive finite). Otherwise defaults are used (1.0).
-# - If you want A2/A3 to be free (not ratio-tied), replace those expr lines
-#   where A2/A3 are defined and add them as normal free parameters.
+# Notes: - As in your AlphaEMG22, A2 and A3 seeds are interpreted as
+# *amplitude ratios* to A1 if provided (positive finite). Otherwise defaults
+# are used (1.0).
 
 import sys, os, csv
 from datetime import datetime

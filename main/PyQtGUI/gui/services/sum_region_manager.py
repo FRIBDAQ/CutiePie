@@ -9,17 +9,7 @@ from PyQt5.QtCore import Qt, QObject, pyqtSignal
 
 class SumRegionManager(QObject):
     """Owns sum-region CRUD, integration calculations, and result display.
-
-    this service no longer holds the histogram combo or the integrate popup.
-    Widget writes leave as signals (region readout, name-combo population, popup
-    show/close, integration result rows); widget reads arrive as method
-    arguments gathered by the MainWindow adapter. The ONE injected widget that
-    remains is the sum-region popup, and only for its `listRegionLine` /
-    `prevPoint` drawing buffer, which is CO-OWNED with `gate_manager`
-    (`addLine`/`removePrevLine`, mode="sum_region"); eliminating it is deferred
-    to the gate_manager inversion. QMessageBox prompts stay as service-created
-    dialogs (the same residual fit_manager/plot_controller keep).
-    """
+    this service no longer holds the histogram combo or the integrate popup."""
 
     canvasDrawRequested          = pyqtSignal()
     figureTightLayoutRequested   = pyqtSignal()
@@ -424,9 +414,9 @@ class SumRegionManager(QObject):
 
 
     def _format_integration_rows(self, results):
-        """Turn the combined integration results into table rows (each a list of
-        7 strings). Repeated spectrum names blank column 0, matching the old
-        table-level dedup. Pure: no widget access."""
+        """Turn the combined integration results into table rows (each a list
+        of 7 strings). Repeated spectrum names blank column 0, matching the
+        old table-level dedup."""
         self.logger.info('_format_integration_rows')
         rows = []
         seen = set()

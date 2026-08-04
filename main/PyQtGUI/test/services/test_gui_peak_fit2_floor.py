@@ -1,33 +1,6 @@
-"""Characterization tests for Peak Finder 2's shared floor (FACTORIZATION.md 8a).
-
-The eight methods every other part of the cluster calls: drawing a fit, fetching
-the spectrum a fit belongs to, deciding whether the pad it was drawn on is still
-alive, reading the shape menus and the Config cap, the status line, and the
-redraw-everything sweep.
-
-Nothing here is where the user clicks — which is exactly why it needs pinning
-before the interaction layers move on top of it. The pins, each naming the rule
-it descends from:
-
-* **H11** `_peak2_spectrum_arrays` resolves by spectrum NAME, never by pad
-  index. A fit records the spectrum it was made on, and a refit can fire while
-  another tab is up or after the geometry moved that spectrum; resolving the
-  index again hands back a different spectrum's counts.
-* **detached axes** `_peak2_live_axes` must reject BOTH teardowns. Removing a
-  spectrum calls `ax.clear()`, which nulls every artist's `.axes`; applying a
-  geometry runs `figure.delaxes`, which leaves `.axes` and `.figure` pointing at
-  real objects and only drops the axes out of `figure.axes`. A plain None test
-  waves the second one through and the refit draws onto an invisible pad while
-  reporting success.
-* **M24b** `_peak2_result_mu` quotes the primary component — the strongest by
-  area — so the status line and the results row can never name different peaks
-  of one fit.
-* **artist order** `_peak2_draw` returns the curve at index 0 and the fill at
-  index 2; drag-grab and edit-hit both index into that tuple positionally.
-
-These run against the CURRENT structure and must survive the 8a move: the
-fixture may be rewired, no test body may change.
-"""
+"""Characterization tests for the Peak Finder 2 helpers every other part of the
+cluster calls: drawing a fit, fetching its spectrum, testing whether its pad is
+still alive, the shape menus, the Config cap and the redraw sweep."""
 
 import logging
 import os
@@ -170,9 +143,8 @@ def win(monkeypatch):
         plot_controller=w.plot_controller,
         logger=w.logger,
     )
-    # The whole cluster's state lives on PeakFit2Controller now
-    # (FACTORIZATION.md stage 8d); the unchanged test bodies keep reading it on
-    # the window through these proxies.
+    # The cluster's state lives on the controller; these proxies let the
+    # unchanged test bodies keep reading it on the window.
     for attr in ("peak2_fits", "peak2_count", "peak2_armed", "peak2_fix_armed",
                  "peak2_drag", "peak2_conns"):
         monkeypatch.setattr(
@@ -255,10 +227,9 @@ def test_live_axes_says_none_after_the_pad_was_cleared(win):
 
 
 def test_live_axes_says_none_after_the_axes_was_detached(win):
-    """The subtle one. A geometry change runs figure.delaxes, which leaves both
-    artist.axes and axes.figure pointing at live objects — only membership of
-    figure.axes changes. A None test alone passes this straight through and the
-    refit draws onto a pad nobody can see."""
+    """The subtle one. A geometry change runs figure.delaxes, which leaves
+    both artist.axes and axes.figure pointing at live objects — only
+    membership of figure.axes changes."""
     (line,) = win.axes.plot([0, 1], [0, 1])
     win.figure.delaxes(win.axes)
     assert win._peak2_live_axes({"artists": (line,)}) is None

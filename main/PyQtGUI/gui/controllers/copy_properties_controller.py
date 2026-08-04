@@ -1,14 +1,5 @@
-"""Copy Properties: the popup, the target buttons, and applying to pads.
-
-Lifted out of MainWindow (ARCH.md §7, D6). The bodies are the ones that were
-there, with `self.<widget>` and `self.<accessor>` replaced by the seams below;
-no behavior was changed in the move.
-
-A Qt-owning controller: it holds the CopyProperties popup and reads its
-widgets. Everything else about the window arrives through seams, and the
-composition root stays in MainWindow, which builds this and keeps the slots the
-popup's buttons are connected to.
-"""
+"""Copy Properties: read one pad's display settings and apply the ticked ones to
+the selected targets."""
 
 import ast
 import logging
@@ -68,15 +59,11 @@ class CopyPropertiesController:
         ymin = self._get_view_info("miny", index=index)
         ymax = self._get_view_info("maxy", index=index)
         # A pad can legitimately have no stored y range. The display tier gets
-        # one only as a side effect of setAxisScale, which the render tick calls
-        # just while autoscale is on, and a 1D spectrum that arrived on a
-        # binding trace starts out with miny/maxy None (the connect-time path
-        # fills them from the shared-memory header, the trace path has nothing
-        # to fill them from). The axes always know their limits, and they are
-        # what this label is meant to report, so read them when the stored
-        # range is not a number. Tested for truth rather than against None: a
-        # pad whose slot exists but was never drawn carries the DisplaySlot
-        # empty-list default, which is not None and has no get_ylim.
+        # one only as a side effect of setAxisScale, which the render tick
+        # calls just while autoscale is on, and a 1D spectrum that arrived on
+        # a binding trace starts out with miny/maxy None (the connect-time
+        # path fills them from the shared-memory header, the trace path has
+        # nothing to fill them from).
         ax = self._get_view_info("axis", index=index)
         if ax:
             if not isinstance(xmin, Number) or not isinstance(xmax, Number):
@@ -188,17 +175,13 @@ class CopyPropertiesController:
 
             # copy to destination
             for index in indexes:
-                # the target axes are read up front because the y bottom has to
-                # be clamped before it is stored, not only before it is drawn: a
-                # linear source pad reports a zero or slightly negative bottom,
-                # and a log-scaled target rejects that outright (matplotlib warns
-                # and keeps its own, so only half the range copies). Clamp to the
-                # same floor setAxisScale uses for its log branch. With no axes
-                # yet the scale is unknowable, so the raw value is stored and
-                # setAxisScale clamps it on read as before.
-                # tested for truth, not against None: a pad whose slot exists
-                # but was never drawn carries the DisplaySlot empty-list
-                # default, which is not None and has no get_yscale
+                # the target axes are read up front because the y bottom has
+                # to be clamped before it is stored, not only before it is
+                # drawn: a linear source pad reports a zero or slightly
+                # negative bottom, and a log-scaled target rejects that
+                # outright (matplotlib warns and keeps its own, so only half
+                # the range copies). Clamp to the same floor setAxisScale uses
+                # for its log branch.
                 ax = self._get_view_info("axis", index=index)
                 ymin_dst, ymax_dst = ylim_src[0], ylim_src[1]
                 if ax and ax.get_yscale() == "log" and ymin_dst <= 0:

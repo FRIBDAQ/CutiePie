@@ -1,32 +1,6 @@
-"""Peak Finder 2 (click-to-fit): the shared floor.
-
-Lifted out of MainWindow (ARCH.md §7 D8, FACTORIZATION.md stage 8a). This is
-the first of four sub-stages: what lives here is what every other part of the
-cluster calls — drawing a fit, fetching the spectrum a fit belongs to, deciding
-whether the pad it was drawn on is still alive, reading the shape menus and the
-Config cap, the status line, and the redraw sweep. The press dispatch, the drag
-handling, the results table and the edit popup follow in 8b through 8d and land
-on this same object.
-
-Because the state does not partition cleanly — `peak2_fits` is read from the
-groups still on MainWindow — the fit records stay on the window for now and are
-reached through the `get_fits` seam. That seam disappears in 8d, when the last
-group moves and the records come with it.
-
-Two things here are load-bearing and easy to undo by accident.
-
-`_peak2_spectrum_arrays` resolves by spectrum NAME, never by pad index. A fit
-records the spectrum it was made on, and a refit can fire while a different tab
-is up or after the geometry moved that spectrum, so resolving the index again
-would hand back a different spectrum's counts.
-
-`_peak2_live_axes` has to reject two different teardowns. Removing a spectrum
-clears its pad, which nulls every cleared artist's `.axes`; applying a geometry
-instead detaches the axes, which leaves both `artist.axes` and `axes.figure`
-pointing at real objects and only drops the axes out of `figure.axes`. A plain
-None test waves the second one through, and the refit then draws onto a pad
-that is no longer part of the figure — invisible, and reported as success.
-"""
+"""Peak Finder 2 (click-to-fit): the press dispatch, the drag-to-refit, the shape
+menus, the results table and the edit popup. The fitting maths is Qt-free in
+``services/peak_finder.py``."""
 
 import logging
 
@@ -396,12 +370,9 @@ class PeakFit2Controller:
             widget.blockSignals(False)
 
     def _peak2_shape_changed(self, *_):
-        """A shape menu changed: persist the selection, then —
-        if a fit row is selected — re-fit THAT fit in place with the new model.
-        With no row selected the menu only sets the default for the next new
-        fit. This slot fires only on a genuine user change: the menu-sync on
-        row-select (`_peak2_sync_menus_to_spec`) blocks the combo signals, so a
-        selection never lands here."""
+        """A shape menu changed: persist the selection, then — if a fit row is
+        selected — re-fit THAT fit in place with the new model. With no row
+        selected the menu only sets the default for the next new fit."""
         s = QSettings()
         p = self._peak
         s.setValue("PeakFinder2/signal_shape", p.peak2_signal.currentText())
@@ -449,11 +420,9 @@ class PeakFit2Controller:
         ax.figure.canvas.draw_idle()
 
     def _peak2_open_edit(self, rec, click_x):
-        """Modal μ/σ/FWHM editor for one fit. On a multi-component fit the edited
-        component is the one whose μ is nearest the right-clicked x (named in the
-        dialog title). σ↔FWHM are linked (factor 2.3548); fields the user changed
-        become `fixed=` on that component, the rest stay free; Apply refits over
-        the same window in place, Cancel does nothing."""
+        """Modal μ/σ/FWHM editor for one fit. On a multi-component fit the
+        edited component is the one whose μ is nearest the right-clicked x
+        (named in the dialog title)."""
         prev = rec["result"]
         comps = prev["components"]
         if click_x is None:                       # right-click without an x → first
@@ -577,7 +546,7 @@ class PeakFit2Controller:
     def _peak2_try_grab(self, event):
         """Drag-to-refit: if the left-press landed within the pick radius of a
         fit's end-handle, start dragging that window edge. Returns True when a
-        drag starts. Works whether or not Start is armed."""
+        drag starts."""
         if self.peak2_drag is not None:
             return False
         ax = event.inaxes
@@ -698,10 +667,9 @@ class PeakFit2Controller:
         return False
 
     def onPeakFit2Press(self, event):
-        """Unified Peak Finder 2 press handler. Priority: (1) an end-handle grab
-        starts a drag; (2) a right-click inside a fit's fill opens the edit
-        popup; (3) a left-click while armed (Start or Fix) fits. Zoom / gate /
-        summing-region presses are never treated as any of those."""
+        """Unified Peak Finder 2 press handler. Priority: (1) an end-handle
+        grab starts a drag; (2) a right-click inside a fit's fill opens the
+        edit popup; (3) a left-click while armed (Start or Fix) fits."""
         if event.inaxes is None or event.xdata is None:
             return
         if self._peak2_other_mode_active():
@@ -816,19 +784,9 @@ class PeakFit2Controller:
     # ------------------------------------------------------------------
 
     def _peak2_spectrum_arrays(self, name):
-        """(xc, y) — bin-centre x and counts for the spectrum called `name`, or
-        None. Mirrors the fit handler's array setup; used by drag-refit, the
-        edit popup and the shape-menu refit.
-
-        Keyed by NAME, never by pad index: a pad index only means anything
-        against the tab that is currently showing (nameFromIndex reads
-        currentPlot.h_dict_geo, and answers with the enlarged spectrum for any
-        index while a pad is enlarged). A fit records the spectrum it was made
-        on, and a refit triggered from the popup can happen while a different
-        tab is up or after the geometry moved that spectrum, so resolving the
-        index again would hand back a different spectrum's counts. The store is
-        name-keyed and tab-independent, so this stays correct either way; an
-        unknown name yields None and the callers report 'spectrum unavailable'."""
+        """(xc, y) — bin-centre x and counts for the spectrum called `name`,
+        or None. Mirrors the fit handler's array setup; used by drag-refit,
+        the edit popup and the shape-menu refit."""
         # Ask the store outright rather than inferring absence from the TypeError
         # a None binx would raise downstream: a removed spectrum is an expected
         # state, not an error, and the explicit test cannot be defeated by a
@@ -851,18 +809,8 @@ class PeakFit2Controller:
     @staticmethod
     def _peak2_live_axes(rec):
         """The axes this fit is still drawn on, or None once the pad went away
-        under it.
-
-        Two teardowns have to be caught and they leave different wreckage.
-        Removing a spectrum clears its pad (`_on_spectrum_removed_rest` calls
-        `ax.clear()`), which sets every cleared artist's `.axes` to None.
-        Applying a new geometry instead DETACHES the old axes
-        (`InitializeCanvas` runs `figure.delaxes`), which leaves both
-        `artist.axes` and `axes.figure` pointing at real objects and only drops
-        the axes out of `figure.axes`. So a plain None test waves the geometry
-        case straight through, and the refit then draws onto a pad that is no
-        longer part of the figure — invisible, and reported as success.
-        Attachment is the test that catches both."""
+        under it. Two teardowns have to be caught and they leave different
+        wreckage."""
         arts = rec.get("artists") or ()
         ax = arts[0].axes if arts else None
         if ax is None or ax.figure is None:
@@ -937,13 +885,9 @@ class PeakFit2Controller:
                 (ln,) = ax.plot(r["xx"], yc, color="tab:red", lw=0.8, ls=":")
                 comps.append(ln)
         # Nothing reads this gid. Every current path finds fit artists through
-        # the fit records instead, each of which holds its own artist tuple, so
-        # the tag is part of no lifecycle here and is not load-bearing however
-        # much it looks it. It is kept rather than deleted for the deferred
-        # redraw-on-zoom work: that has to cope with artists orphaned on a pad
-        # whose axes was rebuilt underneath us, and a tag on the artist is the
-        # only handle on those once the records point at dead objects. If that
-        # work lands without needing it, delete it then.
+        # the fit records instead, each of which holds its own artist tuple,
+        # so the tag is part of no lifecycle here and is not load-bearing
+        # however much it looks it.
         for art in (curve, bgline, fill, handles, *comps):
             if hasattr(art, "set_gid"):
                 art.set_gid("peakfit2")

@@ -1,35 +1,5 @@
-"""Headless import harness for ``gui/GUI.py``.
-
-``qt_stubs`` gets the *service* layer importable without PyQt5. This module
-goes the rest of the way and makes ``import GUI`` work, so ``MainWindow``
-methods can be characterized the same way service methods already are.
-
-Four things stand between qt_stubs and ``import GUI``:
-
-* ``cv2`` is not installed in the system python3 (the figure-overlay import),
-* the stub PyQt5 exposes only what the services touch, and ``GUI.py`` plus its
-  siblings reach for 29 more names,
-* ``matplotlib.backends.backend_qt5agg`` needs a real ``sip``, so it is shimmed
-  onto the Agg canvas the existing tests already draw with,
-* ``WebWindow`` imports ``PyQt5.QtWebEngineWidgets``.
-
-None of it is installed when the real package is importable, so on a machine
-with PyQt5 the same tests run against the real thing.
-
-**The name lists below are deliberately explicit.** A module that answers every
-attribute would let a test pass against code referencing a widget that does not
-exist, which is the blind spot ``py_compile`` already has. Adding a name here
-when production code grows one is the review point; keep it that way.
-
-Usage::
-
-    import gui_stubs
-    win = gui_stubs.bare_window()      # MainWindow with no __init__ run
-    win.spectra = SpectrumStore()      # inject only what the method touches
-
-``bare_window`` deliberately skips ``__init__``: it builds 9 popups, 5 services
-and ~118 signal connections, none of which a seam-level test wants.
-"""
+"""Headless import harness for ``gui/GUI.py``. ``qt_stubs`` gets the *service*
+layer importable without PyQt5."""
 
 import importlib
 import logging
@@ -196,12 +166,8 @@ def import_gui():
 
 
 def bare_window(logger_name="test.mainwindow"):
-    """A ``MainWindow`` with ``__init__`` deliberately not run.
-
-    Only ``logger`` is set, because every method logs. Give the instance
-    whatever else the method under test reads; anything it reaches for and did
-    not get raises AttributeError, which is the signal you wanted.
-    """
+    """A ``MainWindow`` with ``__init__`` deliberately not run. Only
+    ``logger`` is set, because every method logs."""
     gui = import_gui()
     win = gui.MainWindow.__new__(gui.MainWindow)
     win.logger = logging.getLogger(logger_name)

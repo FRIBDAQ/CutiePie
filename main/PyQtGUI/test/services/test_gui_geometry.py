@@ -1,28 +1,7 @@
 """Characterization tests for MainWindow's geometry save/load orchestration.
-
 `saveGeo`, `saveGeoAll`, `loadGeo`, `loadGeoAll`, `_applySession`,
 `_applyGeometryToCurrentTab`, `_resolveSpectrumName` — 284 lines that decide
-what happens to the user's whole workspace when they open a file.
-
-`services/geometry_io.py` already covers the parsing and serialising, and
-`test_geometry_io.py` tests it. What was never covered is the orchestration
-above it: which tier is read when saving, what a partly-broken file does to the
-tabs that were already there, and whether a refused dialog leaves the workspace
-alone. That is what these pin, against the current structure, so the ARCH.md §7
-D7 extraction can be verified by this file passing with only its fixture
-rewired.
-
-The pins worth naming:
-
-* a **refused or failed save** shows the warning and never the success dialog —
-  the old code showed "saved!" before the write, and before the write could fail
-* **saveGeo reads live axes, saveGeoAll reads the view tier** — a deliberate
-  asymmetry: a background tab's axes are not reliably current
-* `0.0` **is a legitimate limit**, so the slot tests emptiness, not truthiness
-* a **file that cannot be read changes nothing at all** — validation completes
-  before any tab is touched, so a bad file can never half-destroy the workspace
-* **legacy `.win` names are case-insensitive** but only when the match is unique
-"""
+what happens to the user's whole workspace when they open a file."""
 
 import logging
 import os
@@ -205,10 +184,8 @@ def win(monkeypatch):
     w.wTab = FakeTabs()
     w.currentPlot = w.wTab.plot(0)
 
-    # These accessors moved to ViewState (FACTORIZATION.md stage 9); production
-    # reaches them through self.view_state now. Build a real one over the same
-    # collaborators and bind its methods back onto the window, so the unchanged
-    # test bodies keep driving MainWindow.
+    # These accessors live on ViewState; bind them back onto the window so
+    # the unchanged test bodies keep driving MainWindow.
     from view_state import ViewState
     import types as _types
     w.view_state = ViewState(
@@ -239,10 +216,10 @@ def win(monkeypatch):
     w.box.calls = []
     monkeypatch.setattr(gui, "QMessageBox", w.box, raising=False)
 
-    # The only thing that changed when the cluster moved out (ARCH.md §7 D7):
-    # this fixture now builds the controller that __init__ builds in
-    # production, since __init__ is deliberately not run. Every test body
-    # below is unchanged from before the extraction.
+    # The only thing that changed when the cluster moved out: this fixture now
+    # builds the controller that __init__ builds in production, since __init__
+    # is deliberately not run. Every test body below is unchanged from before
+    # the extraction.
     from controllers import geometry_controller as gc
     monkeypatch.setattr(gc, "QMessageBox", w.box)
     w.tabGeoWidgetAndFlags = lambda k: w.calls.append(("tabGeo", k))

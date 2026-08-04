@@ -129,12 +129,9 @@ _VERSION_FALLBACK = "v1.6-002"
 
 
 def cutiepie_version():
-    """CutiePie version for the window title.
-
-    In a source checkout, read it live from configure.ac's AC_INIT line
-    (configure.ac sits two levels up from this gui/ folder) so it always tracks
-    the source of truth. In an installed tree — where configure.ac is not
-    shipped — fall back to the hardcoded default above."""
+    """CutiePie version for the window title. In a source checkout, read it
+    live from configure.ac's AC_INIT line (configure.ac sits two levels up
+    from this gui/ folder) so it always tracks the source of truth."""
     try:
         cfg = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            "..", "..", "configure.ac")
@@ -200,11 +197,9 @@ class MainWindow(QMainWindow):
 
     def _setup_logging(self):
         """Root-logger configuration and the two handlers."""
-        # Single source of truth for root-logger config. Runs before
-        # any setup_logging() call, so THIS is the config that takes effect:
-        # default stderr handler at WARNING. (datefmt is inert here — the
-        # default format carries no %(asctime)s.) setup_logging() only swaps the
-        # logger.py sink; it no longer reconfigures root.
+        # Single source of truth for root-logger config. Runs before any
+        # setup_logging() call, so THIS is the config that takes effect:
+        # default stderr handler at WARNING.
         logging.basicConfig(datefmt='%d-%b-%y %H:%M:%S')
 
         self.logger = logging.getLogger(__name__)
@@ -538,16 +533,10 @@ class MainWindow(QMainWindow):
 
     def _init_runtime_state(self):
         """Per-session scratch state: PF2, image overlay, gate-name cache.
-
         Peak Finder 1's scan results and marker handles moved onto
-        PeakScanController with its methods (ARCH.md §7 D5).
-        """
-        # Peak Finder 2 (click-to-fit): armed-mode connection id, per-fit
-        # records [{number, index, name, result, artists}, ...] (full curves
-        # stored so fits can be redrawn/refit independent of artist survival)
-        # and the running peak counter
-        # the connection registry, the arming flags and the drag context all
-        # live on PeakFit2Controller now (FACTORIZATION.md 8b and 8c)
+        PeakScanController with its methods."""
+        # Peak Finder 2 state — the fit records, the arming flags, the drag
+        # context and the connection registry — lives on PeakFit2Controller.
 
         # overlay: onFigure says whether one is up; imgplot/overlay_ax are the
         # live artists (None until Add) and LISEpic the image (None until Load).
@@ -1677,9 +1666,9 @@ class MainWindow(QMainWindow):
     ##########################################
 
 
-    # Geometry save/load lives on GeometryController (ARCH.md §7 D7). These
-    # stay because they are what the File menu actions are connected to, and
-    # because other call sites (openGeo, the Jupyter export) use the dialogs.
+    # Geometry save/load lives on GeometryController. These stay because they
+    # are what the File menu actions are connected to, and because other call
+    # sites (openGeo, the Jupyter export) use the dialogs.
 
     def saveGeo(self):
         self.geometry_controller.saveGeo()
@@ -1875,8 +1864,8 @@ class MainWindow(QMainWindow):
         return indexToChange
 
 
-    # Copy Properties lives on CopyPropertiesController (ARCH.md §7 D6). These
-    # stay because they are what the popup's buttons are connected to.
+    # Copy Properties lives on CopyPropertiesController. These stay because
+    # they are what the popup's buttons are connected to.
 
     #callback for copyAttr.okAttr
     def okCopy(self):
@@ -1986,8 +1975,8 @@ class MainWindow(QMainWindow):
         return self.sum_region_manager.integrateGateLocal(idx, name, lines)
 
     # -- Connect popup adapters: the popup widget and its field reads live
-    #    here, the service takes plain arguments. Everything else on
-    #    ConnectionManager is called directly. --
+    # here, the service takes plain arguments. Everything else on
+    # ConnectionManager is called directly.
     def connectShMem(self):
         return self.connection_manager.connectShMem(
             str(self.connectConfig.server.text()),
@@ -2013,10 +2002,9 @@ class MainWindow(QMainWindow):
     # 13) Peak Finding
     ############################
 
-    # Peak Finder 1 lives on PeakScanController (ARCH.md §7 D5). These stay
-    # because they are the targets of .connect() calls in bindDynamicSignal;
-    # the list handler also has to keep MainWindow's signature, since Qt hands
-    # it the item.
+    # Peak Finder 1 lives on PeakScanController. These stay because they are
+    # the targets of .connect() calls in bindDynamicSignal; the list handler
+    # also has to keep MainWindow's signature, since Qt hands it the item.
 
     def analyzePeak(self):
         self.peak_scan_controller.analyzePeak()
@@ -2037,25 +2025,17 @@ class MainWindow(QMainWindow):
 
     # ---- Peak Finder 2, stage 8b ------------------------------------
     # Arming and canvas connections moved to PeakFit2Controller. Four of these
-    # are .connect() targets in _wire_signals; the other four are called by the
-    # 8c/8d methods still on this class. All eight come off with the last group.
+    # are .connect() targets in _wire_signals; the other four are called by
+    # the 8c/8d methods still on this class.
 
     # ---- Peak Finder 2 ----------------------------------------------
-    # The whole cluster lives on PeakFit2Controller (FACTORIZATION.md stage 8).
-    # What remains here is exactly the set _wire_signals connects, plus
-    # peakFit2RedrawAll, which BUGS.md B13's fix needs an entry point for.
+    # The whole cluster lives on PeakFit2Controller; what remains here is the
+    # set _wire_signals connects, plus peakFit2RedrawAll, kept as the entry
+    # point a future enlarge/redraw fix will need.
 
-
-
-
-
-    # ---- Peak Finder 2, stage 8a ------------------------------------
-    # The shared floor moved to PeakFit2Controller (FACTORIZATION.md 8a).
-    # These shims are scaffolding, not the M31 kind: the 25 methods of 8b-8d
-    # still on this class call them by name, and they come off with the last
-    # of those. The two label maps below are the controller's dicts by
-    # reference, not copies, so the reverse lookup in _peak2_sync_menus_to_spec
-    # cannot drift from the forward one.
+    # The two label maps below are the controller's dicts by reference, not
+    # copies, so the reverse lookup in _peak2_sync_menus_to_spec cannot drift
+    # from the forward one.
     _PEAK2_SIGNAL_BY_LABEL = PeakFit2Controller._PEAK2_SIGNAL_BY_LABEL
     _PEAK2_BG_BY_LABEL = PeakFit2Controller._PEAK2_BG_BY_LABEL
 
@@ -2119,9 +2099,9 @@ class MainWindow(QMainWindow):
     ############################
 
 
-    # Image overlay lives on OverlayController (ARCH.md §7 D3). These stay
-    # because they are what the Special Functions -> Imaging buttons and
-    # sliders are connected to.
+    # Image overlay lives on OverlayController. These stay because they are
+    # what the Special Functions -> Imaging buttons and sliders are connected
+    # to.
 
     def openFigureDialog(self):
         self.logger.info('openFigureDialog')
@@ -2157,9 +2137,9 @@ class MainWindow(QMainWindow):
     # 16) Jupyter Notebook
     ############################
 
-    # Jupyter lives on JupyterController (ARCH.md §7 D4). These stay because
-    # they are the Special Functions button targets, and closeEvent calls
-    # jupyterStop on the way out.
+    # Jupyter lives on JupyterController. These stay because they are the
+    # Special Functions button targets, and closeEvent calls jupyterStop on
+    # the way out.
 
     def createDf(self):        self.jupyter_controller.createDf()
 

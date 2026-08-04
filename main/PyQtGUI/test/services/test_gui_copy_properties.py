@@ -1,24 +1,7 @@
 """Characterization tests for MainWindow's Copy Properties cluster.
-
-`copyPopup`, `applyCopy`, `selectAll`, `histAllAttr` and `closeCopy` — 240 lines
-that have produced six defects (E19, E22, E24, E25, M26, L15), more than any
-other cluster in the class. Pinned here, against the current structure, so the
-ARCH.md §7 D6 extraction can be verified by this file passing unedited.
-
-Runs on `gui_stubs.bare_window()` with the seam methods real: `applyCopy` and
-`copyPopup` go through the actual `getSpectrumStoreInfo` / `getSpectrumViewInfo`
-/ `setSpectrumViewInfo` / `nameFromIndex`, so the two-tier reads under test are
-the production ones. Only the widgets and PlotController are doubled.
-
-The pins, each naming the defect it descends from:
-
-* **M26** the five property checkboxes are read BY NAME, never by findChildren order
-* **L15** a target's pad index rides on the button, not on its label text
-* **E19** view-tier writes alone never reach the screen, so the axes are set too
-* **E22** a linear source's y bottom is clamped before it is stored AND drawn
-* **E24** a target pad the store no longer knows is skipped, not crashed on
-* **E25** a pad with no stored y range falls back to the axes, it does not raise
-"""
+`copyPopup`, `applyCopy`, `selectAll`, `histAllAttr` and `closeCopy` — 240
+lines that have produced six defects, more than any other cluster in the
+class."""
 
 import logging
 import os
@@ -233,13 +216,10 @@ class FakePlotController:
 
 @pytest.fixture
 def win(monkeypatch):
-    """A bare MainWindow wired to a real CopyPropertiesController.
-
-    The only thing that changed when the cluster moved out (ARCH.md §7 D6):
-    this fixture now builds the controller that __init__ builds in production,
-    since __init__ is deliberately not run. Every test body below is unchanged
-    from before the extraction — that is the behavior-preservation proof.
-    """
+    """A bare MainWindow wired to a real CopyPropertiesController. The only
+    thing that changed when the cluster moved out: this fixture now builds the
+    controller that __init__ builds in production, since __init__ is
+    deliberately not run."""
     gui = gui_stubs.import_gui()
     w = gui.MainWindow.__new__(gui.MainWindow)
     w.logger = logging.getLogger("test.copyproperties")
@@ -247,10 +227,8 @@ def win(monkeypatch):
     w.wTab = FakeTabs()
     w.currentPlot = FakePlot()
 
-    # These accessors moved to ViewState (FACTORIZATION.md stage 9); production
-    # reaches them through self.view_state now. Build a real one over the same
-    # collaborators and bind its methods back onto the window, so the unchanged
-    # test bodies keep driving MainWindow.
+    # These accessors live on ViewState; bind them back onto the window so
+    # the unchanged test bodies keep driving MainWindow.
     from view_state import ViewState
     import types as _types
     w.view_state = ViewState(
@@ -512,12 +490,11 @@ def test_apply_leaves_a_linear_target_bottom_alone(win):
 
 def test_apply_stores_the_raw_value_when_the_pad_has_no_axes(win):
     # PIN (BUGS.md E25b): with no axes the scale is unknowable, so the raw
-    # value is stored and setAxisScale clamps it on read. An undrawn pad's slot
-    # holds the DisplaySlot empty-list default rather than None, and testing
-    # that against None sent `[]` into get_yscale(); the blanket except then
-    # swallowed the AttributeError and the whole Apply was lost, every target
-    # included. The source values here are deliberately distinct from what
-    # setGeo copies out of the store, so a no-op cannot pass this test.
+    # value is stored and setAxisScale clamps it on read. An undrawn pad's
+    # slot holds the DisplaySlot empty-list default rather than None, and
+    # testing that against None sent `[]` into get_yscale(); the blanket
+    # except then swallowed the AttributeError and the whole Apply was lost,
+    # every target included.
     add_pad(win, "src", 0)
     add_pad(win, "dst", 1, with_axes=False)
     prime_apply(win, source_range=("[0.0,100.0]", "[7.0,50.0]"))

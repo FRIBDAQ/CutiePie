@@ -1,15 +1,8 @@
-"""Per-tab session state — the Qt-free core of the tab registry.
-
-``Tabs`` used to keep six parallel containers keyed by tab index (``wPlot``,
+"""Per-tab session state — the Qt-free core of the tab registry. ``Tabs`` used
+to keep six parallel containers keyed by tab index (``wPlot``,
 ``spectrum_dict``, ``zoomPlotInfo``, ``countClickTab``,
-``selected_plot_index_bak``, ``layout``), re-synchronized by hand on every add,
-delete and swap. One :class:`TabSession` per tab replaces them, so a tab's
-widget can no longer drift out of step with its own zoom state.
-
-The mapping/sequence views exist so the old attribute names keep working while
-call sites migrate: they are live proxies onto one field of every session, not
-copies.
-"""
+``selected_plot_index_bak``, ``layout``), re-synchronized by hand on every
+add, delete and swap."""
 
 from collections.abc import MutableMapping, MutableSequence
 from dataclasses import dataclass, field
@@ -79,12 +72,7 @@ class TabSessionRegistry:
 
 
 class _MappingView(MutableMapping):
-    """Live ``{tab_index: <one field>}`` view. Writes land on the session.
-
-    Assigning to an index with no session raises ``KeyError`` rather than
-    creating one: a field cannot exist without its tab, which is what stops a
-    seventh parallel container from being re-grown by accident.
-    """
+    """Live ``{tab_index: <one field>}`` view. Writes land on the session."""
 
     def __init__(self, registry, fieldName):
         self._registry = registry
@@ -108,13 +96,10 @@ class _MappingView(MutableMapping):
 
 class _SequenceView(MutableSequence):
     """Live list-shaped view over one field, indexed by tab index.
-
     Out-of-range raises ``IndexError``, not the registry's ``KeyError``: the
     sequence protocol iterates by walking indices until ``IndexError``, so a
-    ``KeyError`` here would escape out of any plain ``for``/``list()`` over the
-    view instead of ending it. Negative indices count from the last tab, as on
-    the list this replaces.
-    """
+    ``KeyError`` here would escape out of any plain ``for``/``list()`` over
+    the view instead of ending it."""
 
     def __init__(self, registry, fieldName):
         self._registry = registry

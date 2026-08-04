@@ -1,17 +1,8 @@
 """Fit/algo builders hand back a fresh object, and numpy's invalid-value
-suppression belongs to a fit rather than to the process.
-
-Both halves used to be latent rather than broken: the cached builders only ever
-received static config, and the process-wide `np.seterr` only ever hid warnings
-nobody was reading. They are pinned here because the next config that varies per
-fit — a calibration, a shape flag — would have been silently discarded, and
-because a muted `invalid` in the hover or peak-finding paths is exactly the kind
-of evidence a later debug sweep needs.
-
-Seven creators cannot be imported on this machine (lmfit ×5, PyQt5 ×1, cv2 ×1),
-so the no-caching check reads the source instead of importing it — that way all
-18 builders are covered and the file adds no new skip.
-"""
+suppression belongs to a fit rather than to the process. Both halves used to
+be latent rather than broken: the cached builders only ever received static
+config, and the process-wide `np.seterr` only ever hid warnings nobody was
+reading."""
 
 import ast
 import importlib

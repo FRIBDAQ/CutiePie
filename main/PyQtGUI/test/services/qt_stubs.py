@@ -1,22 +1,4 @@
-"""Headless test doubles for the service layer.
-
-Two things live here:
-
-1. ``install_missing_runtime_stubs()`` — registers minimal stand-ins in
-   ``sys.modules`` for whichever of PyQt5 / CPyConverter / httplib2 are NOT
-   importable in the current environment, so ``services.connection_manager``
-   can be imported and exercised headless. On a machine where the real
-   modules exist nothing is stubbed and the same tests run against them.
-   Import-time side-effect free: call it from a fixture, never at import.
-
-2. Fake collaborators (FakeWConf, FakeConnectConfig, FakeRest, FakeThread,
-   FakeWorker, ...) used to characterize ConnectionManager behavior without
-   widgets, sockets, or OS threads.
-
-This is the "stub-based behavior tests (fake-PyQt5 ``sys.modules``
-injection)" pattern, promoted from the earlier
-standalone harnesses into the suite.
-"""
+"""Headless test doubles for the service layer. Two things live here: 1."""
 
 import importlib
 import sys

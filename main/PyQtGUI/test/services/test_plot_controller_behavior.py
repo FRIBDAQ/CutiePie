@@ -1,15 +1,7 @@
-"""Characterization tests for PlotController.
-
-These pin PlotController's CURRENT observable behavior — rendering data flow,
-axis scaling, cutoff masking, the wConf/wTab/cutoff-popup widget effects —
-before the step-1 inversion. The ~50 widget touches that go through the
-injected `_get_current_plot()` seam are exercised via a fake plot widget
-carrying a REAL matplotlib figure (Agg), so line/imshow/axis behavior is real.
-
-Two standing regression pins live here: the two-tier axis rule (bin edges come
-from the REST store tier, never the per-tab view tier) and the customMinMax
-semantics.
-"""
+"""Characterization tests for PlotController. These pin PlotController's
+CURRENT observable behavior — rendering data flow, axis scaling, cutoff
+masking, the wConf/wTab/cutoff-popup widget effects — before the step-1
+inversion."""
 
 import importlib
 import logging
@@ -235,11 +227,9 @@ def test_set_axis_scale_1d_autoscale_uses_visible_range(rig):
 
 
 def test_set_axis_scale_skips_pad_the_store_no_longer_knows(rig):
-    # Regression: the dimension test was `if dim == 1: ... else: <2D path>`, so a
-    # pad whose name the store cannot resolve (dim None) took the 2D branch and
-    # called set_clim on the per-tab slot's artist. Changing the geometry clears
-    # the pad-to-name map but leaves the slots, so the artist is still the 1D
-    # Line2D and the call raised AttributeError inside applyCopy.
+    # Regression: the dimension test was `if dim == 1: ... else: <2D path>`,
+    # so a pad whose name the store cannot resolve (dim None) took the 2D
+    # branch and called set_clim on the per-tab slot's artist.
     ax = rig.add_1d()
     line = make_line(ax)
     rig.set_info(index=0, spectrum=line, minz=0.0, maxz=100.0, log=True)

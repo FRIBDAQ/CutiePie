@@ -1,28 +1,6 @@
-"""Characterization tests for MainWindow's pointer-readout and mouse-dispatch path.
-
-`histoHover`, `getPointerInfo`, `_blankHoverLabels`, `on_press`, `on_release`
-and the asynchronous gate-name pair. This is the hottest loop in the GUI — it
-runs on every mouse-motion event — and it has produced E7, L20 and M32.
-
-Pinned here against the current structure. ARCH.md §7 classes this cluster as
-residue and does NOT extract it: `on_press` is a router that already delegates
-every branch to a service, so moving it would move lines without moving
-responsibility. These tests therefore exist to protect the behavior in place,
-not to prepare a move.
-
-The pins, each naming the defect it descends from:
-
-* **E7**  bin math reads the STORE tier; the per-tab view tier is zoom state
-* **L20** a pad naming a spectrum the store dropped blanks, it does not keep
-          the previous pad's readout on screen
-* **M32** expected misses are caught narrowly and silently; anything else is
-          logged once behind a throttle, never once per motion event
-* **P3**  the hover path never blocks on HTTP — the gate name is served from
-          cache and revalidated behind the readout
-
-`on_dblclick` is deliberately out of scope: its 176 lines are the enlarge and
-tab lifecycle, which belongs with that cluster rather than with the readout.
-"""
+"""Characterization tests for MainWindow's pointer-readout and mouse-dispatch
+path. `histoHover`, `getPointerInfo`, `_blankHoverLabels`, `on_press`,
+`on_release` and the asynchronous gate-name pair."""
 
 import logging
 import os
@@ -155,10 +133,8 @@ def win(monkeypatch):
     w.wTab = FakeTabs()
     w.currentPlot = FakePlot()
 
-    # These accessors moved to ViewState (FACTORIZATION.md stage 9); production
-    # reaches them through self.view_state now. Build a real one over the same
-    # collaborators and bind its methods back onto the window, so the unchanged
-    # test bodies keep driving MainWindow.
+    # These accessors live on ViewState; bind them back onto the window so
+    # the unchanged test bodies keep driving MainWindow.
     from view_state import ViewState
     import types as _types
     w.view_state = ViewState(

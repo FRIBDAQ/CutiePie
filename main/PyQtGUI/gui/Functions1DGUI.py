@@ -86,8 +86,6 @@ class Fncts1D(QDialog):
     def create_peakBox2(self):
         # The click-to-fit peak finder. Start toggles an armed mode (wired in
         # GUI.py) where each pad click fits gaussian+linear around the click.
-        # Titled just "Peak Finder" in the UI now that the older scan-based box
-        # is hidden; the attribute names keep the peak2/peakBox2 prefix.
         peakBox2 = QGroupBox("Peak Finder")
 
         self.peak2_start = QPushButton("Start", self)
@@ -113,10 +111,8 @@ class Fncts1D(QDialog):
             "Set the max fit window (in bins); empty = no cap. With a cap set, "
             "clicks that can't be fitted are skipped silently")
 
-        # signal + background model for NEW fits (wired in GUI.py). The tail-side
-        # box only matters when the signal is Crystal ball. Selecting a fit row
-        # syncs these back to that fit's model; changing one re-fits the
-        # selected fit and sets the default for the next new fit.
+        # signal + background model for NEW fits (wired in GUI.py). The
+        # tail-side box only matters when the signal is Crystal ball.
         self.peak2_signal = QComboBox(self)
         self.peak2_signal.addItems(["Gaussian", "Crystal ball"])
         self.peak2_signal.setToolTip("Signal shape used for new fits")

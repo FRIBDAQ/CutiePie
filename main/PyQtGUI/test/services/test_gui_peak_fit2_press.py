@@ -1,33 +1,6 @@
-"""Characterization tests for Peak Finder 2's press dispatch and drag
-(FACTORIZATION.md 8c).
-
-Six methods, and everything the user actually does with this feature goes
-through them: the unified press handler and its priority order, the armed-mode
-fit, the end-handle grab, the drag guide, the refit on release, and the
-right-click that opens the edit popup.
-
-The fitting math itself is Qt-free and covered by `test_peak_finder.py`; these
-tests stub it so the dispatch, the guards and the bookkeeping are what is being
-measured. The pins, each naming the behavior it descends from:
-
-* **priority** grab beats edit beats fit. A press near an end handle must start
-  a drag even while armed, or a fit lands on top of the drag.
-* **K6(i)** zoom / gate / summing-region presses are never treated as any of
-  the three.
-* **K7 cap** with a Config cap set, an auto fit that fails is skipped SILENTLY;
-  without a cap the same failure is reported. A drag release is explicit, so
-  its failures are always reported, cap or no cap.
-* **K8** Fix Peak pins μ at the click and sizes the window from the cap (never
-  the automatic estimator, which would snap onto a bigger neighbour).
-* **K22 / duplicate suppression** an off-peak flank click that re-finds an
-  existing peak is skipped, and skipping does not consume a peak number.
-* **K16/K17** a drag re-fits the component set to the new window.
-* **H11** the record keeps the spectrum NAME, so a later refit resolves by name
-  rather than by pad index.
-
-These run against the CURRENT structure and must survive the 8c move: the
-fixture may be rewired, no test body may change.
-"""
+"""Characterization tests for Peak Finder 2's press dispatch and drag: the unified
+press handler and its priority order, the armed-mode fit, the end-handle grab,
+the drag guide, the refit on release, and the right-click edit."""
 
 import logging
 import os
@@ -221,11 +194,8 @@ def win(monkeypatch):
         parent_widget=w,
         logger=w.logger,
     )
-    # the arming flags and the drag context moved onto the controller with the
-    # press handlers (FACTORIZATION.md 8c); the unchanged test bodies keep
-    # The whole cluster's state lives on PeakFit2Controller now
-    # (FACTORIZATION.md stage 8d); the unchanged test bodies keep reading it on
-    # the window through these proxies.
+    # The cluster's state lives on the controller; these proxies let the
+    # unchanged test bodies keep reading it on the window.
     for attr in ("peak2_fits", "peak2_count", "peak2_armed", "peak2_fix_armed",
                  "peak2_drag", "peak2_conns"):
         monkeypatch.setattr(

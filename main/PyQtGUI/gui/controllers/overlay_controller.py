@@ -1,18 +1,5 @@
-"""Image overlay: load a picture, drop it on a pad, nudge and scale it.
-
-Lifted out of MainWindow (ARCH.md §7, D3). The placement math already lives in
-`services/figure_overlay.py`; what is here is the Qt shell it left behind — the
-file dialog, the sliders, and the artist lifecycle.
-
-**The artist lifecycle is the whole difficulty.** `drawFigure` adds an axes on
-every call, so anything that redraws must take the previous one away first or
-the figure grows an empty axes per slider tick — and `figure.axes` is the list
-pad lookups index, so a leaked axes answers a click with an index past the end
-of the grid. `_removeOverlayArtist` is the single teardown every path goes
-through, and `onFigure` says only whether an overlay is currently up: the
-sliders must leave it alone, or the next Add stacks a second overlay on the
-first.
-"""
+"""Image overlay on a pad: load, place, nudge, zoom, delete. The placement maths
+is Qt-free in ``services/figure_overlay.py``."""
 
 import logging
 import os
@@ -71,18 +58,7 @@ class OverlayController:
 
     def _removeOverlayArtist(self):
         """Detach the overlay image and its axes if one is drawn; True when
-        there was something to remove.
-
-        The axes goes too. drawFigure adds a fresh one on every call and only
-        the image used to be removed, so a slider drag (valueChanged fires
-        continuously) appended one empty axes per tick to figure.axes — the
-        same list the pad lookups index (`list(figure.axes).index(inaxes)`), so
-        a click on a leaked axes answers with an index past the end of the grid.
-        A geometry change or an enlarge detaches the axes behind our back
-        (InitializeCanvas delaxes everything), hence the membership test. Both
-        artists are removed from whatever figure they were drawn on rather than
-        from currentPlot's, which is a different figure once the user has
-        switched tabs."""
+        there was something to remove. The axes goes too."""
         if self.imgplot is None:
             return False
         self.imgplot.remove()

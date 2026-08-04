@@ -1,12 +1,6 @@
 """URL-construction net for PyREST — runs headless via the httplib2 stub.
-
 `test_pyrest.py` needs the real httplib2 and skips in this environment, so the
-query strings PyREST puts on the wire were never checked here. These tests stub
-the transport and assert the URL only, which is where the double-encode bug
-lived: a value pre-encoded at the call site is encoded AGAIN by `_build_url`'s
-urlencode, so `%2B` reaches SpecTcl as `%252B` and decodes to the literal text
-`%2B` rather than `+`.
-"""
+query strings PyREST puts on the wire were never checked here."""
 
 import importlib
 import os

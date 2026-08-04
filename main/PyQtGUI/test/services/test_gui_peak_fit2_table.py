@@ -1,34 +1,6 @@
-"""Characterization tests for Peak Finder 2's results table, shape menus and
-edit popup (FACTORIZATION.md 8d — the last group).
-
-Eleven methods: adding and updating rows, reading the selection, highlighting
-the selected fit, deleting one, clearing everything, the three shape menus with
-their persistence and re-entrancy guard, the refit they trigger, and the modal
-μ/σ/FWHM editor.
-
-The pins, each naming the behavior it descends from:
-
-* **K15 re-entrancy** syncing the menus to a selected fit blocks the combo
-  signals, so a row selection never triggers the shape-changed refit. Without
-  the block, clicking a row silently re-fits the fit you just clicked.
-* **K9 sort keys** each cell carries a numeric sort value in `UserRole`, and
-  the `#` column's value doubles as the row-to-fit lookup key for delete and
-  highlight — so sorting the table must not break either.
-* **K10** delete removes the row, the record AND the artists, then releases the
-  press handler if that canvas has nothing left.
-* **K11** row-click thickens and re-colours the selected curve and restores the
-  others.
-* **K13** the editor treats only the fields the user actually changed as fixed,
-  rejects invalid numbers and out-of-window μ, and leaves the fit untouched on
-  Cancel or on a failed refit.
-* **K19** on a multi-component fit the edited component is the one nearest the
-  right-clicked x, and the other components are seeded on their centroids so
-  they stay put.
-* **K18** σ and FWHM are linked live, so a width edit either way is caught.
-
-These run against the CURRENT structure and must survive the 8d move: the
-fixture may be rewired, no test body may change.
-"""
+"""Characterization tests for Peak Finder 2's results table, shape menus and edit
+popup: adding and updating rows, the selection, highlight, delete, clear, the
+menu re-entrancy guard, and the modal editor."""
 
 import logging
 import os
@@ -351,9 +323,8 @@ def win(monkeypatch):
                       ("QHBoxLayout", FakeLayout), ("QVBoxLayout", FakeLayout)):
         monkeypatch.setattr(pfc, name, obj, raising=False)
         monkeypatch.setattr(gui, name, obj, raising=False)
-    # The whole cluster's state lives on PeakFit2Controller now
-    # (FACTORIZATION.md stage 8d); the unchanged test bodies keep reading it on
-    # the window through these proxies.
+    # The cluster's state lives on the controller; these proxies let the
+    # unchanged test bodies keep reading it on the window.
     for attr in ("peak2_fits", "peak2_count", "peak2_armed", "peak2_fix_armed",
                  "peak2_drag", "peak2_conns"):
         monkeypatch.setattr(

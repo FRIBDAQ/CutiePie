@@ -1,12 +1,7 @@
-"""Tests for the shape-file format guard (services.shape_file).
-
-The AlphaEMGMulti/AlphaEMGMultiSigma loader (_load_shapes) tolerantly skips
-malformed rows, so a wrong file parses to zero shapes and the fit silently runs
-with no components. validate_shape_file is the up-front guard that answers "is
-this even a shape file?" so the caller can abort with a clear message. It is
-Qt-free and lmfit-free so it runs in this headless environment (the creator
-module itself is not importable here — it needs lmfit).
-"""
+"""Tests for the shape-file format guard (services.shape_file). The
+AlphaEMGMulti/AlphaEMGMultiSigma loader (_load_shapes) tolerantly skips
+malformed rows, so a wrong file parses to zero shapes and the fit silently
+runs with no components."""
 
 import os
 import sys
@@ -81,17 +76,9 @@ def test_looks_like_shape_file_discriminates(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Undecodable input. Both guards documented "Never raises" and
-# both let UnicodeDecodeError straight through on any non-UTF-8 file, because
-# they caught only OSError. Contained by luck — UnicodeDecodeError subclasses
-# ValueError, which the two callers happen to swallow — so what the user
-# actually saw was a raw codec error in a "Fit cancelled" box instead of the
-# clear message this module exists to produce.
-#
-# The reads now decode with errors="replace", which also means a shape file
-# saved in latin-1 (an accent in an isotope label) loads instead of being
-# refused: everything the parser reads is numeric except the isotope and chain
-# names.
+# Undecodable input. Both guards documented "Never raises" and both let
+# UnicodeDecodeError straight through on any non-UTF-8 file, because they
+# caught only OSError.
 # ---------------------------------------------------------------------------
 
 def _wb(tmp_path, name, data):

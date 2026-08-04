@@ -1,23 +1,6 @@
-"""Spectrum DataFrame export — the Qt-free core of the Jupyter cluster.
-
-When a Jupyter session is launched from the GUI, the current spectra are dumped
-to a gzip-compressed CSV so the notebook can load them with pandas. The store
-hands over a nested dict ``{spectrumName: {info1: , info2: , ...}}``; this module
-reshapes it into a columnar table (one row per spectrum), flattening any NumPy
-count arrays to plain Python lists so they survive the CSV round-trip, then
-writes it.
-
-Qt-free by construction: it takes the already-extracted spectrum dict and a
-filepath as arguments and imports only pandas/numpy. The under/overflow
-statistics columns come through the optional ``statistics_fetcher`` seam — a
-callable mapping a spectrum name to its under/overflow dict (in practice the
-``.get`` of the map ``ConnectionManager.getSpectrumStatistics`` builds from one
-``/spectcl/specstats`` REST call) — so this module never touches REST itself. The MainWindow keeps the Qt shell — reading the filename widget, the
-WebWindow lifecycle, notebook process control (``notebook_process.py``) — and
-calls in here. Extracted from ``GUI.py:createDf`` so the reshape/flatten logic
-is unit-testable without PyQt5 (mirrors ``geometry_io`` / ``display_slot`` /
-``notebook_process``).
-"""
+"""Spectrum DataFrame export — the Qt-free core of the Jupyter cluster. When a
+Jupyter session is launched from the GUI, the current spectra are dumped to a
+gzip-compressed CSV so the notebook can load them with pandas."""
 
 import os
 
@@ -42,28 +25,14 @@ _COLUMNS = ['name', 'dim', 'binx', 'minx', 'maxx', 'biny', 'miny', 'maxy',
 def build_spectrum_dataframe(spectrum_dict, statistics_fetcher=None,
                              arrays_as_lists=True):
     """Reshape a ``{name: {info: value}}`` store dict into a pandas DataFrame.
-
     NumPy arrays (the ``data`` counts) are flattened to lists — 1-D via
-    ``tolist()``, 2-D to a nested list — so the CSV holds plain sequences rather
-    than ``ndarray`` reprs. Non-array values pass through unchanged. Moved
-    verbatim from ``GUI.py:createDf``.
-
-    ``statistics_fetcher(name)``, if given, must return the per-spectrum
-    ``statistics`` mapping (or a false value when unavailable); its
-    xunderflow/xoverflow/yunderflow/yoverflow entries fill the statistics
-    columns, with NaN for anything missing.
-
-    ``arrays_as_lists=False`` leaves count arrays as arrays. Only the binary
-    export wants that: flattening a 2048x2048 spectrum builds ~16.7M Python
-    floats (measured 191 MB peak against 34 MB of counts) purely to be turned
-    back into an array before it is written.
-    """
+    ``tolist()``, 2-D to a nested list — so the CSV holds plain sequences
+    rather than ``ndarray`` reprs."""
     formated_dict = {col: [] for col in _COLUMNS}
-    # Walk the SCHEMA, not the record. Appending whatever keys a record happens
-    # to carry leaves the columns ragged when one is missing (pandas then
-    # refuses to build the frame) and raises outright on a key the schema does
-    # not know. Both are reachable from a hand-built or drifted record, and the
-    # caller only logs, so the visible symptom is an export that never appears.
+    # Walk the SCHEMA, not the record. Appending whatever keys a record
+    # happens to carry leaves the columns ragged when one is missing (pandas
+    # then refuses to build the frame) and raises outright on a key the schema
+    # does not know.
     for spectrum_name, info_dict in spectrum_dict.items():
         formated_dict["name"].append(spectrum_name)
         stats = statistics_fetcher(spectrum_name) if statistics_fetcher else None
@@ -92,36 +61,26 @@ _SIDECAR_SUFFIX = '-counts.npz'
 
 def counts_sidecar_path(filepath):
     """Path of the counts sidecar belonging to the CSV at ``filepath``.
-
-    Derived from the CSV name rather than recorded inside it, so the pair moves
-    together by naming convention: ``df-run.gzip`` -> ``df-run-counts.npz``.
-    Renaming one without the other breaks the link, which the reader reports."""
+    Derived from the CSV name rather than recorded inside it, so the pair
+    moves together by naming convention: ``df-run.gzip`` ->
+    ``df-run-counts.npz``."""
     base, _ext = os.path.splitext(str(filepath))
     return base + _SIDECAR_SUFFIX
 
 
 def _counts_key(row_index):
-    """Archive member name for the counts of row ``row_index``.
-
-    Keyed by POSITION, never by spectrum name: names in the field carry spaces,
-    brackets and slashes, and a slash would turn an archive member into a path.
-    The CSV's row order is the mapping."""
+    """Archive member name for the counts of row ``row_index``. Keyed by
+    POSITION, never by spectrum name: names in the field carry spaces,
+    brackets and slashes, and a slash would turn an archive member into a
+    path."""
     return f's{int(row_index)}'
 
 
 def export_spectrum_csv(spectrum_dict, filepath, statistics_fetcher=None):
     """Write the spectrum table as a gzip CSV plus a binary counts sidecar.
-
     The counts go to a compressed ``.npz`` beside the CSV
     (:func:`counts_sidecar_path`) and the CSV's ``data`` column holds the
-    archive key instead. Rendering 16.7M counts into digits inside a CSV cell
-    was ~90% of the export, and this runs on the GUI thread at notebook start,
-    so a session with several large 2-D spectra froze the UI for tens of
-    seconds.
-
-    Read it back with :func:`read_spectrum_export`, which restores ``data`` to
-    real arrays. A notebook that reached into the old CSV cell directly needs
-    that call instead — the counts are no longer in the CSV."""
+    archive key instead."""
     df = build_spectrum_dataframe(spectrum_dict, statistics_fetcher,
                                   arrays_as_lists=False)
     counts = {}

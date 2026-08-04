@@ -1,17 +1,6 @@
-"""Jupyter notebook: dump the spectra, start the server, show it, stop it.
-
-Lifted out of MainWindow (ARCH.md §7, D4). The dataframe reshape already lives
-in `services/dataframe_export.py`; what is here is the process and window
-lifecycle around it.
-
-Two things are load-bearing and easy to undo by accident. The
-locate-executable loop is a `while True` whose ONLY exit on the failure side is
-the cancel check — remove it and the GUI spins forever rather than merely
-misbehaving (the original code was worse still: it called `sys.exit(0)` and
-took the GUI with it). And the notebook window is anchored on this controller,
-because a parentless local `QMainWindow` is finalized by the cyclic GC as soon
-as the method returns and the window silently disappears mid-session.
-"""
+"""Jupyter notebook: dump the spectra, start the server, show it, stop it. The
+notebook window is anchored on this controller — a parentless local
+``QMainWindow`` is finalized by the cyclic GC and vanishes mid-session."""
 
 import logging
 import os

@@ -1,29 +1,6 @@
 """Characterization tests for MainWindow's image-overlay and Jupyter clusters.
-
 Two small independent clusters that share no state, characterized together
-because ARCH.md §7 pairs them (D3 and D4) for the same extraction.
-
-**Overlay** — `loadFigure`, `drawFigure`, `deleteFigure`, `addFigure`, the four
-nudges, the three sliders, and `_removeOverlayArtist` underneath all of them.
-This is where H13, L17, L9 and L10 came from, and three of those were silent.
-
-**Jupyter** — `createDf`, `jupyterStart`, `jupyterStop`. `jupyterStart`'s
-locate-executable Cancel used to call `sys.exit(0)` and take the GUI with it.
-
-The pins, each naming the defect it descends from:
-
-* **H13** every overlay slot survives being pressed before an image is loaded
-* **L17** `addFigure` reports its two failure cases instead of raising
-* **L9**  the sliders redraw WITHOUT clearing `onFigure` — routing them through
-          `deleteFigure` cleared it while the image stayed up, so the next Add
-          stacked a second overlay and orphaned the first
-* **L10** `drawFigure` adds one axes per call and `_removeOverlayArtist` takes
-          it away again; a slider drag used to append one empty axes per tick to
-          the very list the pad lookups index
-* **J9**  a cancelled locate-executable aborts the start and keeps the GUI alive
-* **B10** a failed spectrum export is logged, never raised — the notebook must
-          still be able to open
-"""
+because pairs them for the same extraction."""
 
 import logging
 import os
@@ -146,10 +123,9 @@ def recording_message_box():
     return Box
 
 
-# The overlay state moved onto the controller with the methods (ARCH.md §7 D3).
-# These proxies let the unchanged test bodies keep reading and writing it on the
-# window, exactly as they did before the extraction. Installed with monkeypatch
-# so they come off the class again when the test ends.
+# The overlay state moved onto the controller with the methods. These proxies
+# let the unchanged test bodies keep reading and writing it on the window,
+# exactly as they did before the extraction.
 _OVERLAY_STATE = ("LISEpic", "imgplot", "overlay_ax", "onFigure",
                   "xstart", "ystart", "alpha", "zoomX", "zoomY")
 

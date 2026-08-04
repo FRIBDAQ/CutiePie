@@ -24,10 +24,8 @@ class FitFunction:
         self.p_init = params[0:len(self.p_init)]
 
     def neg_log_likelihood_p(self, params, x, y):
-        """Poisson negative log-likelihood. Fit parameters must be first 
-        argument and are initially set by x0 in the `minimize` call. x, y 
-        are passed as additional args.
-        """
+        """Poisson negative log-likelihood. Fit parameters must be first
+        argument and are initially set by x0 in the `minimize` call."""
         # Make sure the model is implemented:
         try:
             pred = self.model(x, params)
@@ -39,8 +37,7 @@ class FitFunction:
             # is valid. I chose to modify the likelihood this way over
             # returning, e.g, np.inf if any pred <= 0 because it prevents huge
             # jumps in the objective function value when the parameters are
-            # close to values which give pred <= 0. Also the return value is
-            # always defined.
+            # close to values which give pred <= 0.
             pred = np.maximum(pred, 1e-10)
             return -np.sum(y*np.log(pred) - pred)
 

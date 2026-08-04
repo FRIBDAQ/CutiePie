@@ -1,17 +1,6 @@
-"""Characterization tests for GateManager.
-
-GateManager is the largest, most widget-entangled service (~154 sites, ~18
-collaborators) and its drawing runs in the render-tick / hover hot paths. These
-pin its CURRENT observable behavior BEFORE the step-1 inversion — with
-special attention to the three regression fixes it carries:
-  * gate annotations are gid-keyed and do NOT accumulate on redraw.
-  * off-axes mouse motion (xdata/ydata None) is a no-op, never poisons
-    the line data.
-  * gate artists persist across redraws (reuse Line2D via set_data, not
-    remove+recreate every tick).
-plus the pure geometry helpers and the create/edit/cancel signal contracts.
-matplotlib runs under Agg so Line2D/Annotation/axis behavior is real.
-"""
+"""Characterization tests for GateManager. GateManager is the largest, most
+widget-entangled service (~154 sites, ~18 collaborators) and its drawing runs
+in the render-tick / hover hot paths."""
 
 import importlib
 import logging

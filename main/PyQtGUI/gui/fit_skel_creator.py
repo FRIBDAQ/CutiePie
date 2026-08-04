@@ -15,10 +15,8 @@ class SkelFit(FitFunction):
     #    # Your model function goes here.
 
     #def set_inital_parameters(self, x, y, params):
-    #    """Uncomment and override this funciton to customize the parameter
-    #    initialization for your fits. Otherwise use the default (read from
-    #    fit panel).
-    #    """
+    #    """Override to customize parameter initialization for your fits;
+    #    otherwise the default reads them from the fit panel."""
     #    # Custom initialization goes here.
     
 class SkelFitBuilder:

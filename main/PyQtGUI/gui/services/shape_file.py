@@ -1,19 +1,10 @@
 """Shape-file format guard for the AlphaEMGMulti / AlphaEMGMultiSigma fits.
-
-The shape file is a TXT/CSV with one row per alpha line::
-
-    isotope, half_life, energy_keV, alpha_intensity, sigma, tau1, tau2, eta, flag, chain
-
-``_load_shapes`` in ``fit_alpha_multi_sigma_creator.py`` tolerantly skips blank,
-comment (``#``), and malformed rows — so a wrong file (a calibration file, a
-geometry ``.win``, junk) parses to ZERO shapes and the fit silently runs with no
-components. This module is the up-front guard: it answers "does this file even
-look like a shape file?" so the caller can abort with a clear message.
-
-Kept Qt-free and dependency-light (no ``lmfit``) on purpose, so it is
-unit-testable in the headless environment where the creator module — which pulls
-in ``lmfit`` — cannot be imported.
-"""
+The shape file is a TXT/CSV with one row per alpha line:: isotope, half_life,
+energy_keV, alpha_intensity, sigma, tau1, tau2, eta, flag, chain
+``_load_shapes`` in ``fit_alpha_multi_sigma_creator.py`` tolerantly skips
+blank, comment (``#``), and malformed rows — so a wrong file (a calibration
+file, a geometry ``.win``, junk) parses to ZERO shapes and the fit silently
+runs with no components."""
 
 import csv
 import json
@@ -33,12 +24,7 @@ def count_shape_rows(path):
     accept criteria: a numeric energy (col 2) and numeric sigma/tau1/tau2
     (cols 4-6). Blank, comment (``#``) and short/malformed rows are skipped,
     exactly as the real loader skips them, so this never over- or under-counts
-    relative to what the fit would actually use.
-
-    Decoded with ``errors="replace"``: everything this reads is numeric except
-    the isotope and chain names, so a file saved in latin-1 (an accent in an
-    isotope label) still counts its rows instead of failing to decode. Raises
-    ``OSError`` if the file cannot be opened — the two guards below catch it."""
+    relative to what the fit would actually use."""
     n = 0
     with open(path, "r", newline="", errors="replace") as f:
         for raw in csv.reader(f, skipinitialspace=True):
@@ -58,11 +44,7 @@ def count_shape_rows(path):
 def looks_like_shape_file(path):
     """True if `path` reads as a shape file (>= 2 valid shape rows). Used as a
     swap guard by the calibration loader — a shape file selected in the
-    calibration slot must not be mistaken for calibration numbers.
-
-    Never raises, and now means it: an unreadable path is `OSError` and returns
-    False, and undecodable bytes cannot raise at all because the read replaces
-    them (a binary file then yields no valid rows, which is the same answer)."""
+    calibration slot must not be mistaken for calibration numbers."""
     try:
         return count_shape_rows(path) >= 2
     except OSError:
@@ -71,9 +53,7 @@ def looks_like_shape_file(path):
 
 def validate_shape_file(path):
     """Return a list of human-readable problems; empty list = looks like a
-    shape file. Never raises. Names common mis-selected formats (a binary file,
-    a calibration JSON, a geometry/session or other JSON object) so the caller's
-    dialog can be specific about what the user picked by mistake."""
+    shape file. Never raises."""
     if not path or not os.path.isfile(path):
         return [f"file not found: {path}"]
     # read bytes, not text: the whole point of this function is to survive

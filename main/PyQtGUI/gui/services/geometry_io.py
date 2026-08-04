@@ -1,19 +1,6 @@
 """Geometry file read/serialize — the Qt-free core of the geometry-IO cluster.
-
-A "geometry" describes the tab's pad grid: how many rows/cols and, per pad, the
-spectrum name, optional x/y view range, and log-scale flag. Two on-disk formats
-are supported:
-
-* **native** — a single-line Python dict literal (what :func:`serialize_geometry`
-  writes), e.g. ``{"row": 2, "col": 2, "geo": {0: {"name": "h1", ...}}}``.
-* **legacy** — a Xamine/dispwind ``.win`` file beginning with a ``Geometry R,C``
-  line, parsed by :func:`_parse_old_geo`.
-
-This module holds only the parsing/serialization; the QFileDialogs and the
-MainWindow orchestration (``loadGeo``/``saveGeo``) stay in the presentation layer
-and call in here. Extracted from ``GUI.py`` so the format logic is unit-testable
-without PyQt5 (mirrors ``display_slot`` / ``notebook_process`` / ``logger``).
-"""
+A "geometry" describes the tab's pad grid: how many rows/cols and, per pad,
+the spectrum name, optional x/y view range, and log-scale flag."""
 
 import ast
 import os
@@ -25,17 +12,8 @@ _module_logger = logging.getLogger(__name__)
 
 def _sniff_first_line(filename, log, who):
     """Return the first non-blank, non-comment line of a geometry file.
-
     ``None`` means "do not try to parse this": the file is empty, or it cannot
-    be read at all — a stale path, a directory, or bytes that are not text. An
-    empty string means the file was readable but held nothing meaningful, which
-    the callers report as an unrecognized format.
-
-    Both public readers promise ``None`` for an unreadable file and both of
-    their callers in ``GUI.py`` act on that ``None`` with no ``try`` of their
-    own, so an exception escaping here reaches the Qt slot and the user gets no
-    dialog at all. The file dialog offers "All Files (*)".
-    """
+    be read at all — a stale path, a directory, or bytes that are not text."""
     try:
         if os.stat(filename).st_size == 0:
             log.warning('%s - empty geometry file: %s', who, filename)
@@ -95,14 +73,9 @@ def read_geometry(filename, logger=None):
 
 
 def _parse_old_geo(filename, logger=None):
-    """Parse a legacy Xamine/dispwind ``.win`` geometry file into the same
-    structure :func:`read_geometry` returns for the native format.
-
-    Windows get sequential flat indices in file order (matching the original
-    loader). ``COUNTSAXIS`` maps to log scale; ``Expanded`` supplies the x/y view
-    range when present, otherwise the spectrum keeps its natural range. ``SCALE``,
-    ``Refresh``, ``MAPPED`` and other per-window settings are ignored.
-    """
+    """Parse a legacy Xamine/dispwind ``.win`` geometry file into the structure
+    :func:`read_geometry` returns for the native format. Windows get sequential
+    flat indices in file order, and ``SCALE``/``Refresh``/``MAPPED`` are ignored."""
     log = logger or _module_logger
     log.info('_parse_old_geo - filename: %s', filename)
     nrow = ncol = None
@@ -157,23 +130,17 @@ def _parse_old_geo(filename, logger=None):
 
 
 def serialize_geometry(row, col, properties):
-    """Serialize a geometry to the native on-disk format (a dict-literal string).
-
-    `properties` is the ``{flatIndex: {"name","x","y","scale"}}`` mapping the caller
-    has gathered from the current pads. The result round-trips through
-    :func:`read_geometry` (native branch). Kept here so the single canonical format
-    lives with its parser.
-    """
+    """Serialize a geometry to the native on-disk format (a dict-literal
+    string). `properties` is the ``{flatIndex: {"name","x","y","scale"}}``
+    mapping the caller has gathered from the current pads."""
     return str({"row": int(row), "col": int(col), "geo": properties})
 
 
 def serialize_session(tabs):
     """Serialize a multi-tab session to the native v2 dict-literal string.
-
     `tabs` is a list of {"name": str, "row": int, "col": int, "geo": {...}} in
     screen order; each per-tab "geo" uses exactly the single-tab property
-    shape serialize_geometry writes. Round-trips through read_geometry_any.
-    """
+    shape serialize_geometry writes."""
     return str({"version": 2, "kind": "cutiepie-session",
                 "tabs": [{"name": str(t["name"]), "row": int(t["row"]),
                           "col": int(t["col"]), "geo": t["geo"]} for t in tabs]})
@@ -204,10 +171,7 @@ def validate_session(obj):
 
 def validate_single_geometry(obj):
     """Return a list of human-readable problems with a parsed single-tab
-    geometry object; empty list = valid. Never raises. Used to reject a
-    multi-tab session (or any malformed dict) that reached the single-tab
-    loader — the shape ``_applyGeometryToCurrentTab`` requires is
-    ``{"row": int>=1, "col": int>=1, "geo": dict}``."""
+    geometry object; empty list = valid. Never raises."""
     if not isinstance(obj, dict):
         return ["geometry file is not a dict literal"]
     errors = []
@@ -223,8 +187,7 @@ def read_geometry_any(filename, logger=None):
     """Read any geometry vintage. Returns ("session", payload) for a v2
     multi-tab file, ("single", payload) for a v1/native or legacy .win file
     (payload exactly as read_geometry returns it), or None for
-    unreadable/invalid files. Sessions are validated here so callers can
-    replace the workspace only after a fully-good parse."""
+    unreadable/invalid files."""
     log = logger or _module_logger
     firstMeaningful = _sniff_first_line(filename, log, 'read_geometry_any')
     if firstMeaningful is None:

@@ -1,14 +1,8 @@
-"""Behavior tests for SumRegionManager.
-
-After the inversion the service holds no histogram combo and no integrate
-popup: widget writes leave as signals (`regionReadoutChanged`,
-`sumRegionCreatePrepared`, `sumRegionSelectionChanged`, popup-close requests,
-`integrationResultsReady`) and widget reads arrive as method arguments. The ONE
-injected widget kept is the sum-region popup, used ONLY for its co-owned
-`listRegionLine`/`prevPoint` drawing buffer (shared with gate_manager); those
-assertions read that buffer directly. matplotlib runs under Agg so Line2D/axis
-behavior is real.
-"""
+"""Behavior tests for SumRegionManager. After the inversion the service holds
+no histogram combo and no integrate popup: widget writes leave as signals
+(`regionReadoutChanged`, `sumRegionCreatePrepared`,
+`sumRegionSelectionChanged`, popup-close requests, `integrationResultsReady`)
+and widget reads arrive as method arguments."""
 
 import importlib
 import logging

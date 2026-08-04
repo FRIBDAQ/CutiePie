@@ -1,10 +1,7 @@
-"""Headless net for the per-tab session registry.
-
-Pins the container semantics that Tabs used to implement by hand across six
-parallel dicts/lists: contiguous renumbering on delete, swap, and the live
-proxy views that let the old attribute names keep working during migration.
-Qt-free, so it runs in the system python3 with no PyQt5.
-"""
+"""Headless net for the per-tab session registry. Pins the container semantics
+that Tabs used to implement by hand across six parallel dicts/lists:
+contiguous renumbering on delete, swap, and the live proxy views that let the
+old attribute names keep working during migration."""
 
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../gui'))

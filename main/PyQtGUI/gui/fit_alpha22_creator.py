@@ -1,12 +1,8 @@
 #!/usr/bin/env python
 # fit_alpha22_creator.py
-#
-# AlphaEMG22: Two-peak EMG (each peak has a two-tail mixture).
-#   - User FIXED: mu1, mu2, eta1, eta2
-#   - Fitted: A1, A2, s1, s2, tau11, tau12, tau21, tau22
-#   - Bin-width integration (GL7), Poisson weights, optional one-step IRLS.
-#
-# Seeds / popup order (len-tolerant; 0-based labels shown):
+# AlphaEMG22: Two-peak EMG (each peak has a two-tail mixture). - User FIXED:
+# mu1, mu2, eta1, eta2 - Fitted: A1, A2, s1, s2, tau11, tau12, tau21, tau22 -
+# Bin-width integration (GL7), Poisson weights, optional one-step IRLS.
 #   [A1(p0), mu1(p1), s1(p2), tau11(p3), tau12(p4), eta1(p5),
 #    A2(p6), mu2(p7), s2(p8), tau21(p9), tau22(p10), eta2(p11),
 #    bw(p12), wmode(p13)]

@@ -1,14 +1,7 @@
-"""Characterization tests for ConnectionManager.
-
-These pin ConnectionManager's CURRENT observable behavior — signal emissions,
-widget effects, store mutations, guard decisions — before the step-1
-inversion (widget writes -> signals, widget reads -> method arguments).
-
-They run headless via qt_stubs.install_missing_runtime_stubs(); on a machine
-with real PyQt5/CPyConverter/httplib2 the real modules are used instead.
-Threading is never real: QThread and the worker classes are monkeypatched
-with fakes, and handlers are driven by emitting the fakes' signals directly.
-"""
+"""Characterization tests for ConnectionManager. These pin ConnectionManager's
+CURRENT observable behavior — signal emissions, widget effects, store
+mutations, guard decisions — before the step-1 inversion (widget writes ->
+signals, widget reads -> method arguments)."""
 
 import importlib
 import logging

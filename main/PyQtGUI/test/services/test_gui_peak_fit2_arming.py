@@ -1,26 +1,6 @@
-"""Characterization tests for Peak Finder 2's arming and canvas connections
-(FACTORIZATION.md 8b).
-
-Eight methods that decide which canvases carry the press handler and when: the
-Start and Fix Peak toggles, the connect/disconnect pair underneath them, the
-sync that decides what to keep, the other-mode guard, and the Config dialog.
-
-This is the group that leaks handlers if it goes wrong, and a leak is invisible
-until a stray click fits a peak nobody asked for. The pins, each naming the
-behavior it descends from:
-
-* **K6(g)** Start arms the canvas that is current AT THAT MOMENT. Switching
-  tabs while armed does not follow — a documented limitation, pinned here so
-  the move cannot change it silently in either direction.
-* **K6(i)** an armed finder must not fit while another pad interaction owns the
-  click: rubber-band zoom, gate create/edit, or summing-region create.
-* **K6(j)** Stop keeps the handler wherever fits still live, so drag-to-refit
-  and the edit popup keep working on other tabs after disarming.
-* **mutual exclusion** Start and Fix Peak are two arming modes, never both.
-
-These run against the CURRENT structure and must survive the 8b move: the
-fixture may be rewired, no test body may change.
-"""
+"""Characterization tests for Peak Finder 2's arming and canvas connections: the
+Start and Fix Peak toggles, the connect/disconnect pair, the sync that decides
+which canvases keep the press handler, and the Config dialog."""
 
 import logging
 import os
@@ -210,12 +190,8 @@ def win(monkeypatch):
         parent_widget=w,
         logger=w.logger,
     )
-    # The connection registry moved here in 8b, and the arming flags followed
-    # in 8c when the press handlers moved (which retired the get/set seams 8b
-    # had used for them). The unchanged test bodies keep reading all three on
-    # The whole cluster's state lives on PeakFit2Controller now
-    # (FACTORIZATION.md stage 8d); the unchanged test bodies keep reading it on
-    # the window through these proxies.
+    # The cluster's state lives on the controller; these proxies let the
+    # unchanged test bodies keep reading it on the window.
     for attr in ("peak2_fits", "peak2_count", "peak2_armed", "peak2_fix_armed",
                  "peak2_drag", "peak2_conns"):
         monkeypatch.setattr(
@@ -371,7 +347,7 @@ def test_start_arms_and_connects_the_current_tab(win):
 
 def test_start_arms_the_tab_that_is_current_at_that_moment(win):
     """K6(g). Documented limitation: switching tabs while armed does not carry
-    the arming over. Pinned so the move cannot change it by accident."""
+    the arming over."""
     win.wTab.current = 1
     win.peakFit2Toggle(True)
     assert win.canvas_b in win.peak2_conns

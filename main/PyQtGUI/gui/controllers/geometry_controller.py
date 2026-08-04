@@ -1,19 +1,5 @@
-"""Geometry save/load orchestration: the file dialogs, the tab rebuild, the
-per-pad restore.
-
-Lifted out of MainWindow (ARCH.md §7, D7). The bodies are the ones that were
-there, with `self.<widget>` and `self.<accessor>` replaced by the seams below;
-no behavior was changed in the move.
-
-The parsing and serialising already live in `services/geometry_io.py` and are
-Qt-free. What is here is the orchestration on top: which tier is read when
-saving, and what happens to the workspace when a file turns out to be bad.
-
-**The dangerous method is `applySession`.** It deletes and recreates tabs, and
-`deleteTab` reindexes the parallel per-tab dicts. Callers must have parsed and
-validated the file BEFORE calling it, which is why both entry points do their
-reading first — a file that cannot be read must never half-destroy a workspace.
-"""
+"""Geometry save/load and session apply. The parsing and serialising live in
+``services/geometry_io.py``; what is here is the orchestration around it."""
 
 import logging
 
@@ -102,8 +88,7 @@ class GeometryController:
         """Save EVERY tab's geometry as one v2 session file (design
         2026-07-10). Reads the per-tab VIEW tier (slots), not live axes —
         background tabs' axes aren't reliably current, and the view tier is
-        exactly what load consumes. (Single-tab saveGeo keeps its live-axes
-        read — deliberate asymmetry.) Enlarged state is transient: never saved."""
+        exactly what load consumes."""
         fileName = self._save_file_dialog()
         self.logger.info('saveGeoAll - fileName: %s', fileName)
         if not fileName:
@@ -163,8 +148,7 @@ class GeometryController:
     def applyGeometryToCurrentTab(self, infoGeo):
         """Apply one tab's geometry payload ({"row","col","geo"}) to the
         CURRENT tab. Shared by the single-tab load and the session load, so
-        both run the same code. Returns the list of spectrum names that could
-        not be resolved."""
+        both run the same code."""
         # the file stores counts, the combos are 0-indexed
         row = infoGeo["row"] - 1
         col = infoGeo["col"] - 1
@@ -238,7 +222,7 @@ class GeometryController:
         """Load a session file, REPLACING all tabs (user-approved semantics,
         design 2026-07-10). The file is parsed and validated COMPLETELY before
         any tab is touched, so a bad file can never half-destroy the
-        workspace. A v1 single-tab file here loads as a one-tab session."""
+        workspace."""
         fileName = self._open_file_dialog()
         self.logger.info('loadGeoAll - fileName: %s', fileName)
         if not fileName:
@@ -265,9 +249,7 @@ class GeometryController:
     def applySession(self, tabsInfo):
         """Replace ALL tabs with the parsed session `tabsInfo` (a list of
         {"name","row","col","geo"}). Shared by loadGeoAll and loadGeo's
-        session branch. Callers must have parsed + validated the file first —
-        this only mutates the workspace, so it can never half-destroy it on a
-        bad file."""
+        session branch."""
         # quiesce: same guards clickedTab uses, then stop the auto-update tick
         cp = self._get_current_plot()
         if cp.toCreateGate or cp.toEditGate or self._gate_popup.isVisible():

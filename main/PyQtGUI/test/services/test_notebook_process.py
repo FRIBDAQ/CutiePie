@@ -7,14 +7,8 @@ import notebook_process
 
 
 class FakePopen:
-    """Stand-in for the jupyter subprocess: its own stderr.readline() feed.
-
-    - `lines`      : bytes lines returned in order (b'' = EOF).
-    - `loop_line`  : if set, returned forever once `lines` is exhausted
-                     (an alive server that keeps talking but never prints
-                     an address).
-    - `alive`      : poll() returns None while True, else `returncode`.
-    """
+    """Stand-in for the jupyter subprocess: its own stderr.readline() feed. -
+    `lines`: bytes lines returned in order (b'' = EOF)."""
     def __init__(self, lines=None, loop_line=None, returncode=None, alive=True):
         self._lines = list(lines or [])
         self._loop_line = loop_line

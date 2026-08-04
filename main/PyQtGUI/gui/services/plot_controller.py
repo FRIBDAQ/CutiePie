@@ -65,10 +65,9 @@ class PlotController(QObject):
         self.old_cmap         = None
         self.geometry_applied = False
         self._layout_dirty    = False
-        # (change-driven redraw): fingerprint of the last frame the auto-update
-        # tick rendered. When an unforced (timer) tick produces an identical
-        # fingerprint, the redundant full-figure redraw is skipped. None = always
-        # draw the next tick.
+        # (change-driven redraw): fingerprint of the last frame the
+        # auto-update tick rendered. When an unforced (timer) tick produces an
+        # identical fingerprint, the redundant full-figure redraw is skipped.
         self._last_tick_signature = None
         # per-pad fingerprints of the last frame actually drawn, so an unforced
         # tick can re-render only the pads whose counts moved
@@ -101,10 +100,8 @@ class PlotController(QObject):
 
         # A pad the store no longer knows has dim None, not 2. Changing the
         # geometry blanks the pad-to-name map while the per-tab slots keep the
-        # artist that was drawn there, and a spectrum deleted server-side leaves
-        # the same gap. Without this guard the test below falls through to the
-        # 2D branch and calls set_clim on whatever the slot holds, which for a
-        # 1D pad is a Line2D.
+        # artist that was drawn there, and a spectrum deleted server-side
+        # leaves the same gap.
         if dim not in (1, 2):
             self.logger.warning('setAxisScale - index %s names no spectrum in the store (%s); skipped',
                                 index, name)
@@ -316,14 +313,9 @@ class PlotController(QObject):
     # have seen a malloc error if the data array is too large, so split it into
     # sub-arrays with sub-(min, max) and take the global (min, max) of those
     def customMinMax(self, data):
-        """Return (min, max) of the positive counts in `data`, one vectorized pass.
-
-        Replaces a tiled Python-loop scan that visited every element anyway.
-        Semantics match the old large-array path: min/max
-        over strictly positive values, cutoff-masked bins excluded, fall back to
-        (minZ, maxZ) when nothing is positive. The old small-array path differed
-        only for negative values, which count data cannot contain.
-        Returns (None, None) for an all-zero array (old behavior, both paths)."""
+        """Return (min, max) of the positive counts in `data`, one vectorized
+        pass. Replaces a tiled Python-loop scan that visited every element
+        anyway."""
         self.logger.debug('customMinMax')
         if not data.any():
             return None, None
@@ -887,12 +879,9 @@ class PlotController(QObject):
         return np.linspace(float(vmin), float(vmax), int(bins) + 1)
 
     def _cutoff_masked_data(self, index, raw=None):
-        """Return the spectrum's data with its per-slot cutoff applied (a masked array).
-
-        The canonical array lives in the SpectrumStore; the cutoff is a per-tab /
-        per-slot display setting. The masked result is derived on demand and is never
-        written back to the store, so the canonical data never drifts from what REST
-        delivered. `masked_where` is element-wise, so the same logic covers 1D and 2D."""
+        """Return the spectrum's data with its per-slot cutoff applied (a
+        masked array). The canonical array lives in the SpectrumStore; the
+        cutoff is a per-tab / per-slot display setting."""
         name = self._name_from_index(index)
         w = raw if raw is not None else self._spectra.get(name, "data")
         if w is None:
@@ -946,18 +935,11 @@ class PlotController(QObject):
         self.updatePlot(force=False)
 
     def _tick_signature(self, cp, auto_scale_status):
-        """Cheap fingerprint of everything the auto-update tick would render, so a
-        redundant redraw can be skipped when nothing changed since the previous
-        tick (change-driven redraw). SpecTcl spectra are cumulative counters,
-        so a per-pad data sum is a reliable change signal — any increment moves it,
-        and a clear resets it to 0 (also a change). Interactions (zoom/log/gate/
-        colormap/hide) either self-draw or route through the forced `updatePlot`
-        path, so between two unforced ticks only live counts can change the frame.
-        Returns ``(signature, pad_signatures)``: the whole-frame fingerprint for
-        the skip-everything case, and the per-pad fingerprints keyed by index so
-        a partly-changed frame can re-render only the pads that moved. Both are
-        None on any error, so the caller always redraws (never skip on doubt).
-        """
+        """Cheap fingerprint of everything the auto-update tick would render,
+        so a redundant redraw can be skipped when nothing changed since the
+        previous tick (change-driven redraw). SpecTcl spectra are cumulative
+        counters, so a per-pad data sum is a reliable change signal — any
+        increment moves it, and a clear resets it to 0 (also a change)."""
         try:
             indices = [0] if cp.isEnlarged else list(self._get_geo().keys())
             pad_sigs = {}
@@ -998,12 +980,11 @@ class PlotController(QObject):
             self.logger.debug('updatePlot - unchanged since last tick; skipping redraw')
             return
 
-        # Whatever changed, it was not every pad. On an unforced tick, re-render
-        # only the pads whose fingerprint moved: a live session usually has one
-        # filling spectrum beside several idle ones, and re-masking + re-setting
-        # an idle 2-D pad's data costs as much as the live one's. A forced call
-        # ignores this — that is how a log/cutoff/gate/colormap change reaches
-        # every pad.
+        # Whatever changed, it was not every pad. On an unforced tick,
+        # re-render only the pads whose fingerprint moved: a live session
+        # usually has one filling spectrum beside several idle ones, and
+        # re-masking + re-setting an idle 2-D pad's data costs as much as the
+        # live one's.
         last_pads = None if force else self._last_pad_signatures
 
         self._clean_popup_exit(False)

@@ -1,42 +1,7 @@
-"""Peak finding — the Qt-free core of the peaks cluster.
-
-The peak-analysis feature runs a peak search over the counts of the selected
-spectrum, restricted to the currently-visible x range, and reports the found
-peaks (position + FWHM). The numeric half — clip the spectrum to the view
-window, then locate peaks — is pure numpy/scipy and lives here; the MainWindow
-keeps the Qt/matplotlib shell (reading the width/algorithm widgets and axes
-limits, drawing the ``v``/vline/hline/text markers, wiring the per-peak
-checkboxes).
-
-Four algorithms are offered via the ``PEAK_ALGORITHMS`` dispatch table (the
-popup's Algorithm combo shows exactly these names, MainWindow.analyzePeak
-dispatches on the selection; the first entry is the combo default):
-
-- ``Mariscotti (2nd difference)`` — smoothed-second-difference search (the
-  classic nuclear-spectroscopy method). The second difference cancels smooth
-  backgrounds, so it is the best choice on sloping/exponential background.
-  The default.
-- ``Smoothed (Savitzky-Golay)`` — Savitzky-Golay smoothing + noise-scaled
-  prominence (3 sigma of the Poisson level). Best on low statistics;
-  ``width`` is read as the *expected FWHM in bins* and peaks down to half of
-  it are accepted.
-- ``Raw counts (legacy)`` — the historical behavior: pure-Python window clip,
-  then ``find_peaks(prominence=1, width=width)`` on the raw counts.
-- ``Raw counts (legacy, fast)`` — bit-identical results to the legacy search
-  (same find_peaks call), but the clip is a numpy boolean mask (~12x faster
-  on large spectra).
-
-All four return the same ``(datax, datay, peaks, properties)`` contract:
-``datay`` is always the RAW clipped counts (markers must sit on the real
-spectrum) and ``properties`` always carries the five keys the GUI consumes —
-``prominences``/``width_heights``/``left_ips``/``right_ips`` (drawSinglePeaks)
-and ``widths`` (format_peak_output).
-
-Qt-free by construction: it takes plain arrays and scalars and imports only
-numpy/scipy. Extracted from ``GUI.py:analyzePeak`` / ``update_peak_output`` so
-the find + output-formatting logic is unit-testable without PyQt5 (mirrors
-``geometry_io`` / ``dataframe_export`` / ``display_slot``).
-"""
+"""Peak finding — the Qt-free core of the peaks cluster. The peak-analysis
+feature runs a peak search over the counts of the selected spectrum,
+restricted to the currently-visible x range, and reports the found peaks
+(position + FWHM)."""
 
 import numpy as np
 from scipy.optimize import curve_fit
@@ -51,18 +16,9 @@ _FWHM_K = 2.0 * np.sqrt(2.0 * np.log(2.0))   # sigma -> FWHM
 
 
 def find_peaks_in_range(x_axis, y_data, xmin, xmax, width):
-    """Locate peaks in ``y_data`` restricted to the ``[xmin, xmax)`` x window.
-
-    ``x_axis`` is the full bin-centre/edge axis (e.g. from ``createRange``) and
-    ``y_data`` the matching counts. Bins whose x falls in the half-open window
-    ``[xmin, xmax)`` are kept, then ``scipy.signal.find_peaks`` runs on the
-    clipped counts with ``prominence=1`` and the given ``width``.
-
-    Returns ``(datax, datay, peaks, properties)`` where ``datax``/``datay`` are
-    the clipped arrays (NumPy), ``peaks`` the indices into them, and
-    ``properties`` scipy's property dict. Moved verbatim from
-    ``GUI.py:analyzePeak``.
-    """
+    """Locate peaks in ``y_data`` restricted to the ``[xmin, xmax)`` x window, then
+    run ``scipy.signal.find_peaks`` on the clipped counts. Returns
+    ``(datax, datay, peaks, properties)``."""
     x = []
     y = []
     # create new tmp list with subrange for fitting
@@ -104,12 +60,9 @@ def find_peaks_in_range_vectorized(x_axis, y_data, xmin, xmax, width):
 
 
 def find_peaks_in_range_smoothed(x_axis, y_data, xmin, xmax, width):
-    """Savitzky-Golay smoothing + noise-scaled prominence.
-
-    The counts are smoothed with a window ~2x the expected FWHM (``width``),
-    and a peak must rise 3 sigma above the Poisson noise of the typical level.
-    Peak positions/properties are measured on the smoothed curve (well-behaved
-    under counting noise); ``datay`` returned is the raw clipped counts."""
+    """Savitzky-Golay smoothing + noise-scaled prominence. The counts are
+    smoothed with a window ~2x the expected FWHM (``width``), and a peak must
+    rise 3 sigma above the Poisson noise of the typical level."""
     datax, datay = _clip_to_window(x_axis, y_data, xmin, xmax)
     n = len(datay)
     if n < 11:
@@ -128,13 +81,10 @@ def find_peaks_in_range_smoothed(x_axis, y_data, xmin, xmax, width):
 
 
 def find_peaks_in_range_second_diff(x_axis, y_data, xmin, xmax, width):
-    """Mariscotti-style smoothed second difference.
-
-    The second difference of the counts is smoothed (3 moving-average passes,
-    window ~ the expected FWHM) and compared to its Poisson standard deviation;
-    significant negative dips mark peaks, so smooth backgrounds cancel out.
-    Properties for the GUI markers are then measured on a Savitzky-Golay
-    smoothed curve at each located peak."""
+    """Mariscotti-style smoothed second difference. The second difference of
+    the counts is smoothed (3 moving-average passes, window ~ the expected
+    FWHM) and compared to its Poisson standard deviation; significant negative
+    dips mark peaks, so smooth backgrounds cancel out."""
     datax, datay = _clip_to_window(x_axis, y_data, xmin, xmax)
     n = len(datay)
     if n < 11:
@@ -225,24 +175,8 @@ def _gl_translate(d):
 
 def fit_gaussian_linear_range(x_axis, y_data, lo, hi, fixed=None, seeds=None):
     """Fit ``A*exp(-(x-mu)^2/2sigma^2) + m*x + b`` over the explicit window
-    ``[lo, hi]`` (may be asymmetric about the peak; clipped to the spectrum;
-    reversed bounds are swapped).
-
-    Now a pure delegate of :func:`fit_composite` for the gaussian x1 + poly1
-    case, flattened back to the classic result shape so every existing caller
-    is unchanged. ``fixed`` pins parameters by name (e.g. ``{'mu': 662.0}``):
-    the pinned value is substituted and only the remaining parameters vary
-    (pinned uncertainties come back 0.0, dof drops). ``seeds`` overrides the
-    automatic starting values. Automatic seeds: background from the window's
-    edge bins, mu at the residual maximum, A from peak minus background.
-
-    Returns a dict. On success (``ok=True``): params ``A/mu/sigma/m/b`` with
-    uncertainties ``dA/dmu/dsigma``, ``fwhm``/``dfwhm``, the NET gaussian area
-    in counts ``area``/``darea`` (``A*sigma*sqrt(2pi)/bin_width``; background
-    excluded), ``redchi``, the effective window ``win_lo``/``win_hi``, and
-    sampled curves ``xx``/``y_fit``/``y_bg`` for drawing (the blue fill goes
-    between ``y_bg`` and ``y_fit``). On failure (``ok=False``): an ``error``
-    message string."""
+    ``[lo, hi]``. ``fixed`` pins parameters by name and ``seeds`` overrides the
+    automatic starting values."""
     spec = {"signal": "gaussian", "n_components": 1, "background": "poly1"}
     r = fit_composite(x_axis, y_data, lo, hi, spec,
                       fixed=_gl_translate(fixed), seeds=_gl_translate(seeds))
@@ -252,16 +186,9 @@ def fit_gaussian_linear_range(x_axis, y_data, lo, hi, fixed=None, seeds=None):
 
 
 # ---------------------------------------------------------------------------
-# Peak Finder 2 — composite shape registry.
-# One fit engine (`fit_composite`) over a pluggable signal shape (gaussian /
-# crystal ball) times 1..5 components, plus a background shape (poly1/2/3).
-# `fit_gaussian_linear_range` above is a pure gaussian x1 + poly1 delegate of
-# this engine (see the delegate at the bottom of this section).
-#
-# poly1 stays a raw ``m*x + b`` (linear is well-conditioned in raw x, and this
-# keeps the gaussian x1 + poly1 delegate numerically faithful to the original);
-# poly2/poly3 evaluate in the mapped variable ``t = 2(x-lo)/(hi-lo) - 1`` in
-# [-1, 1], where a raw-x quadratic/cubic at x~6000 would be ill-conditioned.
+# Peak Finder 2 — composite shape registry. One fit engine (`fit_composite`)
+# over a pluggable signal shape (gaussian / crystal ball) times 1..5
+# components, plus a background shape (poly1/2/3).
 # ---------------------------------------------------------------------------
 
 _CB_ALPHA_SEED, _CB_N_SEED = 1.5, 3.0
@@ -386,21 +313,8 @@ def _eval_composite(xv, vals, spec, lo, hi):
 
 def fit_composite(x_axis, y_data, lo, hi, spec, fixed=None, seeds=None):
     """Fit ``sum_i signal_i(x) + background(x)`` over the window ``[lo, hi]``.
-
     ``spec = {'signal': 'gaussian'|'crystal_ball', 'n_components': k,
-    'background': 'poly1'|'poly2'|'poly3', 'tail_side': 'low'|'high'}``. The
-    parameter vector is per-component signal params suffixed by index
-    (``A1, mu1, sigma1, A2, …``), shared signal params unsuffixed (``alpha``,
-    ``n`` for crystal ball, one detector response for the whole fit), then the
-    background. ``fixed``/``seeds`` use those suffixed names (``{'mu1': 662.3}``);
-    a fixed param is substituted (0.0 uncertainty, dof drops).
-
-    Returns a dict. On success: ``components`` (a per-peak list of
-    ``A/mu/sigma`` + ``dA/dmu/dsigma``, ``fwhm/dfwhm``, ``area/darea``),
-    ``redchi``, the window ``win_lo``/``win_hi``, drawing curves
-    ``xx``/``y_fit``/``y_bg`` plus per-component ``y_comp[k]`` (each drawn over
-    the background), and an echo of ``spec``. On failure: ``ok=False`` + an
-    ``error`` string."""
+    'background': 'poly1'|'poly2'|'poly3', 'tail_side': 'low'|'high'}``."""
     signal = spec.get("signal")
     bg = spec.get("background")
     if signal not in SIGNAL_SHAPES or bg not in BACKGROUND_SHAPES:
@@ -546,17 +460,10 @@ def eval_composite_result(x, result):
 
 
 def autocomponent_refit(x, y, lo, hi, prev_result, max_components=5):
-    """Re-fit ``prev_result``'s model over the new window ``[lo, hi]``, matching
-    the component set to what the window now covers.
-
-    (1) **shrink-drop**: components of the previous fit whose μ fell outside the
-    new window are dropped (renumbered implicitly). (2) refit the reduced spec.
-    (3) **auto-add loop**: while under ``max_components``, scan the residual on
-    the data bins (:func:`find_residual_component`); if a significant unmodeled
-    peak is found, add a component seeded there (same signal shape; a CB extra
-    inherits the shared ``alpha``/``n``/``tail_side``) and refit; stop when no
-    candidate remains, the cap is hit, or a refit fails (keeping the last good
-    fit). Returns a :func:`fit_composite` result."""
+    """Re-fit ``prev_result``'s model over the new window ``[lo, hi]``,
+    matching the component set to what the window now covers. (1)
+    **shrink-drop**: components of the previous fit whose μ fell outside the
+    new window are dropped (renumbered implicitly)."""
     lo, hi = (float(lo), float(hi)) if lo <= hi else (float(hi), float(lo))
     spec = dict(prev_result["spec"])
     kept = [c for c in prev_result["components"] if lo <= c["mu"] <= hi]
@@ -596,15 +503,8 @@ def autocomponent_refit(x, y, lo, hi, prev_result, max_components=5):
 def find_residual_component(x, y, y_model, existing_mus, existing_sigmas,
                             snr=5.0, neighbour_snr=2.0, sep_sigmas=2.0):
     """Seed for the most significant unmodeled peak in the residual, or None.
-
     Scans ``resid = y - y_model`` scaled by the Poisson noise of the model
-    (``sqrt(max(y_model, 1))``). A candidate bin must (1) exceed ``snr``, (2)
-    have both ±1 neighbours above ``neighbour_snr`` (a real peak, not a single
-    noisy bin), and (3) lie more than ``sep_sigmas`` × the matching existing σ
-    from every existing μ — a residual bump closer than that is a mismodeled
-    shape on an existing peak, not a new one. Returns the highest-``snr``
-    qualifying bin as ``{'mu', 'A', 'sigma'}`` (A = residual height there, σ =
-    the median existing σ), else None. The core of the auto-add-on-drag loop."""
+    (``sqrt(max(y_model, 1))``)."""
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
     ym = np.asarray(y_model, dtype=float)
@@ -630,13 +530,9 @@ def find_residual_component(x, y, y_model, existing_mus, existing_sigmas,
 
 
 def fit_composite_auto(x_axis, y_data, center, spec, max_half_window=None):
-    """Click-to-fit with an automatic window for an arbitrary composite ``spec``.
-
-    The window is found the same shape-agnostic way as
-    :func:`fit_gaussian_linear_auto` (estimate from the data, then refine once
-    over ``mu +- 4*sigma`` of the primary component), but the model fitted over
-    it is whatever ``spec`` selects. ``max_half_window`` (the Config cap, x
-    units) clamps both passes; an over-tight window returns ``ok=False``."""
+    """Click-to-fit with an automatic window for an arbitrary composite ``spec``: the
+    window is estimated from the data then refined once, and ``max_half_window``
+    clamps both passes."""
     est = estimate_fit_window(x_axis, y_data, center)
     if not est["ok"]:
         return dict(ok=False, error=est["error"])
@@ -669,15 +565,10 @@ def fit_gaussian_linear(x_axis, y_data, center, half_window):
 
 def estimate_fit_window(x_axis, y_data, center):
     """Estimate the fit window around a clicked position; no user width.
-
     Plan-A heuristic: lightly smooth the counts, hill-climb from the click to
     the local summit, walk down each flank until the descent stops (3
     consecutive non-decreasing bins), take the lower stop level as the local
-    background, and measure a crude FWHM at half of (summit - background).
-    Returns ``{ok, mu, fwhm, half_window}`` with ``half_window = 3*FWHM``,
-    floored at 8 bins. Returns ``{ok: False, error}`` when the click shows no
-    significant peak (summit fails a 3-sigma Poisson test against the local
-    background)."""
+    background, and measure a crude FWHM at half of (summit - background)."""
     x = np.asarray(x_axis, dtype=float)
     y = np.asarray(y_data, dtype=float)
     n = x.size
@@ -747,16 +638,10 @@ def estimate_fit_window(x_axis, y_data, center):
 
 
 def fit_gaussian_linear_auto(x_axis, y_data, center, max_half_window=None):
-    """Click-to-fit with an automatic window (plan A).
-
-    Estimate the window from the data (:func:`estimate_fit_window`), fit, then
-    refine once over ``mu_fit +- 4*sigma_fit`` so the final window adapts to
-    the *fitted* width. The returned dict also carries the window actually used
-    (``win_lo``/``win_hi``).
-
-    ``max_half_window`` (the Config cap, in x units) clamps BOTH passes' half
-    windows; a window clamped below the fit minimum returns ``ok=False`` so the
-    caller can skip it."""
+    """Click-to-fit with an automatic window (plan A). Estimate the window
+    from the data (:func:`estimate_fit_window`), fit, then refine once over
+    ``mu_fit +- 4*sigma_fit`` so the final window adapts to the *fitted*
+    width."""
     est = estimate_fit_window(x_axis, y_data, center)
     if not est["ok"]:
         return dict(ok=False, error=est["error"])
@@ -797,14 +682,9 @@ def fwhm_to_sigma(fwhm):
 
 
 def validate_gauss_edit(fixed, lo=None, hi=None):
-    """Reject pinned edit values that would make the fit degenerate before they
-    reach the fit core, which happily accepts them (``fixed=`` bypasses the
-    bounds). σ must be strictly positive. μ is not sign-constrained — a
-    spectrum whose x-axis runs negative has legitimately-negative peak centers —
-    but pinning it outside the fit window ``[lo, hi]`` puts the peak off the
-    fitted data and blows the fit up, so μ must lie within that window when it
-    is supplied. Returns an error message string, or None if all pins are in
-    range."""
+    """Reject pinned edit values that would make the fit degenerate before
+    they reach the fit core, which happily accepts them (``fixed=`` bypasses
+    the bounds). σ must be strictly positive."""
     if "sigma" in fixed and fixed["sigma"] <= 0:
         return "σ must be positive"
     if "mu" in fixed and lo is not None and hi is not None:
@@ -814,11 +694,9 @@ def validate_gauss_edit(fixed, lo=None, hi=None):
 
 
 def nearest_window_edge(x, lo, hi, tol):
-    """Which fit-window edge the position ``x`` is within ``tol`` of: ``"lo"``,
-    ``"hi"``, or ``None``. All four arguments must be in the SAME units (the GUI
-    passes display pixels so the pick radius is uniform). Ties go to ``"lo"``.
-
-    Used by drag-to-refit to decide whether a press grabbed an end-handle."""
+    """Which fit-window edge the position ``x`` is within ``tol`` of:
+    ``"lo"``, ``"hi"``, or ``None``. All four arguments must be in the SAME
+    units (the GUI passes display pixels so the pick radius is uniform)."""
     dlo = abs(float(x) - float(lo))
     dhi = abs(float(x) - float(hi))
     if min(dlo, dhi) > float(tol):
@@ -838,14 +716,7 @@ def nearest_component_index(components, x):
 
 def primary_component(r):
     """The component a multi-component fit is reported by: the largest by area
-    (ties → lowest index). None for a result with no components.
-
-    Every surface that quotes ONE number for a whole fit — the results-table
-    row, the status line after a drag/edit/shape change, the duplicate check on
-    a fresh click — has to pick the same component, or the same fit reads as two
-    different peaks depending on where you look. Area is the choice because it
-    is what makes a component the one the fit is about; the component order is
-    the order the parameters were seeded in, which means nothing to the user."""
+    (ties → lowest index). None for a result with no components."""
     comps = r.get("components") or ()
     if not comps:
         return None
@@ -867,14 +738,10 @@ def find_duplicate_mu(new_mu, existing_mus, tol):
 
 def fix_peak_window(center, bin_width, cap_bins=None):
     """Fixed-mu fit window for the Fix Peak tool: symmetric about the clicked
-    ``center`` (x units), NOT chosen from the data.
-
-    ``estimate_fit_window`` is deliberately avoided here — its hill-climb snaps
-    to the strongest local summit, which is the wrong peak in the exact case
-    Fix Peak exists for (a small peak beside a big neighbour). The half-width is
-    half the cap when a Config cap is set (so the full window equals
-    ``cap_bins`` — the same meaning the cap has in the auto path), else ``50``
-    bins. Returns ``(lo, hi)`` in x units."""
+    ``center`` (x units), NOT chosen from the data. ``estimate_fit_window`` is
+    deliberately avoided here — its hill-climb snaps to the strongest local
+    summit, which is the wrong peak in the exact case Fix Peak exists for (a
+    small peak beside a big neighbour)."""
     half_bins = (0.5 * cap_bins) if cap_bins else _FIX_PEAK_DEFAULT_HALF_WINDOW_BINS
     hw = half_bins * float(bin_width)
     return center - hw, center + hw
@@ -905,18 +772,8 @@ PEAK2_TABLE_COLUMNS = ("#", "μ", "FWHM", "area", "χ²ᵣ")
 
 
 def format_gauss_fit_row(peak_no, r, tag=None):
-    """Compact one-row-per-fit view for the results table.
-
-    Returns a dict:
-      ``cells`` — list of ``(display_text, sort_value)`` in
-      :data:`PEAK2_TABLE_COLUMNS` order; the display text carries the ``± err``
-      while the sort value is the raw numeric so a table sorts columns
-      numerically, not lexically.
-      ``tag`` — the tool tag (e.g. ``"fixed μ"``) or ``None``; when set, the
-      ``#`` cell is marked with ``*``.
-      ``tooltip`` — the full detailed block (:func:`format_gauss_fit_output`),
-      for a per-row hover tooltip so the compact row keeps the full detail one
-      hover away."""
+    """Compact one-row-per-fit view for the results table. Returns ``cells`` (display
+    text plus a raw numeric sort value), the tool ``tag``, and the full ``tooltip``."""
     marker = " *" if tag else ""
     cells = [
         (f"{peak_no}{marker}", float(peak_no)),
@@ -1009,10 +866,8 @@ def format_composite_fit_row(peak_no, r, tag=None):
 
 def format_peak_output(peaks, properties, datax):
     """Build the per-peak result lines shown in the peak-analysis output box.
-
-    One line per peak: its position (``datax`` at the peak index) and FWHM (the
-    scipy ``widths`` property). Moved verbatim from ``GUI.py:update_peak_output``.
-    """
+    One line per peak: its position (``datax`` at the peak index) and FWHM
+    (the scipy ``widths`` property)."""
     x = datax.tolist()
     lines = []
     for i in range(len(peaks)):

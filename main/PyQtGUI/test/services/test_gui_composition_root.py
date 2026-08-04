@@ -1,25 +1,7 @@
 """The composition root builds nothing before the thing it is built from.
-
 `MainWindow.__init__` is a sequence of phases, and `_build_services` inside it
 assigns ~15 collaborators in a fixed order, each constructed against the ones
-before it. Nothing in the suite runs `__init__` — `gui_stubs.bare_window()`
-deliberately uses `__new__`, because a real `__init__` builds 9 popups, 5
-services and ~118 signal connections. That is the right trade for seam-level
-tests, and it leaves exactly one blind spot: **an attribute used before it is
-assigned raises only at startup, in front of a user.**
-
-That is not hypothetical. Stage 9 shipped `self.view_state.nameFromIndex` as a
-constructor argument at `_build_services` line 3 while `self.view_state` itself
-was assigned 130 lines further down, and it reached a live install as
-`AttributeError: 'MainWindow' object has no attribute 'view_state'` on the
-first launch.
-
-This test reads the source instead of running it: within each build phase,
-every `self.X` that a statement READS must already have been ASSIGNED — by an
-earlier statement in that phase, or by an earlier phase, or as a class
-attribute. It costs nothing, needs no Qt, and closes the one gap the stub
-harness cannot.
-"""
+before it."""
 
 import ast
 import os
@@ -44,14 +26,8 @@ def _mainwindow_class():
 
 
 def _own_attributes(cls):
-    """Attributes MainWindow assigns to itself, anywhere in the class.
-
-    Only these can be ordered wrongly. A name the class never assigns is
-    inherited from QMainWindow (`setWindowTitle`, `setCentralWidget`, …) and is
-    available from the moment the object exists — and under the stub harness
-    the Qt base has no members to enumerate, so asking the class is the only
-    way to tell the two apart.
-    """
+    """Attributes MainWindow assigns to itself, anywhere in the class. Only
+    these can be ordered wrongly."""
     own = set()
     for node in ast.walk(cls):
         if isinstance(node, ast.Assign):

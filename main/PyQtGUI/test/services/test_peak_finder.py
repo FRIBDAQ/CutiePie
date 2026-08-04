@@ -1,11 +1,6 @@
-"""Headless net for the peaks cluster extracted from GUI.py.
-
-Pins the numeric half of peak analysis that was previously buried in
-MainWindow.analyzePeak/update_peak_output: clip the spectrum to the visible
-x window ([xmin, xmax)), run scipy find_peaks over the clipped counts, and
-format the per-peak output lines. Qt-free (numpy/scipy only), so it runs in the
-system python3 with no PyQt5.
-"""
+"""Headless net for the peaks cluster: clip the spectrum to the visible x window,
+run scipy find_peaks over the clipped counts, and format the per-peak output
+lines."""
 
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../gui'))

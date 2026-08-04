@@ -1,21 +1,5 @@
-"""Peak Finder 1: scan a pad, list what was found, draw the markers.
-
-Lifted out of MainWindow (ARCH.md §7, D5). The finding itself already lives in
-`services/peak_finder.py`; what is here is the layer above it — the widget
-reads, the checkable list, and the four red artists each peak owns.
-
-Two things are load-bearing.
-
-The x axis is built from the STORE tier (`binx`/`minx`/`maxx`) and only the
-window to clip to comes from the pad's axes. Taking the bin count from the
-per-tab view tier instead is what drew 1-D spectra at the wrong x coordinates
-once already, and here it would put every marker in the wrong place.
-
-The bulk check/uncheck blocks the list's `itemChanged` while it flips the
-states, then syncs the markers in one pass with a single redraw. Unblocked,
-every flip re-enters the item handler, which draws the canvas itself: n
-redraws where one will do, on a path the user reaches with one button.
-"""
+"""Peak Finder 1: scan a pad, list what was found, draw the markers. The finding
+itself is Qt-free in ``services/peak_finder.py``."""
 
 import logging
 

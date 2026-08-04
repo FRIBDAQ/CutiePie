@@ -1,36 +1,6 @@
-"""The two metadata tiers, and the accessors every controller is built against.
-
-Lifted out of MainWindow (ARCH.md §7 D9, which is R3; FACTORIZATION.md stage 9).
-This went last on purpose: every controller extracted in stages 3-8 becomes a
-client of this object, so moving it earlier would have meant rewiring each of
-them twice.
-
-**The two tiers are the point, and they are not interchangeable.** The
-SpectrumStore is the canonical, name-keyed axis definition — `minx`/`maxx`
-there are what the spectrum IS. The per-tab slot dict is the display tier,
-keyed by pad index, and its `minx`/`maxx` are the current VIEW range, which
-zooming rewrites. Data-coordinate math reads the store; only view restore reads
-the slot. Crossing the two is what drew 1-D spectra at the wrong x coordinates
-(BUGS.md E7), and the field names give you no warning, because they are the
-same names.
-
-Two more rules live here:
-
-* While a pad is enlarged, `nameFromIndex` answers with the enlarged spectrum
-  for ANY index. Callers that resolve an index during enlarged mode get that
-  spectrum, not the pad they asked about (the stale-index pitfall behind H11).
-* `setGeo` deliberately does NOT copy `data` into the slot. The counts array is
-  a live view into shared memory and the canonical copy belongs to the store;
-  duplicating it into the display tier is how a spectrum silently freezes
-  (BUGS.md B4).
-
-The gate-name cache lives here too, because `getAppliedGateName` is its only
-reader. It is stale-while-revalidate by design: the hover path must never block
-on HTTP (PERFORMANCE.md P3), so an expired entry answers immediately with the
-stale value and refetches behind it. MainWindow owns the Qt signal that
-delivers the result, because correcting the hover label is the hover cluster's
-job, and hands it back through `storeGateName`.
-"""
+"""The two metadata tiers and the accessors every controller is built against.
+The store is the canonical axis definition; the per-tab slot holds the current
+view range, and data-coordinate math must read the store."""
 
 import logging
 import threading
@@ -145,11 +115,10 @@ class ViewState:
             self.wTab.tabSlots(self.wTab.currentIndex())[index] = DisplaySlot()
         slot = self.wTab.tabSlots(self.wTab.currentIndex())[index]
         slot.name = name
-        #Initialize with the same info as in self.spectra.
-        #"data" is intentionally NOT copied: the canonical array lives solely in the
-        #SpectrumStore and is derived (with cutoff) on demand by the plot controller,
-        #so it is never duplicated into the per-tab display tier. The empty "data"
-        #placeholder from the template above is kept for dict-shape consistency.
+        # Initialize with the same info as in self.spectra. "data" is
+        # intentionally NOT copied: the canonical array lives solely in the
+        # SpectrumStore and is derived (with cutoff) on demand by the plot
+        # controller, so it is never duplicated into the per-tab display tier.
         record = self.spectra.get_record(name)
         if record is None:
             self.logger.warning('setGeo - %s not in SpectrumStore; slot left with name only', name)
@@ -176,13 +145,10 @@ class ViewState:
         return result
 
     def getAppliedGateName(self, **identifier):
-        """Return the gate name applied to a spectrum — cache only, never blocking.
-
-        Stale-while-revalidate: a fresh cache entry is
-        returned as-is; a cold/expired one returns the stale value (or None)
-        immediately and triggers a background REST fetch. The hover label
-        corrects itself when the result lands (_on_gate_name_fetched), so the
-        GUI thread never waits on HTTP mid-hover."""
+        """Return the gate name applied to a spectrum — cache only, never
+        blocking. Stale-while-revalidate: a fresh cache entry is returned
+        as-is; a cold/expired one returns the stale value (or None)
+        immediately and triggers a background REST fetch."""
         spectrumName = None
         if "index" in identifier:
             spectrumName = self.nameFromIndex(identifier["index"])
@@ -215,11 +181,8 @@ class ViewState:
                          name=f"gate-name-fetch-{spectrumName}").start()
 
     def storeGateName(self, spectrumName, result):
-        """Record a fetched gate name and clear its in-flight mark.
-
-        Called by MainWindow's `_on_gate_name_fetched` slot once the worker
-        thread's result has crossed back onto the GUI thread. The cache is
-        written in exactly one place so its TTL means something.
-        """
+        """Record a fetched gate name and clear its in-flight mark. Called by
+        MainWindow's `_on_gate_name_fetched` slot once the worker thread's
+        result has crossed back onto the GUI thread."""
         self._gate_name_inflight.discard(spectrumName)
         self._gate_name_cache[spectrumName] = (result, time.monotonic())

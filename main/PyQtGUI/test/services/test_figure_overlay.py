@@ -1,11 +1,8 @@
-"""Headless net for the figure-overlay cluster extracted from GUI.py.
-
-Pins the overlay placement arithmetic that was previously buried in
+"""Headless net for the figure-overlay cluster extracted from GUI.py. Pins the
+overlay placement arithmetic that was previously buried in
 MainWindow.indexToStartPosition / moveFigure / the four fineXMove helpers: the
-grid-position → start-corner math (with its +/-0.1 nudges and the 1-y flip), the
-joystick direction/distance step, and the fine-nudge step. Qt-free (plain
-numbers), so it runs in the system python3 with no PyQt5.
-"""
+grid-position → start-corner math (with its +/-0.1 nudges and the 1-y flip),
+the joystick direction/distance step, and the fine-nudge step."""
 
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../gui'))

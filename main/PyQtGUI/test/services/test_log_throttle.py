@@ -1,11 +1,6 @@
-"""LogThrottle — the rate limiter histoHover uses for unexpected errors.
-
-The point of the class is that a hot handler can report a real defect without
-flooding the log. These tests pin both halves of that: the first occurrence
-always gets through, and the ones held back are counted rather than lost.
-
-A fake clock drives every timing case; nothing here sleeps.
-"""
+"""LogThrottle — the rate limiter histoHover uses for unexpected errors. The
+point of the class is that a hot handler can report a real defect without
+flooding the log."""
 
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../gui'))

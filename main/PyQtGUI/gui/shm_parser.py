@@ -1,18 +1,6 @@
 #!/usr/bin/python3
-"""Print the SpecTcl shared-memory key and size, one line, space separated.
-
-A standalone command, not a module: run it, do not import it. Nothing in the
-GUI imports this file and nothing should — CutiePie reaches shared memory
-through CPyConverter, and this exists so a human (or a shell script) can ask
-the same question from a terminal when the mirror is misbehaving.
-
-    ./shm_parser.py <host> <port>
-    RESThost=spdaq22 RESTport=8080 ./shm_parser.py
-
-Arguments win over the environment; with neither, it raises KeyError. Installed
-by gui/Makefile.am, which is why it ships despite having no importer — a
-"dead code, zero importers" reading of that is a false positive.
-"""
+"""Print the SpecTcl shared-memory key and size, one line, space separated. A
+standalone command, not a module: run it, do not import it."""
 import os
 import sys
 import json
