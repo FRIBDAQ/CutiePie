@@ -204,6 +204,27 @@ def win(monkeypatch):
     w.spectra = SpectrumStore()
     w.wTab = FakeTabs()
     w.currentPlot = w.wTab.plot(0)
+
+    # These accessors moved to ViewState (FACTORIZATION.md stage 9); production
+    # reaches them through self.view_state now. Build a real one over the same
+    # collaborators and bind its methods back onto the window, so the unchanged
+    # test bodies keep driving MainWindow.
+    from view_state import ViewState
+    import types as _types
+    w.view_state = ViewState(
+        spectra=w.spectra,
+        tabs=w.wTab,
+        get_current_plot=lambda: w.currentPlot,
+        applylistgate=lambda name: None,
+        gate_name_fetched=_types.SimpleNamespace(emit=lambda *a: None),
+        logger=w.logger,
+    )
+    for _name in ("getSpectrumStoreInfo", "setSpectrumViewInfo", "getSpectrumViewInfo",
+                  "getSpectrumViewDict", "getSpectrumStoreDict", "nameFromIndex",
+                  "setGeo", "getGeo", "setEnlargedSpectrum", "getEnlargedSpectrum",
+                  "getAppliedGateName"):
+        if _name not in w.__dict__:
+            setattr(w, _name, getattr(w.view_state, _name))
     w.wConf = FakeWConf()
     w.plot_controller = Recorder()
     w.gate_manager = Recorder()

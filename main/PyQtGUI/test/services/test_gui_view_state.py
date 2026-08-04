@@ -21,6 +21,7 @@ so a refactor cannot quietly drop them:
 
 import os
 import sys
+import types
 import time
 
 import matplotlib
@@ -41,8 +42,10 @@ class FakeTabs:
     """wTab: the per-tab slot dicts and the enlarged-pad record."""
 
     def __init__(self):
-        self.slots = {0: {}}
-        self.zoom = {0: None}
+        # two tabs, so a per-tab accessor can be caught answering for the
+        # wrong one
+        self.slots = {0: {}, 1: {}}
+        self.zoom = {0: None, 1: None}
         self.current = 0
 
     def currentIndex(self):
@@ -66,11 +69,36 @@ class FakePlot:
 
 
 @pytest.fixture
-def win():
+def win(monkeypatch):
     w = gui_stubs.bare_window()
     w.spectra = SpectrumStore()
     w.wTab = FakeTabs()
     w.currentPlot = FakePlot()
+    # These accessors moved to ViewState (FACTORIZATION.md stage 9). The
+    # unchanged test bodies keep driving them on the window: the methods are
+    # bound onto the instance, and the gate-name cache is proxied, exactly as
+    # MainWindow's own call sites now reach them through self.view_state.
+    from view_state import ViewState
+    w.gate_fetches = []
+    w.view_state = ViewState(
+        spectra=w.spectra,
+        tabs=w.wTab,
+        get_current_plot=lambda: w.currentPlot,
+        applylistgate=lambda name: w.gate_fetches.append(name),
+        gate_name_fetched=types.SimpleNamespace(emit=lambda *a: None),
+        logger=w.logger,
+    )
+    for _name in ("getSpectrumStoreInfo", "setSpectrumViewInfo", "getSpectrumViewInfo",
+                  "getSpectrumViewDict", "getSpectrumStoreDict", "nameFromIndex",
+                  "setGeo", "getGeo", "setEnlargedSpectrum", "getEnlargedSpectrum",
+                  "getAppliedGateName", "_refreshGateNameAsync"):
+        setattr(w, _name, getattr(w.view_state, _name))
+    for _attr in ("_gate_name_cache", "_gate_name_inflight", "_GATE_NAME_TTL"):
+        monkeypatch.setattr(
+            type(w), _attr,
+            property(lambda self, a=_attr: getattr(self.view_state, a),
+                     lambda self, v, a=_attr: setattr(self.view_state, a, v)),
+            raising=False)
     return w
 
 
@@ -269,7 +297,10 @@ def test_enlarged_spectrum_round_trips_and_clears(win):
 def gate_win(win):
     win._gate_name_cache = {}
     win.refresh_calls = []
+    # the recorder goes on ViewState as well: getAppliedGateName calls the
+    # refresh on its OWN object now, not through the window
     win._refreshGateNameAsync = win.refresh_calls.append
+    win.view_state._refreshGateNameAsync = win.refresh_calls.append
     add_spectrum(win, "h1", index=0)
     return win
 
@@ -302,3 +333,68 @@ def test_gate_name_by_name_matches_by_index(gate_win):
 def test_gate_name_with_no_identifier_returns_none_and_does_not_refetch(gate_win):
     assert gate_win.getAppliedGateName() is None
     assert gate_win.refresh_calls == []
+
+
+# ------------------------------------------------------------ the whole-dict accessors
+
+def test_the_store_dict_is_the_canonical_registry(win):
+    """`getSpectrumStoreDict` is what the Jupyter export dumps, so it has to be
+    the STORE's own view — every spectrum, whether or not a pad shows it."""
+    add_spectrum(win, "h1", index=0)
+    win.spectra.set("h2", dim=1, binx=8, minx=0.0, maxx=8.0, biny=0, miny=0.0,
+                    maxy=0.0, data=[], parameters=["p1"], type="1")
+    d = win.getSpectrumStoreDict()
+    assert set(d) == {"h1", "h2"}
+
+
+def test_the_store_dict_is_not_the_live_store(win):
+    """A caller iterating it must not be able to mutate the registry by
+    accident — the export walks and reshapes it."""
+    add_spectrum(win, "h1", index=0)
+    d = win.getSpectrumStoreDict()
+    d["injected"] = {}
+    assert win.spectra.contains("injected") is False
+
+
+def test_the_view_dict_is_the_current_tabs_slots(win):
+    """`getSpectrumViewDict` is the DISPLAY tier for the tab on screen, keyed
+    by pad index — not by name, and not the store."""
+    add_spectrum(win, "h1", index=0)
+    add_spectrum(win, "h2", index=3)
+    d = win.getSpectrumViewDict()
+    assert set(d) == {0, 3}
+    assert d[0].name == "h1" and d[3].name == "h2"
+
+
+def test_the_view_dict_follows_the_tab_switch(win):
+    """Two tabs, two slot dicts: the accessor must answer for whichever tab is
+    current, or a per-tab setting reads off the wrong pad."""
+    add_spectrum(win, "h1", index=0)
+    win.wTab.current = 1
+    assert win.getSpectrumViewDict() == {}
+    win.wTab.current = 0
+    assert set(win.getSpectrumViewDict()) == {0}
+
+
+def test_a_second_fetch_while_one_is_in_flight_starts_no_thread(win, monkeypatch):
+    """One fetch per spectrum, however many hover events arrive meanwhile.
+
+    The in-flight set is what prevents the second one, and asserting on the SET
+    cannot show it: re-adding a member is a no-op, so the set reads the same
+    with the guard removed. What the guard actually saves is the thread, so
+    that is what this counts.
+    """
+    import view_state as vs
+    started = []
+
+    class FakeThread:
+        def __init__(self, target=None, daemon=None, name=None):
+            self._target = target
+
+        def start(self):
+            started.append(1)
+
+    monkeypatch.setattr(vs.threading, "Thread", FakeThread)
+    win._refreshGateNameAsync("h1")
+    win._refreshGateNameAsync("h1")
+    assert len(started) == 1

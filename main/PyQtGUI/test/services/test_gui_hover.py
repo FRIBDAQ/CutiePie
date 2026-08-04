@@ -147,13 +147,42 @@ def fake_event(ax, x=0.0, y=0.0, button=1, dblclick=False, inaxes=True):
 
 
 @pytest.fixture
-def win():
+def win(monkeypatch):
     gui = gui_stubs.import_gui()
     w = gui.MainWindow.__new__(gui.MainWindow)
     w.logger = logging.getLogger("test.hover")
     w.spectra = SpectrumStore()
     w.wTab = FakeTabs()
     w.currentPlot = FakePlot()
+
+    # These accessors moved to ViewState (FACTORIZATION.md stage 9); production
+    # reaches them through self.view_state now. Build a real one over the same
+    # collaborators and bind its methods back onto the window, so the unchanged
+    # test bodies keep driving MainWindow.
+    from view_state import ViewState
+    import types as _types
+    w.view_state = ViewState(
+        spectra=w.spectra,
+        tabs=w.wTab,
+        get_current_plot=lambda: w.currentPlot,
+        applylistgate=lambda name: None,
+        gate_name_fetched=_types.SimpleNamespace(emit=lambda *a: None),
+        logger=w.logger,
+    )
+    for _name in ("getSpectrumStoreInfo", "setSpectrumViewInfo", "getSpectrumViewInfo",
+                  "getSpectrumViewDict", "getSpectrumStoreDict", "nameFromIndex",
+                  "setGeo", "getGeo", "setEnlargedSpectrum", "getEnlargedSpectrum",
+                  "getAppliedGateName"):
+        if _name not in w.__dict__:
+            setattr(w, _name, getattr(w.view_state, _name))
+    # the gate-name cache moved with its only reader; the hover slot that FILLS
+    # it stayed here, so the test bodies keep reading it on the window
+    for _attr in ("_gate_name_cache", "_gate_name_inflight", "_GATE_NAME_TTL"):
+        monkeypatch.setattr(
+            type(w), _attr,
+            property(lambda self, a=_attr: getattr(self.view_state, a),
+                     lambda self, v, a=_attr: setattr(self.view_state, a, v)),
+            raising=False)
     w._hoveredSpectrumName = None
     w._hoverLogThrottle = LogThrottle(interval_secs=30.0)
     w._gate_name_cache = {}
@@ -164,7 +193,10 @@ def win():
     w.fit_manager = types.SimpleNamespace(_cal=None)
     w.plot_controller = Recorder()
     w.refreshed = []
+    # the async refresh moved to ViewState with the cache (stage 9), and
+    # getAppliedGateName calls it on that object — so the recorder goes there
     w._refreshGateNameAsync = w.refreshed.append
+    w.view_state._refreshGateNameAsync = w.refreshed.append
     return w
 
 
@@ -427,13 +459,18 @@ def test_release_without_an_active_zoom_does_nothing(win):
 
 @pytest.fixture
 def gate_win(win):
-    del win._refreshGateNameAsync          # restore the real one
     win.refreshed = []
     win.connection_manager = types.SimpleNamespace(
         applylistgate=lambda name: win.gate_reply)
     win.gate_reply = []
     win._gateNameFetched = types.SimpleNamespace(
         emit=lambda name, gate: win._on_gate_name_fetched(name, gate))
+    # The async refresh moved to ViewState with the cache (stage 9). Point that
+    # object at this fixture's REST double and signal double, then expose the
+    # real method on the window — the base fixture stubbed it out.
+    win.view_state._applylistgate = lambda name: win.connection_manager.applylistgate(name)
+    win.view_state._gate_name_fetched = win._gateNameFetched
+    win._refreshGateNameAsync = win.view_state._refreshGateNameAsync
     return win
 
 
