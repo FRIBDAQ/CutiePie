@@ -207,22 +207,22 @@ def win(monkeypatch):
         get_current_plot=lambda: w.currentPlot,
         get_gate_popup=lambda: w.gatePopup,
         get_sum_popup=lambda: w.sumRegionPopup,
-        press_handler=lambda event: w.onPeakFit2Press(event),
-        get_armed=lambda: w.peak2_armed,
-        set_armed=lambda v: setattr(w, "peak2_armed", v),
-        get_fix_armed=lambda: w.peak2_fix_armed,
-        set_fix_armed=lambda v: setattr(w, "peak2_fix_armed", v),
+        name_from_index=lambda index: "alpha",
+        get_count=lambda: 0,
+        set_count=lambda v: None,
         parent_widget=w,
         logger=w.logger,
     )
-    # the connection registry moved onto the controller with the methods
-    # (FACTORIZATION.md 8b); the unchanged test bodies keep reading it on the
-    # window through this proxy
-    monkeypatch.setattr(
-        type(w), "peak2_conns",
-        property(lambda self: self.peak_fit2_controller.peak2_conns,
-                 lambda self, v: setattr(self.peak_fit2_controller, "peak2_conns", v)),
-        raising=False)
+    # The connection registry moved here in 8b, and the arming flags followed
+    # in 8c when the press handlers moved (which retired the get/set seams 8b
+    # had used for them). The unchanged test bodies keep reading all three on
+    # the window through these proxies.
+    for attr in ("peak2_conns", "peak2_armed", "peak2_fix_armed"):
+        monkeypatch.setattr(
+            type(w), attr,
+            property(lambda self, a=attr: getattr(self.peak_fit2_controller, a),
+                     lambda self, v, a=attr: setattr(self.peak_fit2_controller, a, v)),
+            raising=False)
     return w
 
 

@@ -5,7 +5,6 @@ import sys, os
 import logging, logging.handlers
 import threading, time, re
 from copy import deepcopy
-import numpy as np
 
 import signal, ctypes
 
@@ -93,10 +92,8 @@ from PlotGUI import Tabs # area defined for the Tabs
 from services.spectrum_store import SpectrumStore
 from services.display_slot import DisplaySlot, SLOT_KEYS
 from services.peak_finder import (
-    autocomponent_refit, find_duplicate_mu, fit_composite, fit_composite_auto,
-    fix_peak_window, format_composite_fit_row, nearest_component_index,
-    fwhm_to_sigma, nearest_window_edge, sigma_to_fwhm,
-    validate_gauss_edit,
+    fit_composite, format_composite_fit_row, nearest_component_index,
+    fwhm_to_sigma, sigma_to_fwhm, validate_gauss_edit,
 )
 from services.log_throttle import LogThrottle
 from services.fit_manager import FitManager
@@ -510,12 +507,14 @@ class MainWindow(QMainWindow):
             # a torn-down one must read as "not blocking"
             get_gate_popup=lambda: self.gatePopup,
             get_sum_popup=lambda: self.sumRegionPopup,
-            # 8c still owns the press handler and the arming flags it reads
-            press_handler=lambda event: self.onPeakFit2Press(event),
-            get_armed=lambda: self.peak2_armed,
-            set_armed=lambda v: setattr(self, "peak2_armed", v),
-            get_fix_armed=lambda: self.peak2_fix_armed,
-            set_fix_armed=lambda v: setattr(self, "peak2_fix_armed", v),
+            name_from_index=self.nameFromIndex,
+            # the peak counter and the results-table methods are 8d's; these
+            # five seams retire when that group moves
+            get_count=lambda: self.peak2_count,
+            set_count=lambda v: setattr(self, "peak2_count", v),
+            add_row=lambda n, r, tag=None: self._peak2_add_row(n, r, tag=tag),
+            update_row=lambda n, r, tag=None: self._peak2_update_row(n, r, tag=tag),
+            open_edit=lambda rec, x: self._peak2_open_edit(rec, x),
             parent_widget=self,
             logger=self.logger,
         )
@@ -555,12 +554,8 @@ class MainWindow(QMainWindow):
         # records [{number, index, name, result, artists}, ...] (full curves
         # stored so fits can be redrawn/refit independent of artist survival)
         # and the running peak counter
-        # the per-canvas press-handler registry moved onto PeakFit2Controller
-        # with the connect/sync methods (FACTORIZATION.md 8b); these two flags
-        # stay until 8c moves the press handlers that read them
-        self.peak2_armed = False
-        self.peak2_fix_armed = False
-        self.peak2_drag = None   # active drag-to-refit context, or None
+        # the connection registry, the arming flags and the drag context all
+        # live on PeakFit2Controller now (FACTORIZATION.md 8b and 8c)
         self.peak2_fits = []
         self.peak2_count = 0
 
@@ -2231,111 +2226,20 @@ class MainWindow(QMainWindow):
     def _peak2_live_axes(self, rec):
         return self.peak_fit2_controller._peak2_live_axes(rec)
 
+    # ---- Peak Finder 2, stage 8c ------------------------------------
+    # Press dispatch and drag moved to PeakFit2Controller, and the arming
+    # flags and drag context went with them (8b's four seams are gone).
+    # These shims remain only because the 8d methods still on this class call
+    # them; they come off with that group.
+
     def _peak2_try_grab(self, event):
-        """Drag-to-refit: if the left-press landed within the pick radius of a
-        fit's end-handle, start dragging that window edge. Returns True when a
-        drag starts. Works whether or not Start is armed."""
-        if self.peak2_drag is not None:
-            return False
-        ax = event.inaxes
-        tol_px = 8.0
-        for rec in self.peak2_fits:
-            arts = rec.get("artists") or ()
-            if not arts or arts[0].axes is not ax:
-                continue
-            xx = rec["result"].get("xx")
-            if xx is None or len(xx) < 2:
-                continue
-            try:
-                lo_px = ax.transData.transform((xx[0], 0.0))[0]
-                hi_px = ax.transData.transform((xx[-1], 0.0))[0]
-            except Exception:
-                continue
-            edge = nearest_window_edge(event.x, lo_px, hi_px, tol_px)
-            if edge is None:
-                continue
-            (guide,) = ax.plot([event.xdata, event.xdata], list(ax.get_ylim()),
-                               color="tab:green", lw=1.0, ls="--", zorder=5)
-            canvas = ax.figure.canvas
-            self.peak2_drag = dict(
-                rec=rec, edge=edge, ax=ax, guide=guide,
-                cid_move=canvas.mpl_connect("motion_notify_event", self._peak2_on_drag_motion),
-                cid_up=canvas.mpl_connect("button_release_event", self._peak2_on_drag_release))
-            self._peak2_status(f"[drag] Peak {rec['number']}: drag the {edge} edge, "
-                               "release to refit.")
-            canvas.draw_idle()
-            return True
-        return False
+        return self.peak_fit2_controller._peak2_try_grab(event)
 
     def _peak2_on_drag_motion(self, event):
-        """Move the dashed guide line to follow the cursor during a drag."""
-        d = self.peak2_drag
-        if d is None or event.inaxes is not d["ax"] or event.xdata is None:
-            return
-        try:
-            d["guide"].set_xdata([event.xdata, event.xdata])
-            d["ax"].figure.canvas.draw_idle()
-        except Exception:
-            self.logger.debug('_peak2_on_drag_motion failed', exc_info=True)
+        self.peak_fit2_controller._peak2_on_drag_motion(event)
 
     def _peak2_on_drag_release(self, event):
-        """Release: refit the fit with the dragged edge moved (other edge + μ
-        seed kept). A drag is explicit — its failures are always reported and
-        never cap-silenced; on failure the previous fit is kept untouched."""
-        d = self.peak2_drag
-        if d is None:
-            return
-        ax = d["ax"]
-        canvas = ax.figure.canvas
-        # tear down the drag interaction first
-        for cid in (d["cid_move"], d["cid_up"]):
-            try:
-                canvas.mpl_disconnect(cid)
-            except Exception:
-                pass
-        try:
-            d["guide"].remove()
-        except Exception:
-            pass
-        self.peak2_drag = None
-
-        rec, edge = d["rec"], d["edge"]
-        new_x = event.xdata
-        if new_x is None:
-            self._peak2_status(f"[drag] Peak {rec['number']}: cancelled (released off the pad).")
-            canvas.draw_idle()
-            return
-        prev = rec["result"]
-        xx = prev["xx"]
-        lo, hi = ((float(new_x), float(xx[-1])) if edge == "lo"
-                  else (float(xx[0]), float(new_x)))
-        arrays = self._peak2_spectrum_arrays(rec["name"])
-        if arrays is None:
-            self._peak2_status(f"[drag] Peak {rec['number']}: spectrum unavailable.")
-            canvas.draw_idle()
-            return
-        xc, y = arrays
-        # auto-components: the new window may now cover extra peaks (add) or
-        # have dropped some (shrink) — refit the component set to match it
-        r = autocomponent_refit(xc, y, lo, hi, prev)
-        if not r["ok"]:
-            self._peak2_status(f"[failed] window edit (Peak {rec['number']}): "
-                               f"{r.get('error', 'fit failed')}")
-            canvas.draw_idle()
-            return
-        for art in rec.get("artists") or ():
-            try:
-                art.remove()
-            except Exception:
-                pass
-        rec["result"] = r
-        rec["artists"] = self._peak2_draw(ax, r)
-        self._peak2_update_row(rec["number"], r, tag="edited")
-        ncomp = len(r["components"])
-        extra = f" ({ncomp} components)" if ncomp > 1 else ""
-        self._peak2_status(f"Peak {rec['number']} (window edited){extra}: "
-                           f"μ = {self._peak2_result_mu(r):.6g}")
-        canvas.draw_idle()
+        self.peak_fit2_controller._peak2_on_drag_release(event)
 
     def _peak2_update_row(self, number, r, tag=None):
         """Refresh the table row for fit `number` in place after a refit."""
@@ -2353,21 +2257,7 @@ class MainWindow(QMainWindow):
                 break
 
     def _peak2_try_edit(self, event):
-        """Right-click inside a fit's blue fill opens the edit popup for that
-        fit. Returns True when a popup opened."""
-        ax = event.inaxes
-        for rec in self.peak2_fits:
-            arts = rec.get("artists") or ()
-            if len(arts) < 3 or arts[0].axes is not ax:
-                continue
-            try:
-                hit, _ = arts[2].contains(event)     # the fill (PolyCollection)
-            except Exception:
-                hit = False
-            if hit:
-                self._peak2_open_edit(rec, event.xdata)
-                return True
-        return False
+        return self.peak_fit2_controller._peak2_try_edit(event)
 
     def _peak2_open_edit(self, rec, click_x):
         """Modal μ/σ/FWHM editor for one fit. On a multi-component fit the edited
@@ -2699,118 +2589,10 @@ class MainWindow(QMainWindow):
         self.peak_fit2_controller.peakFit2Config()
 
     def onPeakFit2Press(self, event):
-        """Unified Peak Finder 2 press handler. Priority: (1) an end-handle grab
-        starts a drag; (2) a right-click inside a fit's fill opens the edit
-        popup; (3) a left-click while armed (Start or Fix) fits. Zoom / gate /
-        summing-region presses are never treated as any of those."""
-        if event.inaxes is None or event.xdata is None:
-            return
-        if self._peak2_other_mode_active():
-            return
-        if event.button == 1 and not event.dblclick and self._peak2_try_grab(event):
-            return
-        if event.button == 3:
-            self._peak2_try_edit(event)
-            return
-        if event.button != 1 or event.dblclick:
-            return
-        if not (self.peak2_armed or self.peak2_fix_armed):
-            return
-        self._peak2_fit_at_press(event)
+        self.peak_fit2_controller.onPeakFit2Press(event)
 
     def _peak2_fit_at_press(self, event):
-        """Armed-mode fit: gaussian+linear around the click on the clicked pad
-        (fix-μ when Fix Peak is armed, automatic window otherwise), draw the
-        curve + dashed background + blue net-area fill, and add a results row.
-        Guards are owned by the `onPeakFit2Press` dispatcher."""
-        try:
-            if "colorbar_" in event.inaxes.get_label():
-                return
-            # resolve the clicked pad (same rule as on_press)
-            index = list(self.currentPlot.figure.axes).index(event.inaxes)
-            if self.currentPlot.isEnlarged:
-                index = self.wTab.selectedPad(self.wTab.currentIndex())
-
-            name = self.nameFromIndex(index)
-            if not name:
-                self._peak2_status("[skip] Clicked pad holds no spectrum.")
-                return
-            if self.getSpectrumStoreInfo("dim", index=index) != 1:
-                self._peak2_status("[skip] Peak Finder works on 1D spectra only.")
-                return
-
-            binx     = self.getSpectrumStoreInfo("binx", index=index)
-            minxREST = self.getSpectrumStoreInfo("minx", index=index)
-            maxxREST = self.getSpectrumStoreInfo("maxx", index=index)
-            xtmp = self.plot_controller.createRange(binx, minxREST, maxxREST)
-            ytmp = self.getSpectrumStoreInfo("data", index=index)
-            # bin centres to match the counts array; the fit window is chosen
-            # automatically from the data around the click (plan A)
-            xc = np.asarray(xtmp[:-1]) + 0.5 * np.diff(np.asarray(xtmp))
-
-            # Config cap (bins -> x units); with a cap set, unfittable clicks
-            # are skipped silently by design
-            cap_bins = self._peak2_max_window_bins()
-            bw = float(maxxREST - minxREST) / float(binx)
-            max_hw = 0.5 * cap_bins * bw if cap_bins else None
-
-            cx = float(event.xdata)
-            spec = self._peak2_current_spec()
-            if self.peak2_fix_armed:
-                # Fix Peak: pin μ at the clicked x over a window centred on the
-                # click (cap sizes it, else 50 bins) — never estimate_fit_window,
-                # which would snap onto a bigger neighbour. Failures are always
-                # reported here; the cap only sizes the window, it does not
-                # silence the click.
-                lo, hi = fix_peak_window(cx, bw, cap_bins=cap_bins)
-                r = fit_composite(xc, np.asarray(ytmp)[1:], lo, hi, spec,
-                                  fixed={"mu1": cx})
-                tag = "fixed μ"
-                if not r["ok"]:
-                    self._peak2_status(f"[failed] {r.get('error', 'fit failed')}")
-                    return
-            else:
-                r = fit_composite_auto(xc, np.asarray(ytmp)[1:], cx, spec,
-                                       max_half_window=max_hw)
-                tag = None
-                if not r["ok"]:
-                    if cap_bins:
-                        self.logger.debug('_peak2_fit_at_press - capped fit skipped: %s',
-                                          r.get('error'))
-                        return
-                    # failures don't consume a peak number
-                    self._peak2_status(f"[failed] {r.get('error', 'fit failed')}")
-                    return
-                # duplicate suppression (auto mode only): an off-peak flank
-                # click re-fits an already-fitted peak on the same spectrum;
-                # skip it if the centroid lands within ~1 bin of an existing fit.
-                # Both sides use the primary component, so the comparison is
-                # between the peaks the two fits are reported by; with the
-                # one-component default that is the only component there is.
-                same = [rec for rec in self.peak2_fits if rec.get("name") == name]
-                new_mu = self._peak2_result_mu(r)
-                dup = find_duplicate_mu(
-                    new_mu, [self._peak2_result_mu(rec["result"]) for rec in same], bw)
-                if dup is not None:
-                    self._peak2_status(f"[skip] already fitted near μ = {new_mu:.6g} "
-                                       f"(Peak {same[dup]['number']}).")
-                    return
-            self.peak2_count += 1
-            self._peak2_add_row(self.peak2_count, r, tag=tag)
-
-            artists = self._peak2_draw(event.inaxes, r)
-            # full record (data included) so the fit can be redrawn or refit
-            # later without depending on artist survival
-            self.peak2_fits.append(dict(number=self.peak2_count, index=index,
-                                        name=name, result=r, artists=artists))
-            # keep the handler alive on this canvas even after Stop, so future
-            # drag/edit interactions on existing fits keep working
-            self._peak2_connect(event.inaxes.figure.canvas)
-            self.currentPlot.canvas.draw_idle()
-        except Exception:
-            # a click must never crash the GUI; report instead
-            self.logger.exception('_peak2_fit_at_press - fit failed')
-            self._peak2_status("[error] Fit failed — see log.")
+        self.peak_fit2_controller._peak2_fit_at_press(event)
 
     def peakFit2RedrawAll(self):
         self.peak_fit2_controller.peakFit2RedrawAll()
