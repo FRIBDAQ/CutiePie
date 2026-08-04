@@ -1352,6 +1352,9 @@ class MainWindow(QMainWindow):
                 #drawing back the dashed red rectangle on the unenlarged spectrum
                 self.plot_controller.removeRectangle()
                 self.currentPlot.recDashed = self.plot_controller.createDashedRectangle(self.currentPlot.figure.axes[tempIdxEnlargedSpectrum])
+                # the re-add above cleared the pad that was enlarged, taking any
+                # fit artists with it; redraw them from the stored records
+                self.peakFit2RedrawAll()
                 #self.updatePlot() #replaced by the content of updatePlot in the above for loop (avoid looping twice)
                 # self.currentPlot.figure.tight_layout()
                 # self.drawAllGates()
