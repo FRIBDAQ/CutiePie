@@ -61,6 +61,17 @@ _QT_CLASSMETHODS = {
     },
 }
 
+# Members added to a namespace class qt_stubs already provides, rather than a
+# whole new class. The peak list flips check states and ORs a flag into
+# item.flags(), so these carry Qt's real integer values: a sentinel object
+# would pass the equality tests and fail the OR.
+_QT_ENUM_MEMBERS = {
+    "PyQt5.QtCore": {
+        "Qt": {"Unchecked": 0, "PartiallyChecked": 1, "Checked": 2,
+               "ItemIsUserCheckable": 16},
+    },
+}
+
 _EXTRA_QTGUI = ("QCloseEvent", "QCursor", "QMouseEvent", "QPainter")
 
 # QPalette is reached for its role enum, not constructed: connectCopy asks a
@@ -98,6 +109,17 @@ def _widen_stub_pyqt5():
                 body = {k: staticmethod(v) for k, v in members.items()}
                 setattr(module, cls_name, type(cls_name, (_StubWidget,), body))
                 installed.append(f"{mod_name}.{cls_name}")
+
+    for mod_name, classes in _QT_ENUM_MEMBERS.items():
+        module = sys.modules[mod_name]
+        for cls_name, members in classes.items():
+            cls = getattr(module, cls_name, None)
+            if cls is None:
+                continue
+            for name, value in members.items():
+                if not hasattr(cls, name):
+                    setattr(cls, name, value)
+                    installed.append(f"{mod_name}.{cls_name}.{name}")
 
     for mod_name, classes in _QT_ENUMS.items():
         module = sys.modules[mod_name]

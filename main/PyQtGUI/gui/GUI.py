@@ -51,7 +51,7 @@ from PyQt5.QtWidgets import (
     QApplication, QDialog,
     QFileDialog, QFormLayout, QGridLayout, QHBoxLayout, QInputDialog,
     QLabel, QLineEdit, QMainWindow, QMenu, QPushButton,
-    QListWidgetItem, QShortcut, QTabBar,
+    QShortcut, QTabBar,
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
 from PyQt5.QtGui import QCursor, QKeySequence, QMouseEvent
@@ -93,7 +93,6 @@ from PlotGUI import Tabs # area defined for the Tabs
 from services.spectrum_store import SpectrumStore
 from services.display_slot import DisplaySlot, SLOT_KEYS
 from services.peak_finder import (
-    PEAK_ALGORITHMS, find_peaks_in_range, format_peak_labels, format_peak_output,
     autocomponent_refit, find_duplicate_mu, fit_composite, fit_composite_auto,
     fix_peak_window, format_composite_fit_row, nearest_component_index,
     fwhm_to_sigma, nearest_window_edge, primary_component, sigma_to_fwhm,
@@ -109,6 +108,7 @@ from controllers.copy_properties_controller import CopyPropertiesController
 from controllers.geometry_controller import GeometryController
 from controllers.overlay_controller import OverlayController
 from controllers.jupyter_controller import JupyterController
+from controllers.peak_scan_controller import PeakScanController
 from adapters.connection_adapter import ConnectionAdapter
 from adapters.fit_adapter import FitAdapter
 from adapters.gate_adapter import GateAdapter
@@ -494,6 +494,16 @@ class MainWindow(QMainWindow):
             logger=self.logger,
         )
 
+        self.peak_scan_controller = PeakScanController(
+            peak_tab=self.extraPopup.peak,
+            get_current_plot=lambda: self.currentPlot,
+            get_selected_index=lambda: self.currentPlot.selected_plot_index,
+            get_store_info=self.getSpectrumStoreInfo,
+            get_view_info=self.getSpectrumViewInfo,
+            plot_controller=self.plot_controller,
+            logger=self.logger,
+        )
+
         self.copy_props = CopyPropertiesController(
             copy_attr=self.copyAttr,
             get_selected_index=lambda: self.currentPlot.selected_plot_index,
@@ -510,18 +520,11 @@ class MainWindow(QMainWindow):
         )
 
     def _init_runtime_state(self):
-        """Per-session scratch state: peak finding, PF2, image overlay, gate-name cache."""
-        # for peak finding
-        self.datax = None
-        self.datay = None
-        self.peaks = None
-        self.properties = None
-        self.peak_pos = {}
-        self.peak_vl = {}
-        self.peak_hl = {}
-        self.peak_txt = {}
-        self.isChecked = {}
+        """Per-session scratch state: PF2, image overlay, gate-name cache.
 
+        Peak Finder 1's scan results and marker handles moved onto
+        PeakScanController with its methods (ARCH.md §7 D5).
+        """
         # Peak Finder 2 (click-to-fit): armed-mode connection id, per-fit
         # records [{number, index, name, result, artists}, ...] (full curves
         # stored so fits can be redrawn/refit independent of artist survival)
@@ -2147,145 +2150,22 @@ class MainWindow(QMainWindow):
     # 13) Peak Finding
     ############################
 
-    def _syncPeakMarker(self, row, checked):
-        """Draw or remove one peak's markers to match its list check state."""
-        if not checked and self.isChecked.get(row, False):
-            try:
-                self.removePeak(row)
-            except Exception:
-                self.logger.debug('_syncPeakMarker - peak artist cleanup failed', exc_info=True)
-            self.isChecked[row] = False
-        elif checked and not self.isChecked.get(row, False):
-            self.drawSinglePeaks(self.peaks, self.properties, self.datay, row)
-            self.isChecked[row] = True
-
-    def peakItemChanged(self, item):
-        self.logger.info('peakItemChanged')
-        row = self.extraPopup.peak.peak_list.row(item)
-        self._syncPeakMarker(row, item.checkState() == Qt.Checked)
-        self.currentPlot.canvas.draw()
-
-    def setAllPeaksChecked(self, checked):
-        self.logger.info('setAllPeaksChecked - checked: %s', checked)
-        peak_list = self.extraPopup.peak.peak_list
-        state = Qt.Checked if checked else Qt.Unchecked
-        # block itemChanged while flipping the states, then sync the markers
-        # in one pass with a single canvas redraw
-        peak_list.blockSignals(True)
-        try:
-            for row in range(peak_list.count()):
-                peak_list.item(row).setCheckState(state)
-        finally:
-            peak_list.blockSignals(False)
-        for row in range(peak_list.count()):
-            self._syncPeakMarker(row, checked)
-        self.currentPlot.canvas.draw()
-
-    def populatePeakList(self):
-        """Rebuild the checkable peak list, one row per found peak (no cap —
-        replaces the fixed 12-checkbox grid), and draw every marker checked."""
-        self.logger.info('populatePeakList')
-        # drop markers left over from a previous Scan (the old grid redrew
-        # over its stale artist handles, leaking them onto the canvas)
-        self.setAllPeaksChecked(False)
-        peak_list = self.extraPopup.peak.peak_list
-        peak_list.blockSignals(True)
-        try:
-            peak_list.clear()
-            labels = format_peak_labels(self.peaks, self.properties, self.datax)
-            for i, label in enumerate(labels):
-                item = QListWidgetItem(label)
-                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-                item.setCheckState(Qt.Checked)
-                peak_list.addItem(item)
-                self.isChecked[i] = False
-        finally:
-            peak_list.blockSignals(False)
-        for i in range(len(self.peaks)):
-            self._syncPeakMarker(i, True)
-        self.currentPlot.canvas.draw()
-
-    def peakAnalClear(self):
-        self.logger.info('peakAnalClear')
-        self.extraPopup.peak.peak_results.clear()
-        self.removeAllPeaks()
-        peak_list = self.extraPopup.peak.peak_list
-        peak_list.blockSignals(True)
-        try:
-            peak_list.clear()
-        finally:
-            peak_list.blockSignals(False)
-        self.resetPeakDict()
-
-    def removePeak(self, i):
-        self.logger.info('removePeak')
-        self.peak_pos[i][0].remove()
-        del self.peak_pos[i]
-        self.peak_vl[i].remove()
-        del self.peak_vl[i]
-        self.peak_hl[i].remove()
-        del self.peak_hl[i]
-        self.peak_txt[i].remove()
-        del self.peak_txt[i]
-
-    def resetPeakDict(self):
-        self.logger.info('resetPeakDict')
-        self.peak_pos = {}
-        self.peak_vl = {}
-        self.peak_hl = {}
-        self.peak_txt = {}
-
-    def removeAllPeaks(self):
-        self.logger.info('removeAllPeaks')
-        self.setAllPeaksChecked(False)
-
-
-    def drawSinglePeaks(self, peaks, properties, data, index):
-        self.logger.info('drawSinglePeaks - index, properties: %s, %s', index, properties)
-        ax = self.getSpectrumViewInfo("axis", index=self.currentPlot.selected_plot_index)
-        x = self.datax.tolist()
-        self.peak_pos[index] = ax.plot(x[peaks[index]], int(data[peaks[index]]), "v", color="red")
-        self.peak_vl[index] = ax.vlines(x=x[peaks[index]], ymin=data[peaks[index]] - properties["prominences"][index], ymax = data[peaks[index]], color = "red")
-        self.peak_hl[index] = ax.hlines(y=properties["width_heights"][index], xmin=properties["left_ips"][index], xmax=properties["right_ips"][index], color = "red")
-        self.peak_txt[index] = ax.text(x[peaks[index]], int(data[peaks[index]]*1.1), str(int(x[peaks[index]])))
-
-
-    def update_peak_output(self, peaks, properties):
-        self.logger.info('update_peak_output - len(peaks), properties: %s, %s', len(peaks), properties)
-        for s in format_peak_output(peaks, properties, self.datax):
-            self.extraPopup.peak.peak_results.append(s)
+    # Peak Finder 1 lives on PeakScanController (ARCH.md §7 D5). These stay
+    # because they are the targets of .connect() calls in bindDynamicSignal;
+    # the list handler also has to keep MainWindow's signature, since Qt hands
+    # it the item.
 
     def analyzePeak(self):
-        self.logger.info('analyzePeak')
-        try:
-            index = self.currentPlot.selected_plot_index
-            ax = self.getSpectrumViewInfo("axis", index=index)
-            # input points for peak finding
-            width = int(self.extraPopup.peak.peak_width.text())
-            binx = self.getSpectrumStoreInfo("binx", index=index)
-            minxREST = self.getSpectrumStoreInfo("minx", index=index)
-            maxxREST = self.getSpectrumStoreInfo("maxx", index=index)
+        self.peak_scan_controller.analyzePeak()
 
-            xtmp = self.plot_controller.createRange(binx, minxREST, maxxREST)
-            ytmp = (self.getSpectrumStoreInfo("data", index=index)).tolist()
+    def peakAnalClear(self):
+        self.peak_scan_controller.peakAnalClear()
 
-            xmin, xmax = ax.get_xlim()
-            algo_name = self.extraPopup.peak.peak_algo.currentText()
-            finder = PEAK_ALGORITHMS.get(algo_name, find_peaks_in_range)
-            self.logger.debug('analyzePeak - algo, xmin, xmax: %s, %s, %s',
-                              algo_name, xmin, xmax)
+    def peakItemChanged(self, item):
+        self.peak_scan_controller.peakItemChanged(item)
 
-            self.datax, self.datay, self.peaks, self.properties = \
-                finder(xtmp, ytmp, xmin, xmax, width)
-
-            self.update_peak_output(self.peaks, self.properties)
-            self.populatePeakList()
-
-        except Exception:
-            # Peak analysis is best-effort: a bad width entry, an empty view,
-            # or a find_peaks failure must not crash the GUI — but must not be
-            # silent either (the user would see nothing happen with no clue why).
-            self.logger.exception('analyzePeak - peak analysis failed')
+    def setAllPeaksChecked(self, checked):
+        self.peak_scan_controller.setAllPeaksChecked(checked)
 
 
     ############################
