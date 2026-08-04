@@ -1,5 +1,36 @@
+from dataclasses import dataclass, field
+from typing import Optional, Sequence, Tuple
+
 import numpy as np
 from scipy.optimize import minimize
+
+
+@dataclass
+class FitRequest:
+    """What a fit needs: data, the window, and the panel's seed parameters."""
+    x: Sequence[float]
+    y: Sequence[float]
+    xmin: float
+    xmax: float
+    params: Sequence[float]
+
+
+@dataclass
+class FitResult:
+    """What a fit produced. No widgets: the caller decides how to show it,
+    which is what makes a plugin testable without Qt or a matplotlib axis."""
+    # the optimiser's own verdict. A False here still leaves a usable curve —
+    # scipy reports precision loss on a poor seed — so callers that want "did
+    # this fit work" should look at the numbers, not only at this flag.
+    converged: bool = False
+    params: Sequence[float] = ()
+    chi2: float = float("nan")
+    redchi: float = float("nan")
+    ndof: int = 0
+    curve: Optional[Tuple[Sequence[float], Sequence[float]]] = None
+    stats_line: Optional[str] = None
+    param_lines: list = field(default_factory=list)
+    message: Optional[str] = None
 
 # Invalid values are ordinary here: the optimiser walks through parameter sets
 # that make the model produce nan, and the objective is defined for them. That
@@ -41,12 +72,37 @@ class FitFunction:
             pred = np.maximum(pred, 1e-10)
             return -np.sum(y*np.log(pred) - pred)
 
-    def start(self, x, y, xmin, xmax, params, axis, fit_results):
-        """Perform the fit and show the results. Return the data to plot."""
+    def run(self, request):
+        """Fit and return a FitResult. Qt-free, so a plugin written against
+        this seam can be tested without a widget or an axis."""
         with np.errstate(invalid='ignore'):
-            return self._start(x, y, xmin, xmax, params, axis, fit_results)
+            return self._run(request)
 
-    def _start(self, x, y, xmin, xmax, params, axis, fit_results):
+    def start(self, x, y, xmin, xmax, params, axis, fit_results):
+        """Back-compat shim: the seven-positional signature every existing
+        plugin implements. Runs the fit through `run` and does the drawing and
+        reporting the old contract expects, returning the plotted line."""
+        res = self.run(FitRequest(x=x, y=y, xmin=xmin, xmax=xmax, params=params))
+        if res.stats_line:
+            fit_results.append(res.stats_line)
+        fitln = None
+        if res.curve is not None:
+            try:
+                fitln, = axis.plot(res.curve[0], res.curve[1], 'r-')
+                # the parameter lines share the plot's try in the original, so
+                # a pad that cannot be drawn on reports the stats and no more
+                for line in res.param_lines:
+                    fit_results.append(line)
+            except Exception:
+                fitln = None
+        if fitln is not None:
+            fitln.chi2 = res.chi2
+            fitln.redchi = res.redchi
+            fitln.ndof = res.ndof
+        return fitln
+
+    def _run(self, request):
+        x, y, params = request.x, request.y, request.params
         self.set_initial_parameters(x, y, params)
         # Use BFGS and higher-order Jacobian approx. BFGS provides appoximate
         # Hessian for extracting parameter uncertainties without an additional
@@ -77,28 +133,25 @@ class FitFunction:
             chi2 = float(np.sum(resid**2 / pred))
             ndof = int(len(x) - len(result.x))
             redchi = chi2 / max(ndof, 1)
-            fit_results.append(
-                f'[stats] chi-square={chi2:.3f} ; '
-                f'reduced chi-square={redchi:.3f} ; ndof={ndof}')
+            stats_line = (f'[stats] chi-square={chi2:.3f} ; '
+                          f'reduced chi-square={redchi:.3f} ; ndof={ndof}')
         except Exception:
-            pass  # goodness-of-fit is best-effort; never block the fit
+            stats_line = None  # goodness-of-fit is best-effort; never block the fit
 
-        fitln = None # Data to plot
-
+        curve = None
+        param_lines = []
         try:
-            x_fit = np.linspace(x[0],x[-1], 10000)
-            y_fit = self.model(x_fit, result.x)
-            fitln, = axis.plot(x_fit,y_fit, 'r-')
+            x_fit = np.linspace(x[0], x[-1], 10000)
+            curve = (x_fit, self.model(x_fit, result.x))
             # Inverse Hessian is ~ Cov matrix:
             for i in range(len(result.x)):
-                s = 'Par['+str(i)+']: '+str(round(result.x[i],6))+'+/-'+str(round(np.sqrt(result.hess_inv[i][i]),6))
-                fit_results.append(s)
+                param_lines.append(
+                    'Par['+str(i)+']: '+str(round(result.x[i],6))+'+/-'
+                    + str(round(np.sqrt(result.hess_inv[i][i]),6)))
         except Exception:
-            pass # Can't plot, ignored
+            curve = None
+            param_lines = []
 
-        if fitln is not None:
-            fitln.chi2 = chi2
-            fitln.redchi = redchi
-            fitln.ndof = ndof
-
-        return fitln
+        return FitResult(converged=bool(result.success), params=result.x,
+                         chi2=chi2, redchi=redchi, ndof=ndof, curve=curve,
+                         stats_line=stats_line, param_lines=param_lines)
