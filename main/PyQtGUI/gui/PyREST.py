@@ -1007,13 +1007,22 @@ class PyREST:
     #           the elements of the array are, in order, either the text add or remove indicating if the remaining elements describe a spectrum being added or removed from shared memory,
     #           the name of the affected spectrum and the xamine id, or binding slot, that was allocated to the spectrum or from which the spectrum was removed.
 
+    # Returns the detail object on success, or None when the poll produced no
+    # usable answer: the request failed, or the body could not be parsed. The
+    # two outcomes are kept apart because the caller retries a failed poll but
+    # accepts an empty detail, which is the normal "nothing fired since the
+    # last poll" reply. Collapsing both into a falsy value made one timed-out
+    # request end the session's trace tracking.
     def pollTraces(self, token):
         url = self._build_url("spectcl/trace/fetch", token=str(token))
         response = self.sendRequest(url)
-        if response is None :
-            return {}
-        trace_dict = json.loads(response.decode())
-        return trace_dict["detail"]
+        if response is None:
+            return None
+        try:
+            return json.loads(response.decode())["detail"]
+        except (ValueError, KeyError, TypeError, AttributeError):
+            self.logger.warning('pollTraces - could not parse the trace reply')
+            return None
 
 
     ############################################################

@@ -59,6 +59,14 @@ class RestWorker(QObject):
     tracesReady   = pyqtSignal(dict)       # "remove" binding events only
     spectrumAdded = pyqtSignal(str, dict)  # name, raw REST spectrum info dict
 
+    # How many polls in a row must fail before the connection is called dead.
+    # A poll fails on any transport error, and SpecTcl busy in an analysis
+    # burst for longer than PyREST's 5 second timeout is enough to produce
+    # one. At one poll every retention/2 seconds, three failures means the
+    # server has been unreachable for roughly a poll interval times three
+    # before the user is told about it.
+    _MAX_POLL_FAILURES = 3
+
     def __init__(self, rest, retention, stop_event):
         super().__init__()
         self._rest      = rest
@@ -79,13 +87,29 @@ class RestWorker(QObject):
         self.connected.emit()
         # try/finally: an unexpected error in the polling loop must still emit
         # disconnected(), otherwise the UI shows "Connected" on a dead thread.
+        failures = 0
         try:
             while not self._stop.is_set():
                 if self._stop.wait(self._retention / 2):
                     break
                 traces = self._rest.pollTraces(token)
-                if not traces:
-                    break
+                if traces is None:
+                    # The poll did not get through. One timed-out or reset
+                    # request is not a dead server, so retry rather than
+                    # ending the loop: leaving it means no more add/remove
+                    # tracking for the rest of the session, and only a
+                    # reconnect brings it back.
+                    failures += 1
+                    if failures >= self._MAX_POLL_FAILURES:
+                        logger.error(
+                            'RestWorker - %d trace polls in a row failed; treating as disconnect',
+                            failures)
+                        break
+                    logger.warning(
+                        'RestWorker - trace poll %d of %d failed, retrying',
+                        failures, self._MAX_POLL_FAILURES)
+                    continue
+                failures = 0
                 if not isinstance(traces, dict):
                     logger.warning('RestWorker - pollTraces returned non-dict: %s', type(traces).__name__)
                     continue
