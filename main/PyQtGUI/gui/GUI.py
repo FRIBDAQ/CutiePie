@@ -340,6 +340,19 @@ class MainWindow(QMainWindow):
         #spectra (SpectrumStore): canonical REST registry {name -> {dim,binx,minx,maxx,biny,miny,maxy,data,parameters,type}}
         self.spectra = SpectrumStore()
 
+        # FIRST, before any service: every one of them is constructed against
+        # these accessors, and the two late-bound seams below (currentPlot,
+        # connection_manager) are resolved per call, so neither has to exist yet.
+        self.view_state = ViewState(
+            spectra=self.spectra,
+            tabs=self.wTab,
+            get_current_plot=lambda: self.currentPlot,
+            applylistgate=lambda name: self.connection_manager.applylistgate(name),
+            gate_name_fetched=self._gateNameFetched,
+            logger=self.logger,
+        )
+
+
         self.fit_manager = FitManager(
             fit_factory=self.fit_factory,
             spectra=self.spectra,
@@ -476,15 +489,6 @@ class MainWindow(QMainWindow):
             open_file_dialog=lambda: self.openFileNameDialog(),
             save_file_dialog=lambda: self.saveFileDialog(),
             parent_widget=self,
-            logger=self.logger,
-        )
-
-        self.view_state = ViewState(
-            spectra=self.spectra,
-            tabs=self.wTab,
-            get_current_plot=lambda: self.currentPlot,
-            applylistgate=lambda name: self.connection_manager.applylistgate(name),
-            gate_name_fetched=self._gateNameFetched,
             logger=self.logger,
         )
 
