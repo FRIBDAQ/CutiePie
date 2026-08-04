@@ -168,9 +168,27 @@ def win(monkeypatch):
             field, index=index, name=name),
         get_view_info=lambda field, index=None: w.getSpectrumViewInfo(field, index=index),
         plot_controller=w.plot_controller,
-        get_fits=lambda: w.peak2_fits,
         logger=w.logger,
     )
+    # The whole cluster's state lives on PeakFit2Controller now
+    # (FACTORIZATION.md stage 8d); the unchanged test bodies keep reading it on
+    # the window through these proxies.
+    for attr in ("peak2_fits", "peak2_count", "peak2_armed", "peak2_fix_armed",
+                 "peak2_drag", "peak2_conns"):
+        monkeypatch.setattr(
+            type(w), attr,
+            property(lambda self, a=attr: getattr(self.peak_fit2_controller, a),
+                     lambda self, v, a=attr: setattr(self.peak_fit2_controller, a, v)),
+            raising=False)
+    # 8d dropped every shim that is not a .connect() target, so the fixture
+    # binds those names onto the window instance: the test bodies still drive
+    # MainWindow exactly as they did before the move, and the ones MainWindow
+    # still defines keep routing through its own shim.
+    for _name in dir(w.peak_fit2_controller):
+        if (_name.startswith(("_peak2_", "peakFit2", "onPeakFit2"))
+                and not hasattr(type(w), _name)
+                and _name not in w.__dict__):     # keep this fixture's own doubles
+            setattr(w, _name, getattr(w.peak_fit2_controller, _name))
     return w
 
 

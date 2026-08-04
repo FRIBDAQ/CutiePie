@@ -163,7 +163,11 @@ def win(monkeypatch):
     w.peak2_fix_armed = False
     w.settings = {}
 
-    # 8d's table methods, recorded rather than run
+    # 8d's table methods, recorded rather than run: this file characterizes the
+    # press path, and what the table does with a fit is test_gui_peak_fit2_table's
+    # subject. They are installed on the controller as well as the window,
+    # because 8d moved the real ones onto it and the seam that used to point
+    # back here is gone.
     w.rows_added = []
     w.rows_updated = []
     w.edits_opened = []
@@ -209,29 +213,37 @@ def win(monkeypatch):
             field, index=index, name=name),
         get_view_info=lambda field, index=None: w.ax,
         plot_controller=w.plot_controller,
-        get_fits=lambda: w.peak2_fits,
         tabs=w.wTab,
         get_current_plot=lambda: w.currentPlot,
         get_gate_popup=lambda: w.gatePopup,
         get_sum_popup=lambda: w.sumRegionPopup,
         name_from_index=lambda index: w.nameFromIndex(index),
-        get_count=lambda: w.peak2_count,
-        set_count=lambda v: setattr(w, "peak2_count", v),
-        add_row=lambda n, r, tag=None: w._peak2_add_row(n, r, tag=tag),
-        update_row=lambda n, r, tag=None: w._peak2_update_row(n, r, tag=tag),
-        open_edit=lambda rec, x: w._peak2_open_edit(rec, x),
         parent_widget=w,
         logger=w.logger,
     )
     # the arming flags and the drag context moved onto the controller with the
     # press handlers (FACTORIZATION.md 8c); the unchanged test bodies keep
-    # reading and writing them on the window through these proxies
-    for attr in ("peak2_armed", "peak2_fix_armed", "peak2_drag"):
+    # The whole cluster's state lives on PeakFit2Controller now
+    # (FACTORIZATION.md stage 8d); the unchanged test bodies keep reading it on
+    # the window through these proxies.
+    for attr in ("peak2_fits", "peak2_count", "peak2_armed", "peak2_fix_armed",
+                 "peak2_drag", "peak2_conns"):
         monkeypatch.setattr(
             type(w), attr,
             property(lambda self, a=attr: getattr(self.peak_fit2_controller, a),
                      lambda self, v, a=attr: setattr(self.peak_fit2_controller, a, v)),
             raising=False)
+    # 8d dropped every shim that is not a .connect() target, so the fixture
+    # binds those names onto the window instance: the test bodies still drive
+    # MainWindow exactly as they did before the move, and the ones MainWindow
+    # still defines keep routing through its own shim.
+    for _name in ("_peak2_add_row", "_peak2_update_row", "_peak2_open_edit"):
+        setattr(w.peak_fit2_controller, _name, getattr(w, _name))
+    for _name in dir(w.peak_fit2_controller):
+        if (_name.startswith(("_peak2_", "peakFit2", "onPeakFit2"))
+                and not hasattr(type(w), _name)
+                and _name not in w.__dict__):     # keep this fixture's own doubles
+            setattr(w, _name, getattr(w.peak_fit2_controller, _name))
     return w
 
 

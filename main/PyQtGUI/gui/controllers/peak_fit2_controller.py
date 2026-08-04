@@ -32,13 +32,27 @@ import logging
 
 import numpy as np
 
-from PyQt5.QtCore import QSettings
-from PyQt5.QtWidgets import QInputDialog
+from PyQt5.QtCore import Qt, QSettings
+from PyQt5.QtWidgets import (QDialog, QFormLayout, QHBoxLayout, QInputDialog,
+                             QLineEdit, QPushButton, QTableWidgetItem,
+                             QVBoxLayout)
 
 from services.peak_finder import (autocomponent_refit, find_duplicate_mu,
                                   fit_composite, fit_composite_auto,
-                                  fix_peak_window, nearest_window_edge,
-                                  primary_component)
+                                  fix_peak_window, format_composite_fit_row,
+                                  fwhm_to_sigma, nearest_component_index,
+                                  nearest_window_edge, primary_component,
+                                  sigma_to_fwhm, validate_gauss_edit)
+
+
+class _NumericItem(QTableWidgetItem):
+    """Peak Finder 2 results-table cell that sorts by a stored numeric value
+    (Qt.UserRole) rather than its displayed '<value> ± <err>' string."""
+    def __lt__(self, other):
+        try:
+            return float(self.data(Qt.UserRole)) < float(other.data(Qt.UserRole))
+        except (TypeError, ValueError):
+            return super().__lt__(other)
 
 
 class PeakFit2Controller:
@@ -47,19 +61,14 @@ class PeakFit2Controller:
     _PEAK2_BG_BY_LABEL = {"Linear": "poly1", "Quadratic": "poly2", "Cubic": "poly3"}
 
     def __init__(self, peak_tab, spectra, get_store_info, get_view_info,
-                 plot_controller, get_fits, tabs=None, get_current_plot=None,
+                 plot_controller, tabs=None, get_current_plot=None,
                  get_gate_popup=None, get_sum_popup=None,
-                 name_from_index=None, get_count=None, set_count=None,
-                 add_row=None, update_row=None, open_edit=None,
-                 parent_widget=None, logger=None):
+                 name_from_index=None, parent_widget=None, logger=None):
         self._peak            = peak_tab          # extraPopup.peak
         self._spectra         = spectra
         self._get_store_info  = get_store_info
         self._get_view_info   = get_view_info
         self._plot_controller = plot_controller
-        # the fit records still live on MainWindow until 8d; read them, never
-        # rebind them
-        self._get_fits        = get_fits
         self._tabs            = tabs
         self._get_current_plot = get_current_plot
         # late-bound: both popups are MainWindow attributes that can be
@@ -67,14 +76,6 @@ class PeakFit2Controller:
         self._get_gate_popup  = get_gate_popup
         self._get_sum_popup   = get_sum_popup
         self._name_from_index = name_from_index
-        # the running peak number is reset by peakFit2Clear, still 8d's; these
-        # two seams retire when that group moves
-        self._get_count       = get_count
-        self._set_count       = set_count
-        # 8d's results-table methods, late-bound for the same reason
-        self._add_row         = add_row
-        self._update_row      = update_row
-        self._open_edit       = open_edit
         self._parent_widget   = parent_widget
         self.logger = logger or logging.getLogger(__name__)
         # which canvases carry the press handler
@@ -85,6 +86,11 @@ class PeakFit2Controller:
         self.peak2_armed = False
         self.peak2_fix_armed = False
         self.peak2_drag = None
+        # 8d: the fit records and the running peak number came here with the
+        # results table, which retired the last of the temporary seams
+        self.peak2_fits = []
+        self.peak2_count = 0
+        self._peak2_edit_linking = False
 
     # ------------------------------------------------------------------
     # arming and canvas connections
@@ -111,7 +117,7 @@ class PeakFit2Controller:
     def _peak2_fit_canvases(self):
         """Canvases that currently hold at least one recorded fit's artists."""
         canvases = set()
-        for rec in self._get_fits():
+        for rec in self.peak2_fits:
             for art in rec.get("artists") or ():
                 try:
                     canvases.add(art.axes.figure.canvas)
@@ -214,6 +220,357 @@ class PeakFit2Controller:
         self._peak2_status(f"[config] Max window: {n} bins.")
 
     # ------------------------------------------------------------------
+    # results table, shape menus and the edit popup
+    # ------------------------------------------------------------------
+
+    def _peak2_add_row(self, peak_no, r, tag=None):
+        """Insert one fitted peak as a row in the results table (compact
+        columns + numeric sort keys; hover shows the full detail)."""
+        row = format_composite_fit_row(peak_no, r, tag=tag)
+        t = self._peak.peak2_table
+        t.setSortingEnabled(False)     # don't re-sort mid-insert
+        ri = t.rowCount()
+        t.insertRow(ri)
+        for ci, (text, sortval) in enumerate(row["cells"]):
+            item = _NumericItem(text)
+            # the # cell's sort value (== peak number) doubles as the row->fit
+            # lookup key for delete/highlight
+            item.setData(Qt.UserRole, float(sortval))
+            item.setToolTip(row["tooltip"])
+            t.setItem(ri, ci, item)
+        t.setSortingEnabled(True)
+
+    def _peak2_update_row(self, number, r, tag=None):
+        """Refresh the table row for fit `number` in place after a refit."""
+        row = format_composite_fit_row(number, r, tag=tag)
+        t = self._peak.peak2_table
+        for ri in range(t.rowCount()):
+            it = t.item(ri, 0)
+            if it is not None and int(round(float(it.data(Qt.UserRole)))) == number:
+                for ci, (text, sortval) in enumerate(row["cells"]):
+                    cell = t.item(ri, ci)
+                    if cell is not None:
+                        cell.setText(text)
+                        cell.setData(Qt.UserRole, float(sortval))
+                        cell.setToolTip(row["tooltip"])
+                break
+
+    def _peak2_selected_number(self):
+        """Fit number of the currently-selected table row, or None."""
+        t = self._peak.peak2_table
+        ri = t.currentRow()
+        if ri < 0 or t.item(ri, 0) is None:
+            return None
+        try:
+            return int(round(float(t.item(ri, 0).data(Qt.UserRole))))
+        except (TypeError, ValueError):
+            return None
+
+    def _peak2_row_selected(self):
+        """Highlight the selected fit's curve on the pad (thicker + orange);
+        restore the others to the default red. Also syncs the shape menus to the
+        selected fit's model, so the menus reflect the fit you'd act on."""
+        sel = self._peak2_selected_number()
+        sel_rec = None
+        canvases = set()
+        for rec in self.peak2_fits:
+            arts = rec.get("artists") or ()
+            if not arts:
+                continue
+            curve = arts[0]
+            try:
+                if rec.get("number") == sel:
+                    sel_rec = rec
+                    curve.set_linewidth(3.2)
+                    curve.set_color("tab:orange")
+                else:
+                    curve.set_linewidth(1.8)
+                    curve.set_color("tab:red")
+                canvases.add(curve.axes.figure.canvas)
+            except Exception:
+                self.logger.debug('_peak2_row_selected - restyle failed', exc_info=True)
+        # sync the menus to the selected fit's spec (signals blocked inside, so
+        # this never triggers _peak2_shape_changed's re-fit)
+        if sel_rec is not None:
+            self._peak2_sync_menus_to_spec(sel_rec["result"].get("spec", {}))
+        for c in canvases:
+            try:
+                c.draw_idle()
+            except Exception:
+                self.logger.debug('_peak2_row_selected - redraw failed', exc_info=True)
+
+    def _peak2_delete_selected(self):
+        """Delete the selected fit: its table row, its record, and its artists
+        on the pad."""
+        num = self._peak2_selected_number()
+        if num is None:
+            self._peak2_status("[delete] Select a fit row first.")
+            return
+        rec = next((rc for rc in self.peak2_fits if rc.get("number") == num), None)
+        canvases = set()
+        if rec is not None:
+            for art in rec.get("artists") or ():
+                try:
+                    canvases.add(art.axes.figure.canvas)
+                    art.remove()
+                except Exception:
+                    self.logger.debug('_peak2_delete_selected - remove failed', exc_info=True)
+            self.peak2_fits.remove(rec)
+        t = self._peak.peak2_table
+        for ri in range(t.rowCount()):
+            it = t.item(ri, 0)
+            if it is not None and int(round(float(it.data(Qt.UserRole)))) == num:
+                t.removeRow(ri)
+                break
+        try:
+            canvases.add(self._get_current_plot().canvas)
+        except Exception:
+            pass
+        for c in canvases:
+            try:
+                c.draw_idle()
+            except Exception:
+                self.logger.debug('_peak2_delete_selected - redraw failed', exc_info=True)
+        # a canvas that just lost its last fit and isn't armed can release the handler
+        self._peak2_sync_connections()
+        self._peak2_status(f"[delete] Removed Peak {num}.")
+
+    def peakFit2Clear(self):
+        """Remove every Peak Finder 2 artist and clear its output box."""
+        self.logger.info('peakFit2Clear')
+        canvases = set()
+        for rec in self.peak2_fits:
+            for art in rec.get("artists") or ():
+                try:
+                    canvases.add(art.axes.figure.canvas)
+                except Exception:
+                    pass
+                try:
+                    art.remove()
+                except Exception:
+                    self.logger.debug('peakFit2Clear - artist remove failed', exc_info=True)
+        self.peak2_fits = []
+        self.peak2_count = 0
+        self._peak.peak2_table.setRowCount(0)
+        self._peak2_status("")
+        # no fits remain: drop the handler from canvases unless still armed
+        self._peak2_sync_connections()
+        # redraw every canvas that held a fit, including other tabs'
+        try:
+            canvases.add(self._get_current_plot().canvas)
+        except Exception:
+            pass
+        for canvas in canvases:
+            try:
+                canvas.draw_idle()
+            except Exception:
+                self.logger.debug('peakFit2Clear - redraw failed', exc_info=True)
+
+    def _peak2_load_shape_menus(self):
+        """Restore the last-used shape-menu selections from QSettings (signals
+        blocked so restoring does not trigger the persist/refit slot)."""
+        s = QSettings()
+        p = self._peak
+        for widget, key in ((p.peak2_signal, "signal_shape"),
+                            (p.peak2_bg, "background_shape"),
+                            (p.peak2_cb_tail, "cb_tail_side")):
+            val = s.value(f"PeakFinder2/{key}", "", type=str)
+            if val:
+                widget.blockSignals(True)
+                widget.setCurrentText(val)
+                widget.blockSignals(False)
+
+    def _peak2_sync_menus_to_spec(self, spec):
+        """Write `spec` back into the three shape menus WITH combo signals
+        blocked, so syncing the menus to the selected fit never triggers
+        `_peak2_shape_changed`'s re-fit (the re-entrancy guard)."""
+        p = self._peak
+        sig = next((k for k, v in self._PEAK2_SIGNAL_BY_LABEL.items()
+                    if v == spec.get("signal")), "Gaussian")
+        bg = next((k for k, v in self._PEAK2_BG_BY_LABEL.items()
+                   if v == spec.get("background")), "Linear")
+        for widget, text in ((p.peak2_signal, sig), (p.peak2_bg, bg),
+                             (p.peak2_cb_tail, spec.get("tail_side", "low"))):
+            widget.blockSignals(True)
+            widget.setCurrentText(text)
+            widget.blockSignals(False)
+
+    def _peak2_shape_changed(self, *_):
+        """A shape menu changed: persist the selection, then —
+        if a fit row is selected — re-fit THAT fit in place with the new model.
+        With no row selected the menu only sets the default for the next new
+        fit. This slot fires only on a genuine user change: the menu-sync on
+        row-select (`_peak2_sync_menus_to_spec`) blocks the combo signals, so a
+        selection never lands here."""
+        s = QSettings()
+        p = self._peak
+        s.setValue("PeakFinder2/signal_shape", p.peak2_signal.currentText())
+        s.setValue("PeakFinder2/background_shape", p.peak2_bg.currentText())
+        s.setValue("PeakFinder2/cb_tail_side", p.peak2_cb_tail.currentText())
+        num = self._peak2_selected_number()
+        if num is None:
+            return
+        rec = next((rc for rc in self.peak2_fits if rc.get("number") == num), None)
+        if rec is not None:
+            self._peak2_refit_selected(rec)
+
+    def _peak2_refit_selected(self, rec):
+        """Re-fit `rec` in place over its stored window with the current menu
+        model (keeping the fit's own component count; μ seeded from the fit so
+        it stays on the same peak). Reuses the drag/edit redraw path; on failure
+        the previous fit is kept untouched."""
+        prev = rec["result"]
+        xx = prev["xx"]
+        lo, hi = float(xx[0]), float(xx[-1])
+        spec = self._peak2_current_spec()
+        spec["n_components"] = prev["spec"].get("n_components", 1)
+        seeds = {f"mu{i + 1}": c["mu"] for i, c in enumerate(prev["components"])}
+        ax = self._peak2_live_axes(rec)
+        arrays = None if ax is None else self._peak2_spectrum_arrays(rec["name"])
+        if arrays is None:
+            self._peak2_status(f"[shape] Peak {rec['number']}: spectrum unavailable.")
+            return
+        xc, y = arrays
+        r = fit_composite(xc, y, lo, hi, spec, seeds=seeds)
+        if not r["ok"]:
+            self._peak2_status(f"[shape] Peak {rec['number']}: "
+                               f"{r.get('error', 'refit failed')} — unchanged.")
+            return
+        for art in rec.get("artists") or ():
+            try:
+                art.remove()
+            except Exception:
+                pass
+        rec["result"] = r
+        rec["artists"] = self._peak2_draw(ax, r)
+        self._peak2_update_row(rec["number"], r, tag="edited")
+        self._peak2_status(f"Peak {rec['number']} → {spec['signal']}/"
+                           f"{spec['background']}: μ = {self._peak2_result_mu(r):.6g}")
+        ax.figure.canvas.draw_idle()
+
+    def _peak2_open_edit(self, rec, click_x):
+        """Modal μ/σ/FWHM editor for one fit. On a multi-component fit the edited
+        component is the one whose μ is nearest the right-clicked x (named in the
+        dialog title). σ↔FWHM are linked (factor 2.3548); fields the user changed
+        become `fixed=` on that component, the rest stay free; Apply refits over
+        the same window in place, Cancel does nothing."""
+        prev = rec["result"]
+        comps = prev["components"]
+        if click_x is None:                       # right-click without an x → first
+            click_x = comps[0]["mu"]
+        ci = nearest_component_index(comps, click_x) or 0
+        c = comps[ci]
+        mu_txt0 = f"{c['mu']:.6g}"
+        sig_txt0 = f"{c['sigma']:.6g}"
+        dlg = QDialog(self._parent_widget)
+        title = f"Edit Peak {rec['number']}"
+        if len(comps) > 1:
+            title += f" — component {ci + 1}/{len(comps)} (μ≈{c['mu']:.4g})"
+        dlg.setWindowTitle(title)
+        mu_edit = QLineEdit(mu_txt0)
+        sigma_edit = QLineEdit(sig_txt0)
+        fwhm_edit = QLineEdit(f"{c['fwhm']:.6g}")
+        form = QFormLayout()
+        form.addRow("μ", mu_edit)
+        form.addRow("σ", sigma_edit)
+        form.addRow("FWHM", fwhm_edit)
+
+        # link σ <-> FWHM live (guard against the re-entrant echo)
+        self._peak2_edit_linking = False
+
+        def _from_sigma(_):
+            if self._peak2_edit_linking:
+                return
+            self._peak2_edit_linking = True
+            try:
+                fwhm_edit.setText(f"{sigma_to_fwhm(sigma_edit.text()):.6g}")
+            except (ValueError, TypeError):
+                pass
+            finally:
+                self._peak2_edit_linking = False
+
+        def _from_fwhm(_):
+            if self._peak2_edit_linking:
+                return
+            self._peak2_edit_linking = True
+            try:
+                sigma_edit.setText(f"{fwhm_to_sigma(fwhm_edit.text()):.6g}")
+            except (ValueError, TypeError):
+                pass
+            finally:
+                self._peak2_edit_linking = False
+
+        sigma_edit.textEdited.connect(_from_sigma)
+        fwhm_edit.textEdited.connect(_from_fwhm)
+
+        apply_btn = QPushButton("Apply")
+        cancel_btn = QPushButton("Cancel")
+        apply_btn.clicked.connect(dlg.accept)
+        cancel_btn.clicked.connect(dlg.reject)
+        btns = QHBoxLayout()
+        btns.addWidget(apply_btn)
+        btns.addWidget(cancel_btn)
+        lay = QVBoxLayout()
+        lay.addLayout(form)
+        lay.addLayout(btns)
+        dlg.setLayout(lay)
+
+        if dlg.exec_() != QDialog.Accepted:
+            return
+
+        # fields whose text changed become fixed (σ text also changes when the
+        # user edits FWHM, via the link — so a width edit either way is caught)
+        fixed = {}
+        try:
+            if mu_edit.text() != mu_txt0:
+                fixed["mu"] = float(mu_edit.text())
+            if sigma_edit.text() != sig_txt0:
+                fixed["sigma"] = float(sigma_edit.text())
+        except ValueError:
+            self._peak2_status(f"[edit] Peak {rec['number']}: invalid number — unchanged.")
+            return
+        if not fixed:
+            self._peak2_status(f"[edit] Peak {rec['number']}: nothing changed.")
+            return
+        xx = prev["xx"]
+        bad = validate_gauss_edit(fixed, lo=float(xx[0]), hi=float(xx[-1]))
+        if bad:
+            self._peak2_status(f"[edit] Peak {rec['number']}: {bad} — unchanged.")
+            return
+
+        ax = self._peak2_live_axes(rec)
+        arrays = None if ax is None else self._peak2_spectrum_arrays(rec["name"])
+        if arrays is None:
+            self._peak2_status(f"[edit] Peak {rec['number']}: spectrum unavailable.")
+            return
+        xc, y = arrays
+        # validate uses the flat mu/sigma names; the fit core takes the
+        # suffixed per-component names (mu{k}/sigma{k} of the edited component),
+        # while the other components are seeded on their current centroids so
+        # they stay put through the refit
+        suffix = ci + 1
+        fixed_c = {(f"mu{suffix}" if k == "mu" else f"sigma{suffix}"): v
+                   for k, v in fixed.items()}
+        seeds = {f"mu{i + 1}": comp["mu"] for i, comp in enumerate(comps)}
+        r = fit_composite(xc, y, float(xx[0]), float(xx[-1]), prev["spec"],
+                          fixed=fixed_c, seeds=seeds)
+        if not r["ok"]:
+            self._peak2_status(f"[failed] edit (Peak {rec['number']}): "
+                               f"{r.get('error', 'fit failed')}")
+            return
+        for art in rec.get("artists") or ():
+            try:
+                art.remove()
+            except Exception:
+                pass
+        rec["result"] = r
+        rec["artists"] = self._peak2_draw(ax, r)
+        self._peak2_update_row(rec["number"], r, tag="edited")
+        self._peak2_status(f"Peak {rec['number']} (edited): "
+                           f"μ = {self._peak2_result_mu(r):.6g}")
+        ax.figure.canvas.draw_idle()
+
+    # ------------------------------------------------------------------
     # press dispatch and drag
     # ------------------------------------------------------------------
 
@@ -225,7 +582,7 @@ class PeakFit2Controller:
             return False
         ax = event.inaxes
         tol_px = 8.0
-        for rec in self._get_fits():
+        for rec in self.peak2_fits:
             arts = rec.get("artists") or ()
             if not arts or arts[0].axes is not ax:
                 continue
@@ -316,7 +673,7 @@ class PeakFit2Controller:
                 pass
         rec["result"] = r
         rec["artists"] = self._peak2_draw(ax, r)
-        self._update_row(rec["number"], r, tag="edited")
+        self._peak2_update_row(rec["number"], r, tag="edited")
         ncomp = len(r["components"])
         extra = f" ({ncomp} components)" if ncomp > 1 else ""
         self._peak2_status(f"Peak {rec['number']} (window edited){extra}: "
@@ -327,7 +684,7 @@ class PeakFit2Controller:
         """Right-click inside a fit's blue fill opens the edit popup for that
         fit. Returns True when a popup opened."""
         ax = event.inaxes
-        for rec in self._get_fits():
+        for rec in self.peak2_fits:
             arts = rec.get("artists") or ()
             if len(arts) < 3 or arts[0].axes is not ax:
                 continue
@@ -336,7 +693,7 @@ class PeakFit2Controller:
             except Exception:
                 hit = False
             if hit:
-                self._open_edit(rec, event.xdata)
+                self._peak2_open_edit(rec, event.xdata)
                 return True
         return False
 
@@ -429,7 +786,7 @@ class PeakFit2Controller:
                 # Both sides use the primary component, so the comparison is
                 # between the peaks the two fits are reported by; with the
                 # one-component default that is the only component there is.
-                same = [rec for rec in self._get_fits() if rec.get("name") == name]
+                same = [rec for rec in self.peak2_fits if rec.get("name") == name]
                 new_mu = self._peak2_result_mu(r)
                 dup = find_duplicate_mu(
                     new_mu, [self._peak2_result_mu(rec["result"]) for rec in same], bw)
@@ -437,13 +794,13 @@ class PeakFit2Controller:
                     self._peak2_status(f"[skip] already fitted near μ = {new_mu:.6g} "
                                        f"(Peak {same[dup]['number']}).")
                     return
-            self._set_count(self._get_count() + 1)
-            self._add_row(self._get_count(), r, tag=tag)
+            self.peak2_count += 1
+            self._peak2_add_row(self.peak2_count, r, tag=tag)
 
             artists = self._peak2_draw(event.inaxes, r)
             # full record (data included) so the fit can be redrawn or refit
             # later without depending on artist survival
-            self._get_fits().append(dict(number=self._get_count(), index=index,
+            self.peak2_fits.append(dict(number=self.peak2_count, index=index,
                                         name=name, result=r, artists=artists))
             # keep the handler alive on this canvas even after Stop, so future
             # drag/edit interactions on existing fits keep working
@@ -595,7 +952,7 @@ class PeakFit2Controller:
     def peakFit2RedrawAll(self):
         """Redraw every recorded fit from its stored curves onto its pad's
         current axis (recovers from axis rebuilds, e.g. enlarge/un-enlarge)."""
-        fits = self._get_fits()
+        fits = self.peak2_fits
         self.logger.info('peakFit2RedrawAll - %d record(s)', len(fits))
         canvases = set()
         for rec in fits:

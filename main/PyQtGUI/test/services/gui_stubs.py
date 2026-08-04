@@ -68,7 +68,10 @@ _QT_CLASSMETHODS = {
 _QT_ENUM_MEMBERS = {
     "PyQt5.QtCore": {
         "Qt": {"Unchecked": 0, "PartiallyChecked": 1, "Checked": 2,
-               "ItemIsUserCheckable": 16},
+               "ItemIsUserCheckable": 16,
+               # the results table stores each cell's numeric sort value here,
+               # and the # column's doubles as the row-to-fit lookup key
+               "UserRole": 0x0100},
     },
 }
 
