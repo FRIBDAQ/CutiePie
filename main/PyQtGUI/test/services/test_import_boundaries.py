@@ -150,6 +150,61 @@ def test_domain_does_not_import_presentation_or_services():
         % offenders)
 
 
+def test_sys_path_inventory():
+    """sys.path manipulation must not spread beyond the known inventory.
+
+    Main.py and GUI.py set up the import path at startup. Creator plugins
+    repeat it so they stay importable when loaded standalone by users (the
+    USERDIR/cwd plugin contract). No other module — especially not services
+    or controllers — should touch sys.path. A new file appearing here must
+    be registered in the inventory and justified."""
+    KNOWN_FILES = frozenset({
+        # entry points / composition root
+        "Main.py",
+        "GUI.py",
+        # creator plugins (standalone-importable by design)
+        "algo_skel_creator.py",
+        "cannye_creator.py",
+        "fit_alpha12_creator.py",
+        "fit_alpha22_creator.py",
+        "fit_alpha32_creator.py",
+        "fit_alpha_linear_creator.py",
+        "fit_alpha_multi_creator.py",
+        "fit_alpha_multi_sigma_creator.py",
+        "gmm_creator.py",
+        "imgseg_creator.py",
+        "kmean_creator.py",
+    })
+    hits = set()
+    for root, _dirs, files in os.walk(GUI_DIR):
+        if "__pycache__" in root:
+            continue
+        for name in files:
+            if not name.endswith(".py"):
+                continue
+            full = os.path.join(root, name)
+            with open(full, encoding="utf-8") as fh:
+                source = fh.read()
+            tree = ast.parse(source)
+            for node in ast.walk(tree):
+                if (isinstance(node, ast.Attribute)
+                        and isinstance(node.value, ast.Attribute)
+                        and isinstance(node.value.value, ast.Name)
+                        and node.value.value.id == "sys"
+                        and node.value.attr == "path"
+                        and node.attr in ("append", "insert", "extend")):
+                    rel = os.path.relpath(full, GUI_DIR)
+                    hits.add(rel)
+    unknown = hits - KNOWN_FILES
+    assert not unknown, (
+        "New sys.path manipulation in: %s. Add to the inventory in this test "
+        "if justified, or remove the sys.path call." % sorted(unknown))
+    phantom = KNOWN_FILES - hits
+    assert not phantom, (
+        "Inventory lists files that no longer manipulate sys.path: %s. "
+        "Remove them from KNOWN_FILES." % sorted(phantom))
+
+
 def test_allowlist_has_no_stale_entries():
     """Allowlist entries that no longer match mean the violation was fixed --
     remove the entry so a regression is caught immediately."""
@@ -164,3 +219,50 @@ def test_allowlist_has_no_stale_entries():
         if unused:
             stale[rel] = sorted(unused)
     assert not stale, "Allowlist entries matching nothing: %s" % stale
+
+
+def _package_modules(pkg_dir):
+    """Return the set of .py basenames (sans extension) in a package dir."""
+    return {
+        name[:-3]
+        for name in os.listdir(pkg_dir)
+        if name.endswith(".py") and name != "__init__.py"
+    }
+
+
+def test_services_roster_matches_all():
+    """Every .py in gui/services/ must appear in services/__init__.__all__."""
+    import importlib.util
+    init = os.path.join(GUI_DIR, "services", "__init__.py")
+    spec = importlib.util.spec_from_file_location("services", init)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    declared = set(mod.__all__)
+    on_disk = _package_modules(os.path.join(GUI_DIR, "services"))
+    unlisted = on_disk - declared
+    assert not unlisted, (
+        "Modules in gui/services/ not in __all__: %s. Add them to "
+        "services/__init__.py so the boundary guard covers them."
+        % sorted(unlisted))
+    phantom = declared - on_disk
+    assert not phantom, (
+        "__all__ lists modules that do not exist: %s" % sorted(phantom))
+
+
+def test_controllers_roster_matches_all():
+    """Every .py in gui/controllers/ must appear in controllers/__init__.__all__."""
+    import importlib.util
+    init = os.path.join(GUI_DIR, "controllers", "__init__.py")
+    spec = importlib.util.spec_from_file_location("controllers", init)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    declared = set(mod.__all__)
+    on_disk = _package_modules(os.path.join(GUI_DIR, "controllers"))
+    unlisted = on_disk - declared
+    assert not unlisted, (
+        "Modules in gui/controllers/ not in __all__: %s. Add them to "
+        "controllers/__init__.py so the boundary guard covers them."
+        % sorted(unlisted))
+    phantom = declared - on_disk
+    assert not phantom, (
+        "__all__ lists modules that do not exist: %s" % sorted(phantom))
