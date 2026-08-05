@@ -21,10 +21,10 @@ DEBUG = False
 
 class JupyterController:
 
-    def __init__(self, peak_tab, get_store_dict, get_statistics,
+    def __init__(self, peak_tab, view_state, get_statistics,
                  qt_logger_factory, parent_widget=None, logger=None):
         self._peak            = peak_tab          # extraPopup.peak
-        self._get_store_dict  = get_store_dict
+        self.view_state       = view_state
         self._get_statistics  = get_statistics
         self._qt_logger       = qt_logger_factory  # (view) -> QtLogger
         self._parent_widget   = parent_widget
@@ -35,7 +35,7 @@ class JupyterController:
     def createDf(self):
         self.logger.info('createDf')
         try:
-            export_spectrum_csv(self._get_store_dict(),
+            export_spectrum_csv(self.view_state.getSpectrumStoreDict(),
                                 self._peak.jup_df_filename.text(),
                                 statistics_fetcher=self._get_statistics().get)
         except Exception:

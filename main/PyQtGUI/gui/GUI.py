@@ -448,7 +448,7 @@ class MainWindow(QMainWindow):
 
         self.jupyter_controller = JupyterController(
             peak_tab=self.extraPopup.peak,
-            get_store_dict=self.view_state.getSpectrumStoreDict,
+            view_state=self.view_state,
             get_statistics=self.connection_manager.getSpectrumStatistics,
             qt_logger_factory=QtLogger,
             parent_widget=self,

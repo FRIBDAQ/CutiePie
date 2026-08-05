@@ -332,7 +332,7 @@ def test_start_position_comes_from_the_grid(win):
 
 @pytest.fixture
 def jwin(win, monkeypatch, tmp_path):
-    win.getSpectrumStoreDict = lambda: {}
+    win.view_state = types.SimpleNamespace(getSpectrumStoreDict=lambda: {})
     win.connection_manager = types.SimpleNamespace(
         getSpectrumStatistics=lambda: {})
     win.events = []
@@ -369,7 +369,7 @@ def jwin(win, monkeypatch, tmp_path):
     win._gui = jc
     win.jupyter_controller = jc.JupyterController(
         peak_tab=win.extraPopup.peak,
-        get_store_dict=win.getSpectrumStoreDict,
+        view_state=win.view_state,
         get_statistics=win.connection_manager.getSpectrumStatistics,
         qt_logger_factory=lambda view: types.SimpleNamespace(
             newlog=types.SimpleNamespace(connect=lambda f: None,
