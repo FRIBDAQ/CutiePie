@@ -1,12 +1,7 @@
-"""The enlarge/un-enlarge round trip must not destroy Peak Finder 2's fits.
-
-Entering enlarged mode hides the multipanel axes and builds a fresh single one,
-so the fits go off screen — that is expected. Leaving it restores the saved
-axes, then re-adds the enlarged pad's spectrum, and that re-add clears the pad
-and takes every fit artist with it.
-
-The fit RECORDS survive the whole trip, so a redraw from them puts the fits
-back. These tests pin that contract at the seam the fix uses.
+"""The enlarge/un-enlarge round trip must not destroy Peak Finder 2's fits:
+leaving enlarged mode re-adds the pad's spectrum, and that re-add clears the pad
+and every fit artist on it. The fit records survive the trip, so these pin the
+redraw that puts the fits back.
 """
 
 import logging

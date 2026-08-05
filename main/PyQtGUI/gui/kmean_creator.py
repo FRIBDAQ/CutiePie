@@ -9,31 +9,8 @@ from matplotlib.patches import Circle
 
 import algo_factory  # noqa: F401 - keep import so the factory can discover this module
 
-# KMean algo parameters (sklearn.cluster.KMeans)
-# n_clusters=8,                             // The number of clusters to form as well as the number of centroids to generate.
-# init='k-means++',                         // Method for initialization: ‘k-means++’ : selects initial cluster centers for k-mean clustering in a smart way to speed up convergence.
-# See section Notes in k_init for more details. ‘random’: choose n_clusters
-# observations (rows) at random from data for the initial centroids.
-# n_init=10,                                // Number of time the k-means algorithm will be run with different centroid seeds.
-#                                              The final results will be the best output of n_init consecutive runs in terms of inertia.
-# max_iter=300,                             // Maximum number of iterations of the k-means algorithm for a single run.
-# tol=0.0001,                               // Relative tolerance with regards to Frobenius norm of the difference in the cluster centers of two consecutive iterations to declare convergence.
-#                                              It’s not advised to set tol=0 since convergence might never be declared due to rounding errors. Use a very small number instead.
-# precompute_distances='auto', DEPRECATED   // Precompute distances (faster but takes more memory).
-# ‘auto’: do not precompute distances if n_samples * n_clusters > 12 million.
-# This corresponds to about 100MB overhead per job using double precision.
-# verbose=0,                                // Verbosity mode.
-# random_state=None,                        // Determines random number generation for centroid initialization. Use an int to make the randomness deterministic.
-# copy_x=True,                              // When pre-computing distances it is more numerically accurate to center the data first. If copy_x is True (default), then the original data is not modified.
-# If False, the original data is modified, and put back before the function
-# returns, but small numerical differences may be introduced by subtracting
-# and then adding the data mean. Note that if the original data is not
-# C-contiguous, a copy will be made even if copy_x is False.
-# n_jobs='None',   DEPRECATED               // The number of OpenMP threads to use for the computation. Parallelism is sample-wise on the main cython loop which assigns each sample to its closest center.
-# algorithm='auto'                          // K-means algorithm to use. The classical EM-style algorithm is “full”.
-# The “elkan” variation is more efficient on data with well-defined clusters,
-# by using the triangle inequality. However it’s more memory intensive due to
-# the allocation of an extra array of shape (n_samples, n_clusters).
+# K-means parameters, passed straight to sklearn.cluster.KMeans; see its
+# documentation for the full set.
 
 class KMeanAlgo:
     def __init__(self, n_clusters, init, n_init, max_iter, tol, precompute_distances, verbose,

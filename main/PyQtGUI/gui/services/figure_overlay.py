@@ -1,6 +1,6 @@
-"""Figure-overlay placement math — the Qt-free core of the figure-overlay
-cluster. The imaging popup can overlay a loaded image (e.g. a LISE++ picture)
-on top of a spectrum pad and nudge it around."""
+"""Placement math for overlaying an image on a spectrum pad, Qt-free so it can
+be tested without a figure. The imaging popup uses it to position and nudge a
+loaded picture."""
 
 # Nudge step sizes (figure-relative axes units), matching the original methods.
 _FINE_STEP = 0.002        # the four fineXMove buttons

@@ -1,9 +1,7 @@
-"""The Fit-CSV plot lives in a window CutiePie owns.
-
-`CsvPlotWindow.__init__` cannot be RUN here — it lays out real Qt widgets, and
-the stub widgets carry no interaction methods by design — so what it builds is
-checked against the source, the way `Plot.__init__` is. What the fit manager
-DOES with it is checked by running it against a fake window."""
+"""The Fit-CSV plot lives in a window CutiePie owns. `CsvPlotWindow.__init__`
+lays out real Qt widgets and cannot run here, so what it builds is checked
+against the source and what the fit manager does with it is checked against a
+fake window."""
 
 import ast
 import importlib

@@ -1,11 +1,7 @@
-"""No figure may be created through the pyplot state machine. A pyplot-managed
-figure registers itself in a process-global registry, which is what made a
-deleted tab's figure outlive its tab; a Figure() built here is owned by the
-widget that holds it and dies with it.
-
-The allowlist is the migration's own to-do list: entries come out as the sites
-are converted, and an empty allowlist means the job is finished. A NEW call in
-a file that is not listed fails immediately."""
+"""No figure may be created through the pyplot state machine: a pyplot-managed
+figure registers itself in a process-global registry and outlives the widget
+that showed it. The allowlist holds the sites still to be converted, so an empty
+one means the job is done and any new call fails immediately."""
 
 import ast
 import os

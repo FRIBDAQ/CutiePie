@@ -322,7 +322,7 @@ def test_a_left_click_while_fix_armed_fits(win):
 # ------------------------------------------------------------ armed-mode fit
 
 def test_a_fit_records_the_spectrum_name(win):
-    """H11: the record is what a later refit resolves from."""
+    """The record is what a later refit resolves from."""
     win.peak2_armed = True
     win._peak2_fit_at_press(Event(inaxes=win.ax, xdata=50.0))
     assert win.peak2_fits[0]["name"] == "alpha"
@@ -374,7 +374,7 @@ def test_an_enlarged_pad_uses_the_selected_index(win):
 
 
 def test_fix_peak_pins_mu_at_the_click(win):
-    """K8. The window is centred on the click; the automatic estimator is never
+    """The window is centred on the click; the automatic estimator is never
     consulted, because it would snap onto a bigger neighbour."""
     win.peak2_fix_armed = True
     win._peak2_fit_at_press(Event(inaxes=win.ax, xdata=50.0))
@@ -391,7 +391,7 @@ def test_fix_peak_tags_the_row(win):
 
 
 def test_auto_mode_passes_the_cap_as_a_half_window(win):
-    """K7: the Config cap is in bins; the fitter wants x units."""
+    """The Config cap is in bins; the fitter wants x units."""
     win.settings["PeakFinder2/max_window_bins"] = "40"
     win.peak2_armed = True
     win._peak2_fit_at_press(Event(inaxes=win.ax, xdata=50.0))
@@ -407,8 +407,8 @@ def test_auto_mode_without_a_cap_passes_none(win):
 
 
 def test_a_capped_auto_failure_is_silent(win):
-    """K7's contract: with a cap set, clicks that cannot be fitted are skipped
-    without a message — otherwise scanning a spectrum spams the status line."""
+    """With a cap set, clicks that cannot be fitted are skipped without a
+    message — otherwise scanning a spectrum spams the status line."""
     win.settings["PeakFinder2/max_window_bins"] = "40"
     win.fits["auto"] = fit_result(ok=False, error="no peak")
     win.peak2_armed = True
@@ -442,8 +442,8 @@ def test_a_failed_fit_does_not_consume_a_peak_number(win):
 
 
 def test_a_duplicate_click_is_skipped(win):
-    """K22-adjacent: an off-peak flank click re-finds a peak already fitted on
-    this spectrum."""
+    """An off-peak flank click re-finds a peak already fitted on this
+    spectrum."""
     win.peak2_armed = True
     win._peak2_fit_at_press(Event(inaxes=win.ax, xdata=50.0))
     win._peak2_fit_at_press(Event(inaxes=win.ax, xdata=50.4))
@@ -596,7 +596,7 @@ def test_a_release_off_the_pad_cancels_without_refitting(win):
 
 
 def test_dragging_the_low_edge_moves_only_that_edge(win):
-    """K16/K17 depend on the window the release computes."""
+    """Dragging one edge must leave the other where it was."""
     rec = drawn_fit(win, lo=40.0, hi=60.0)
     start_drag(win, rec, edge="lo")
     win.calls.clear()
@@ -615,8 +615,8 @@ def test_dragging_the_high_edge_moves_only_that_edge(win):
 
 
 def test_a_release_refits_through_the_autocomponent_path(win):
-    """K16/K17: the new window may cover extra peaks or have dropped some, so
-    the component set is refitted to match rather than carried over."""
+    """The new window may cover extra peaks or have dropped some, so the
+    component set is refitted to match rather than carried over."""
     rec = drawn_fit(win)
     start_drag(win, rec)
     win.calls.clear()
@@ -687,7 +687,7 @@ def test_a_right_click_inside_the_fill_opens_that_fit(win):
 
 
 def test_the_edit_popup_is_told_where_the_click_landed(win):
-    """K19's entry point: the popup edits the component nearest the click."""
+    """The popup edits the component nearest the click."""
     drawn_fit(win)
     win._peak2_try_edit(fill_event(win))
     assert win.edits_opened[0][1] == 50.0

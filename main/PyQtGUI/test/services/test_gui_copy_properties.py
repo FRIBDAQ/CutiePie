@@ -318,7 +318,7 @@ def test_popup_lists_only_same_dim_targets_and_never_the_source(win):
 
 
 def test_each_target_button_carries_its_pad_index(win):
-    # PIN (AUDIT.md L15): the index rides on the button. applyCopy used to
+    # PIN: the index rides on the button. applyCopy used to
     # recover it by scraping the label and multiplying by the column count read
     # at Apply time, so a geometry change re-pointed every target.
     add_pad(win, "src", 0)
@@ -353,7 +353,7 @@ def test_popup_reports_the_stored_view_range(win):
 
 
 def test_popup_falls_back_to_the_axes_when_the_y_range_was_never_stored(win):
-    # PIN (BUGS.md E25): a 1-D spectrum added on a binding trace carries
+    # PIN: a 1-D spectrum added on a binding trace carries
     # miny/maxy None, and setAxisScale only writes them while autoscale is on.
     # Formatting None with :.1f used to raise and the popup never appeared.
     ax = add_pad(win, "src", 0)
@@ -396,7 +396,7 @@ def prime_apply(win, source_range=("[0.0,100.0]", "[1.0,50.0]"),
 
 
 def test_apply_copies_the_checked_properties_to_both_tiers(win):
-    # PIN (BUGS.md E19): updatePlot's limits path is autoscale-gated, so a
+    # PIN: updatePlot's limits path is autoscale-gated, so a
     # view-tier write alone never reaches the screen. Both must happen.
     add_pad(win, "src", 0)
     target_ax = add_pad(win, "dst", 1)
@@ -412,7 +412,7 @@ def test_apply_copies_the_checked_properties_to_both_tiers(win):
 
 
 def test_apply_reads_the_property_checkboxes_by_name(win):
-    # PIN (AUDIT.md M26): binding these to findChildren() construction order
+    # PIN: binding these to findChildren() construction order
     # meant a reordered or added checkbox silently re-pointed the flags.
     add_pad(win, "src", 0)
     target_ax = add_pad(win, "dst", 1)
@@ -467,7 +467,7 @@ def test_apply_turns_autoscale_off_first(win):
 
 
 def test_apply_clamps_a_non_positive_bottom_onto_a_log_target(win):
-    # PIN (BUGS.md E22): a linear source reports a bottom at or below zero and
+    # PIN: a linear source reports a bottom at or below zero and
     # a log axis rejects it, so only the top of the range used to copy. The
     # clamp lands in BOTH tiers, so what is stored equals what is drawn.
     add_pad(win, "src", 0)
@@ -492,7 +492,7 @@ def test_apply_leaves_a_linear_target_bottom_alone(win):
 
 
 def test_apply_stores_the_raw_value_when_the_pad_has_no_axes(win):
-    # PIN (BUGS.md E25b): with no axes the scale is unknowable, so the raw
+    # PIN: with no axes the scale is unknowable, so the raw
     # value is stored and setAxisScale clamps it on read. An undrawn pad's
     # slot holds the DisplaySlot empty-list default rather than None, and
     # testing that against None sent `[]` into get_yscale(); the blanket
@@ -556,7 +556,7 @@ def test_apply_redraws_once_at_the_end(win):
 
 
 def test_apply_survives_a_target_pad_the_store_no_longer_knows(win):
-    # PIN (BUGS.md E24): a geometry change blanks the pad-to-name map while the
+    # PIN: a geometry change blanks the pad-to-name map while the
     # slots keep their artists. The target is skipped, the slot is still
     # written, and the exception must not escape into the Qt slot.
     add_pad(win, "src", 0)

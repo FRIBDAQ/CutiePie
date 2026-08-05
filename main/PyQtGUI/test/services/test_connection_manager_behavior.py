@@ -267,14 +267,10 @@ def test_mirror_failure_message_reaches_dialog_signal(env, monkeypatch):
 # --------------------------------------------------------- REST worker wiring
 
 def test_reconnect_ignores_stale_disconnect_from_old_worker(env, monkeypatch):
-    # regression: reconnecting (same endpoint) tears down the old
-    # RestWorker, whose run() emits disconnected() from its finally-block as it
-    # exits. That signal is delivered AFTER the reconnect has installed a fresh
-    # worker/thread; if _on_rest_disconnected acts on it, it quit()+wait()s the
-    # BRAND-NEW thread on the GUI thread — and that thread's run loop never
-    # stops (its stop event was just cleared), so the GUI hangs. The superseded
-    # worker's signals must be detached at teardown so its late disconnect is a
-    # no-op.
+    # Reconnecting tears down the old RestWorker, whose exiting run() emits
+    # disconnected() after the fresh worker is already installed. Acting on that
+    # late signal would wait() on the new thread from the GUI thread and hang, so
+    # the superseded worker's signals are detached at teardown.
     env.cm._mapped_endpoint = ENDPOINT
     env.cm._mapped_shmem_size = 4096
     patched_connect(env, monkeypatch, qt_stubs.FakeRest(check=True, shmem_size=4096))

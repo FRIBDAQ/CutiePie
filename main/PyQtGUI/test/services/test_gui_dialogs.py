@@ -1,10 +1,7 @@
-"""The three plain widget classes live in their own module, not in GUI.py.
-
-They are Qt shells with no MainWindow reference: the tab-rename dialog, the
-per-pad cutoff dialog, and the Qt log sink. The stub harness cannot construct a
-QDialog subclass, so what is checked here is the shape of the move — the
-classes are where they should be, they kept every method, and nothing acquired
-a dependency on the window. The dialogs opening is a live check.
+"""The tab-rename dialog, the per-pad cutoff dialog and the Qt log sink are Qt
+shells with no MainWindow reference. The stub harness cannot construct a QDialog
+subclass, so these check the shape only: the classes are where they belong, kept
+every method, and took on no dependency on the window.
 """
 
 import ast

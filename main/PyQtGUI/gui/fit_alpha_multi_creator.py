@@ -1,18 +1,11 @@
 #!/usr/bin/env python
-# fit_alpha_multi_creator.py
+# AlphaMultiEMG: a sum of EMG sub-peaks grouped by isotope, with one fitted
+# amplitude per isotope and the within-isotope ratios taken from the shapes
+# file's percent column. Without bw/wmode from the GUI it uses bw=median(dx)
+# and wmode=2.
 #
-# AlphaMultiEMG: Sum of many EMG sub-peaks grouped by isotope.
-#   - Loads shapes from a text/CSV file with rows:
-#     isotope, half_life, energy_keV, percent, sigma, tau1, tau2, eta, flag
-# where group_flag is one of: s (start), e (end), - (middle) - Known
-# per-subpeak amplitude ratios from Percent within each isotope. - User
-# FITTED: one amplitude A_<isotope> per isotope (>=0).
-#   fit_factory.register("AlphaMultiEMG", AlphaMultiEMGFitBuilder(),
-#                        shape_file="/path/to/shapes.txt",
-#                        calib_a=6.8941013584, calib_b=-4943.2400523,
-#                        allow_shift=True, shift_bound=300.0)
-#
-# If GUI doesn’t inject bw/wmode, we auto-pick: bw=median(dx), wmode=2.
+# shapes file: isotope, half_life, energy_keV, percent, sigma, tau1, tau2, eta,
+#              flag   (flag s=start e=end -=middle)
 
 import sys, os, csv
 sys.path.append(os.getcwd())

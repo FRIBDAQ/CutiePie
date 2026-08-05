@@ -101,7 +101,7 @@ def test_base_start_pearson_chi2_matches_formula():
     assert abs(fitln.chi2 - expected) < 1e-6 * max(expected, 1.0)
 
 
-# --------------------------------------------------- the typed seam (ARCH R5)
+# ------------------------------------------------------------- the typed seam
 
 def _fitted():
     x = np.linspace(4150.0, 4250.0, 200)
@@ -113,9 +113,9 @@ SEED = [1000.0, 4200.0, 6.0]
 
 
 def test_run_returns_the_fit_without_touching_a_widget():
-    """The point of R5: a fit that reports a value instead of painting one.
-    `run` takes data and returns data, so a plugin is testable without Qt and
-    without a matplotlib axis."""
+    """A fit that reports a value instead of painting one. `run` takes data and
+    returns data, so a plugin is testable without Qt and without a matplotlib
+    axis."""
     fit, x, y = _fitted()
     res = fit.run(ff.FitRequest(x=x, y=y, xmin=x[0], xmax=x[-1],
                                 params=SEED))

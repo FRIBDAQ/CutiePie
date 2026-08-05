@@ -6,11 +6,8 @@ import cv2
 import algo_factory  # noqa: F401 - keep import so the factory can discover this module
 from ImgSegPlot import ImgSegPlot
 
-# KMean algo parameters (cv.kmeans())
-# samples,             // It should be of np.float32 data type, and each feature should be put in a single column.
-# nclusters(K),        // Number of clusters required at end
-# criteria, // It is the iteration termination criteria. When this criteria is
-# satisfied, algorithm iteration stops.
+# Image-segmentation parameters, passed straight to cv.kmeans; see the OpenCV
+# documentation for the full set.
 
 
 class ImgSegAlgo:

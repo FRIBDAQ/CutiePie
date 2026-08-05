@@ -23,9 +23,8 @@ config.default_bin_dir = installdir
 # Create the Makefile.
 makefile = sipconfig.SIPModuleMakefile(config, build_file,makefile="Makefile.sip")
 
-# Add the library we are wrapping.  The name doesn't include any platform
-# specific prefixes or extensions (e.g. the "lib" prefix on UNIX, or the
-# ".dll" extension on Windows).
+# Add the library we are wrapping, named without any platform-specific prefix
+# or extension.
 makefile.extra_libs = [basename]
 
 includedir = sys.argv[1]

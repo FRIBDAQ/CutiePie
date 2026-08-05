@@ -120,7 +120,7 @@ def test_start_suppresses_invalid_only_for_the_duration_of_the_fit():
         np.seterr(invalid=old)
 
 
-# ------------------------------------------------- the eta config seam (M33)
+# ------------------------------------------------------- the eta config seam
 
 # AlphaEMG32 needs lmfit, which this environment does not have, so these read
 # the source the way the caching check above does.

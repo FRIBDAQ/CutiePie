@@ -1,14 +1,11 @@
 #!/usr/bin/env python
-# fit_alpha22_creator.py
-# AlphaEMG22: Two-peak EMG (each peak has a two-tail mixture). - User FIXED:
-# mu1, mu2, eta1, eta2 - Fitted: A1, A2, s1, s2, tau11, tau12, tau21, tau22 -
-# Bin-width integration (GL7), Poisson weights, optional one-step IRLS.
-#   [A1(p0), mu1(p1), s1(p2), tau11(p3), tau12(p4), eta1(p5),
-#    A2(p6), mu2(p7), s2(p8), tau21(p9), tau22(p10), eta2(p11),
-#    bw(p12), wmode(p13)]
-# You can omit tau12/tau22; they’ll auto-seed > tau11/tau21 via dtau guards.
+# AlphaEMG22: a two-peak EMG, each peak a two-tail mixture, integrated over the
+# bin width with Poisson weights and an optional one-step IRLS. The user fixes
+# mu1/mu2/eta1/eta2, everything else is fitted, and tau12/tau22 auto-seed above
+# tau11/tau21 when omitted.
 #
-# wmode: 0=unweighted, 1=Poisson(data), 2=Poisson(model, 1-step IRLS)
+# fitpar: [A1, mu1, s1, tau11, tau12, eta1, A2, mu2, s2, tau21, tau22, eta2,
+#          bw, wmode]   wmode 0=unweighted 1=Poisson(data) 2=Poisson(IRLS)
 
 import sys, os, csv
 from datetime import datetime

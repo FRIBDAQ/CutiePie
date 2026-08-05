@@ -373,8 +373,8 @@ def test_a_fit_becomes_one_row(win):
 
 
 def test_the_number_cell_carries_the_fit_number_as_its_sort_value(win):
-    """K9: this value is also the row-to-fit lookup key for delete and
-    highlight, so sorting the table cannot break either."""
+    """This value is also the row-to-fit lookup key for delete and highlight, so
+    sorting the table cannot break either."""
     add_fit(win, number=7)
     assert table(win).item(0, 0).data(USER_ROLE) == 7.0
 
@@ -441,7 +441,7 @@ def test_a_row_with_no_number_cell_reads_as_none(win):
     assert win._peak2_selected_number() is None
 
 
-# -------------------------------------------------------------- highlight K11
+# ------------------------------------------------------------------- highlight
 
 def test_selecting_a_row_highlights_that_curve(win):
     rec = add_fit(win, number=1)
@@ -468,7 +468,7 @@ def test_selecting_a_row_restores_the_others(win):
 
 
 def test_selecting_a_row_syncs_the_shape_menus(win):
-    """K15: the menus reflect the fit you would act on."""
+    """The menus reflect the fit you would act on."""
     add_fit(win, number=1)
     win.peak2_fits[0]["result"]["spec"] = {"signal": "crystal_ball",
                                            "background": "poly3",
@@ -480,8 +480,8 @@ def test_selecting_a_row_syncs_the_shape_menus(win):
 
 
 def test_the_menu_sync_never_fires_the_shape_slot(win):
-    """K15's re-entrancy guard. Unblocked, selecting a row re-fits the fit you
-    just selected — silently."""
+    """The re-entrancy guard. Unblocked, selecting a row re-fits the fit you just
+    selected, silently."""
     add_fit(win, number=1)
     select_row(win, 0)
     win._peak2_row_selected()
@@ -496,7 +496,7 @@ def test_a_record_with_no_artists_is_skipped_by_the_highlight(win):
     win._peak2_row_selected()          # must not raise
 
 
-# ------------------------------------------------------------------ delete K10
+# ---------------------------------------------------------------------- delete
 
 def test_delete_with_no_selection_says_so(win):
     add_fit(win)
@@ -708,7 +708,7 @@ def test_applying_with_nothing_changed_says_so(win):
 
 
 def test_only_the_edited_field_becomes_fixed(win):
-    """K13: fields the user did not touch stay free."""
+    """Fields the user did not touch stay free."""
     rec = add_fit(win, number=1)
     win.dialog_script = {"mu": 51.0, "accept": True}
     win._peak2_open_edit(rec, 50.0)
@@ -723,7 +723,7 @@ def test_editing_the_width_fixes_sigma(win):
 
 
 def test_editing_fwhm_reaches_sigma_through_the_link(win):
-    """K18: σ and FWHM are linked live, so a width edit either way is caught."""
+    """σ and FWHM are linked live, so a width edit either way is caught."""
     rec = add_fit(win, number=1)
     win.dialog_script = {"fwhm": 9.42, "accept": True}
     win._peak2_open_edit(rec, 50.0)
@@ -750,7 +750,7 @@ def test_a_mu_outside_the_window_is_refused(win):
 
 
 def test_a_multi_component_edit_targets_the_nearest_component(win):
-    """K19: the right-clicked x picks which component is edited."""
+    """The right-clicked x picks which component is edited."""
     rec = add_fit(win, number=1, mus=(45.0, 55.0))
     win.dialog_script = {"mu": 56.0, "accept": True}
     win._peak2_open_edit(rec, 54.0)

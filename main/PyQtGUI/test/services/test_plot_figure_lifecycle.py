@@ -1,10 +1,7 @@
-"""A tab's figure belongs to its canvas, not to pyplot.
-
-`Plot.__init__` cannot be run here — it builds a real Qt toolbar and reads two
-of its actions by position, and the stub widgets deliberately carry no
-interaction methods. So the two lines that decide figure OWNERSHIP are checked
-against the source, the way the composition root's ordering is, and the
-teardown they make necessary is checked by running it."""
+"""A tab's figure belongs to its canvas, not to pyplot. `Plot.__init__` builds
+a real Qt toolbar and cannot run here, so the two lines that decide figure
+ownership are checked against the source and the teardown they make necessary is
+checked by running it."""
 
 import ast
 import os

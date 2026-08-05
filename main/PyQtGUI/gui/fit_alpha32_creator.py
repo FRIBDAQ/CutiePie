@@ -1,22 +1,12 @@
 #!/usr/bin/env python
-# fit_alpha32_creator.py
+# AlphaEMG32: a three-peak EMG, each peak a two-tail mixture, integrated over
+# the bin width with Poisson weights and an optional one-step IRLS. Peaks 2 and
+# 3 are tied to peak 1 by amplitude ratio and mu offset, so only one amplitude
+# and one centroid are free.
 #
-# AlphaEMG32: Three-peak EMG (each peak has a two-tail mixture).
-#   - Fitted: A1, (A2=ratio2*A1), (A3=ratio3*A1),
-#             mu1 (free), dmu12, dmu23  -> mu2=mu1+dmu12, mu3=mu2+dmu23
-#             s1,s2,s3,
-#             t11,t12, (t21=t11, t22=t21+dtau2= t11+dtau1), (t31=t11, t32=t31+dtau3= t11+dtau1)
-#             eta1, eta2, eta3  (constrained to (0,1))
-#   - Bin-width integration (GL7), Poisson weights, optional one-step IRLS.
-#
-# Seeds / popup order (len-tolerant; 0-based labels shown):
-#   [A1(p0), mu1(p1), s1(p2),  t11(p3), t12(p4), eta1(p5),
-#    A2(p6), mu2(p7), s2(p8),  t21(p9), t22(p10), eta2(p11),
-#    A3(p12), mu3(p13), s3(p14), t31(p15), t32(p16), eta3(p17),
-#    bw(p18), wmode(p19)]
-# Notes: - As in your AlphaEMG22, A2 and A3 seeds are interpreted as
-# *amplitude ratios* to A1 if provided (positive finite). Otherwise defaults
-# are used (1.0).
+# fitpar: [A1, mu1, s1, t11, t12, eta1, A2, mu2, s2, t21, t22, eta2,
+#          A3, mu3, s3, t31, t32, eta3, bw, wmode]
+#         A2/A3 seeds read as ratios to A1 when positive and finite, else 1.0
 
 import sys, os, csv
 from datetime import datetime

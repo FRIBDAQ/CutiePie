@@ -187,7 +187,7 @@ def load_image(win, shape=(4, 4)):
 # ================================================================== overlay
 
 def test_every_overlay_slot_survives_being_pressed_before_a_load(win):
-    # PIN (AUDIT.md H13): six slots were wired straight to buttons with no
+    # PIN: six slots were wired straight to buttons with no
     # guard, each opening on a bare self.imgplot.remove().
     for slot in (win.deleteFigure, win.fineUpMove, win.fineDownMove,
                  win.fineLeftMove, win.fineRightMove, win.moveFigure,
@@ -197,7 +197,7 @@ def test_every_overlay_slot_survives_being_pressed_before_a_load(win):
 
 
 def test_add_without_an_image_says_so(win):
-    # PIN (AUDIT.md L17): the dead `except NameError: raise` never caught this
+    # PIN: the dead `except NameError: raise` never caught this
     win.addFigure()
     assert win.box.calls == [("warning", "Overlay", "Load an image first.")]
     assert win.onFigure is False
@@ -229,7 +229,7 @@ def test_a_second_add_does_not_stack_another_overlay(win):
 
 
 def test_delete_removes_both_the_image_and_its_axes(win):
-    # PIN (SMOKE L10): only the image used to be removed, so every redraw
+    # PIN: only the image used to be removed, so every redraw
     # appended an empty axes to the list the pad lookups index
     load_image(win)
     before = len(win.currentPlot.figure.axes)
@@ -252,7 +252,7 @@ def test_a_slider_drag_never_accumulates_axes(win, slider):
 
 @pytest.mark.parametrize("slider", ["transFigure", "zoomFigureX", "zoomFigureY"])
 def test_a_slider_leaves_the_overlay_flag_alone(win, slider):
-    # PIN (SMOKE L9): routing these through deleteFigure cleared onFigure while
+    # PIN: routing these through deleteFigure cleared onFigure while
     # the image was still on screen, so the next Add stacked a second overlay
     load_image(win)
     win.addFigure()
@@ -385,7 +385,7 @@ def jwin(win, monkeypatch, tmp_path):
 
 
 def test_export_failure_is_logged_and_never_raised(jwin, monkeypatch, caplog):
-    # PIN (BUGS.md B10): a failure here must not crash the GUI or block
+    # PIN: a failure here must not crash the GUI or block
     # jupyterStart — the notebook can still open — but must not be silent
     monkeypatch.setattr(jwin._gui, "export_spectrum_csv",
                         lambda *a, **k: (_ for _ in ()).throw(ValueError("ragged")))
@@ -407,7 +407,7 @@ def test_start_exports_the_dataframe_first(jwin):
 
 
 def test_a_cancelled_locate_aborts_the_start_and_keeps_the_gui(jwin, monkeypatch):
-    # PIN (SMOKE J9): the old tuple-truthiness check made Cancel unreachable,
+    # PIN: the old tuple-truthiness check made Cancel unreachable,
     # and the cancel path called sys.exit(0) — killing the GUI
     gui = jwin._gui
     monkeypatch.setattr(gui, "testnotebook", lambda name: False)

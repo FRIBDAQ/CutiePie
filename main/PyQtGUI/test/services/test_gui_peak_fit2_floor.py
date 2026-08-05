@@ -164,11 +164,11 @@ def win(monkeypatch):
     return w
 
 
-# ------------------------------------------------- _peak2_spectrum_arrays (H11)
+# ------------------------------------------------------- _peak2_spectrum_arrays
 
 def test_spectrum_arrays_resolves_by_name(win):
-    """H11's rule: the store is asked for this NAME, and nothing consults a pad
-    index on the way."""
+    """The store is asked for this NAME, and nothing consults a pad index on the
+    way."""
     win.store.asked = []
     win._peak2_spectrum_arrays("beta")
     assert {name for name, _ in win.store.asked} == {"beta"}
@@ -277,15 +277,15 @@ def test_current_spec_carries_the_tail_side_through(win):
     assert win._peak2_current_spec()["tail_side"] == "right"
 
 
-# ------------------------------------------------------ _peak2_result_mu (M24b)
+# ------------------------------------------------------------- _peak2_result_mu
 
 def test_result_mu_of_a_single_component_fit_is_its_mu(win):
     assert win._peak2_result_mu(make_result(mus=(50.0,))) == 50.0
 
 
 def test_result_mu_quotes_the_strongest_component_not_the_first(win):
-    """M24b. The component order is the seeding order, which means nothing to
-    the user; area is what makes a component the one the fit is about."""
+    """The component order is the seeding order, which means nothing to the
+    user; area is what makes a component the one the fit is about."""
     r = make_result(mus=(45.0, 55.0), areas=(10.0, 900.0))
     assert win._peak2_result_mu(r) == 55.0
 

@@ -39,10 +39,9 @@ class JupyterController:
                                 self._peak.jup_df_filename.text(),
                                 statistics_fetcher=self._get_statistics().get)
         except Exception:
-            # Export is best-effort: a failure here must not crash the GUI or
-            # block jupyterStart (the notebook can still open). But it must not
-            # be silent either — otherwise the notebook loads stale/missing data
-            # with no clue why. Log the traceback instead of swallowing it.
+            # Export is best-effort — the notebook still opens without it — but
+            # it must not be silent, or the notebook loads stale data with no clue
+            # why.
             self.logger.exception('createDf - spectrum export failed')
 
     def jupyterStop(self):

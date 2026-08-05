@@ -1578,10 +1578,9 @@ class FitManager(QObject):
         return ids
 
     def _tag_new_fit_artists(self, ax, before_ids, fit_idx=None):
-        # Group every artist a fit adds under a per-index gid ("fit-<N>") so the
-        # WHOLE fit (total line, subpeak curves, text labels) can be deleted as
-        # a unit (deleteFit). fit_idx=None keeps the generic "fit" gid, used where
-        # no index is known (e.g. the tag-and-clear characterization path).
+        # Group every artist a fit adds under one gid so the whole fit — total
+        # line, subpeak curves, labels — deletes as a unit. fit_idx=None keeps
+        # the generic "fit" gid, for callers with no index to hand.
         gid = "fit" if fit_idx is None else f"fit-{fit_idx}"
         def _tag(a):
             if hasattr(a, "set_gid"): a.set_gid(gid)

@@ -239,9 +239,9 @@ def test_scan_finds_the_peaks_in_the_visible_window(win):
 
 
 def test_the_x_axis_comes_from_the_store_tier_not_the_view(win):
-    """E7's rule. The axes are zoomed to a quarter of the spectrum; the bin
-    count and bounds must still come from the store, with the axes supplying
-    only the window to clip to."""
+    """The axes are zoomed to a quarter of the spectrum; the bin count and bounds
+    must still come from the store, with the axes supplying only the window to
+    clip to."""
     asked = []
     win.getSpectrumStoreInfo = lambda field, index=None: (
         asked.append(field) or win.store[field])

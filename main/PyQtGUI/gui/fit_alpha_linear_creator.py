@@ -1,40 +1,11 @@
 #!/usr/bin/env python
-# fit_alpha_linear.py
+# AlphaEMGLinear: freeze mu from the calibration, fix sigma/tau1/tau2/eta, and
+# solve only for the nonnegative per-isotope amplitudes by weighted least
+# squares.
 #
-# AlphaEMGLinear: Freeze μ (from calibration), fix σ/τ1/τ2/η, and solve ONLY for
-# nonnegative per-isotope amplitudes A_i by (weighted) least squares.
-#
-# Shapes file format (CSV/TXT, commas OK, blanks allowed):
-#   isotope, half_life, energy_keV, percent, sigma, tau1, tau2, eta, flag
-# Where:
-#   - Empty isotope inherits previous (",,")
-#   - flag ∈ {'s','e','-','*'}; '*' = single-line isotope
-#   - 'percent' can be "31.6" or "31.6%" (used to set ratios within each isotope)
-#
-# Registration example (in your main launcher):
-#   fitfactory.register_builder('AlphaEMGLinear',
-#       fit_alpha_linear.AlphaEMGLinearFitBuilder(),
-#       {
-#           'shape_file': os.path.join(os.getcwd(), "shapes.txt"),
-#           'calib_a': 6.81714733542319,
-#           'calib_b': -4702.0,
-#           'wmode_default': 1,       # 0=unweighted, 1=Poisson(data), 2=Poisson(model IRLS)
-#           'allow_baseline': False,  # if True, fits a nonnegative constant b0 as well
-#       })
-#
-# GUI parameters:
-#   - Append [bw, wmode] at the END of fitpar (if provided):
-#       bw    = bin width in channels (fallback: median Δx)
-#       wmode = 0/1/2 as above
-#
-# Output:
-#   - Text report with chi-square, reduced-chi-square, R^2(plain), and A_i values
-#   - Plot with ONE solid total line (tab:orange) and ONE dashed line per sub-peak (11)
-#
-# Notes:
-#   - This module does not use lmfit; it solves a linear NNLS system.
-#   - If SciPy is available, uses scipy.optimize.nnls; otherwise falls back to a simple
-#     projected-gradient NNLS (good enough for our sizes).
+# shapes file: isotope, half_life, energy_keV, percent, sigma, tau1, tau2, eta,
+#              flag   (empty isotope inherits the previous; flag s/e/-/*)
+# fitpar tail: [bw, wmode]   wmode 0=unweighted 1=Poisson(data) 2=Poisson(IRLS)
 
 import os, csv, sys
 import numpy as np

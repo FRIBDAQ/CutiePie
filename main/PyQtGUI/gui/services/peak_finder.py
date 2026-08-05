@@ -443,10 +443,9 @@ def fit_composite(x_axis, y_data, lo, hi, spec, fixed=None, seeds=None):
 
 
 def eval_composite_result(x, result):
-    """Evaluate a fitted composite model (a :func:`fit_composite` result) at
-    ``x``. Reconstructs signal components (with the shared params, e.g. a CB's
-    ``alpha``/``n``) + background from the stored parameters — used to compute
-    the residual on the data bins for the auto-add loop."""
+    """Evaluate a fitted composite model at ``x``, rebuilding the signal
+    components and background from the stored parameters. The auto-add loop
+    uses it to get the residual on the data bins."""
     spec = result["spec"]
     sh = SIGNAL_SHAPES[spec["signal"]]
     shared = result.get("shared_params", {})
@@ -748,10 +747,9 @@ def fix_peak_window(center, bin_width, cap_bins=None):
 
 
 def format_gauss_fit_output(peak_no, r, tag=None):
-    """The Peak Finder 2 output block for one fitted peak (or its error).
-
-    ``tag`` (e.g. ``"fixed μ"``) annotates the peak header for the tool that
-    produced it; ``None`` leaves the line byte-identical to the auto path."""
+    """The Peak Finder 2 output block for one fitted peak, or its error.
+    ``tag`` annotates the header with the tool that produced the peak; ``None``
+    leaves the line identical to the automatic path."""
     label = f"Peak {peak_no}" + (f" ({tag})" if tag else "")
     if not r.get("ok"):
         return f"{label}: FAILED — {r.get('error', 'unknown error')}"

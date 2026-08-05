@@ -8,9 +8,8 @@ import numpy as np
 import pandas as pd
 
 # Under/overflow statistics columns, filled per spectrum through the
-# ``statistics_fetcher`` seam (sourced from the ``/spectcl/specstats`` REST
-# reply). Any value the server doesn't report (e.g. the y pair on 1-D spectra)
-# is NaN.
+# ``statistics_fetcher`` seam. Anything the server does not report, such as the
+# y pair on a 1-D spectrum, is NaN.
 _STAT_COLUMNS = ['xunderflow', 'xoverflow', 'yunderflow', 'yoverflow']
 
 # Column order of the exported table. Every spectrum contributes one row; the

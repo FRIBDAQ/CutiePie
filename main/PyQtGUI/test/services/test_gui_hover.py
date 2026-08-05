@@ -204,7 +204,7 @@ BLANK = ("Spectrum: \nX: Y:", "Pointer:\nX: Y: Count: ", "Gate applied: \n")
 # ------------------------------------------------------------ _setLabelText
 
 def test_label_is_written_only_when_the_text_actually_changes(win):
-    # P3: every setText triggers a Qt relayout and this runs per motion event
+    # every setText triggers a Qt relayout, and this runs per motion event
     label = FakeLabel()
     win._setLabelText(label, "same")
     win._setLabelText(label, "same")
@@ -244,7 +244,7 @@ def test_hover_over_a_2d_pad_reports_both_axis_parameters(win):
 
 
 def test_hover_blanks_when_the_pad_names_a_spectrum_the_store_dropped(win):
-    # PIN (BUGS.md L20): the dim==1/dim==2 branches had no else, so the labels
+    # PIN: the dim==1/dim==2 branches had no else, so the labels
     # kept the PREVIOUS pad's name and counts — a readout describing a spectrum
     # the pointer is not over, with nothing raised and nothing logged.
     ax0 = add_pad(win, "alive", 0)
@@ -259,7 +259,7 @@ def test_hover_blanks_when_the_pad_names_a_spectrum_the_store_dropped(win):
 
 
 def test_hover_over_an_empty_pad_blanks_without_logging(win):
-    # PIN (AUDIT.md M32): the expected misses are caught narrowly and stay
+    # PIN: the expected misses are caught narrowly and stay
     # silent. Only the unexpected ones reach the log.
     add_pad(win, "h1", 0)
     empty_ax = win.currentPlot.figure.axes[1]    # no spectrum, no slot
@@ -268,7 +268,7 @@ def test_hover_over_an_empty_pad_blanks_without_logging(win):
 
 
 def test_hover_logs_an_unexpected_error_once_behind_the_throttle(win, caplog):
-    # PIN (AUDIT.md M32): a defect below used to look exactly like the pointer
+    # PIN: a defect below used to look exactly like the pointer
     # leaving the axes. It is reported now — but at most once per interval, or
     # a broken store record would write a traceback per motion event.
     ax = add_pad(win, "h1", 0)
@@ -294,7 +294,7 @@ def test_hover_reports_the_cached_gate_name(win):
 
 
 def test_hover_never_blocks_on_the_gate_lookup(win):
-    # PIN (PERFORMANCE.md P3): a cold cache answers immediately with no name
+    # PIN: a cold cache answers immediately with no name
     # and schedules the fetch behind the readout. The hover path must never
     # wait on HTTP.
     ax = add_pad(win, "h1", 0)
@@ -306,7 +306,7 @@ def test_hover_never_blocks_on_the_gate_lookup(win):
 # ---------------------------------------------------------- getPointerInfo
 
 def test_pointer_info_reads_bin_math_from_the_store_tier(win):
-    # PIN (BUGS.md E7): the store tier is the axis DEFINITION; the per-tab view
+    # PIN: the store tier is the axis DEFINITION; the per-tab view
     # tier is the current zoom. Bin math that reads the view tier draws the
     # spectrum compressed into the zoomed window.
     counts = np.arange(12, dtype=float)

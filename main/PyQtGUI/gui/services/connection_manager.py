@@ -23,9 +23,8 @@ class ConnectionManager(QtCore.QObject):
     # connect attempt refused (shm mapping cannot change within a process);
     # payload is the user-facing message.
     connectionRefused     = pyqtSignal(str)
-    # the mirror transfer raised (e.g. getSpecTclMemory returned nullptr —
-    # wrong port / dead mirror service). The C++ side now raises instead of
-    # segfaulting (CPyConverter::Update null-check); MainWindow shows the message.
+    # the mirror transfer raised — wrong port, or a dead mirror service. The
+    # C++ side raises rather than segfaulting, and MainWindow shows the message.
     connectFailed         = pyqtSignal(str)
     # a bound spectrum declares more data than the mapped mirror can hold, so
     # its view was discarded instead of touched; payload is the user-facing
@@ -510,13 +509,10 @@ class ConnectionManager(QtCore.QObject):
 
     def _stop_rest_thread(self):
         self.logger.info('_stop_rest_thread')
-        # Detach the worker we're discarding BEFORE we stop it. Its run() emits
-        # disconnected() (and possibly connected/traces/adds) from the
-        # finally-block as it exits; that queued signal would otherwise be
-        # delivered AFTER a reconnect has already installed a FRESH worker/
-        # thread, and _on_rest_disconnected would then quit()+wait() the fresh
-        # thread on the GUI thread — which hangs the GUI, because the fresh
-        # thread's run loop never stops (its stop event was just cleared).
+        # Detach the worker we are discarding BEFORE stopping it: its exiting
+        # run() emits disconnected(), and that queued signal would otherwise
+        # arrive after a reconnect installed a fresh worker and make the handler
+        # wait() on a thread whose run loop was just restarted, hanging the GUI.
         # Severing the connections first makes the superseded worker's late
         # signals no-ops.
         if self._rest_worker is not None:

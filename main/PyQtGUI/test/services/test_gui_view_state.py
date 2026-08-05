@@ -106,7 +106,7 @@ def test_name_from_index_returns_none_for_a_pad_outside_the_grid(win):
 
 
 def test_name_from_index_returns_the_literal_empty_for_a_blanked_pad(win):
-    # PIN (BUGS.md E24): InitializeCanvas refills the map with "empty" on a
+    # PIN: InitializeCanvas refills the map with "empty" on a
     # geometry change. The pad reads as that string, NOT as None, and the store
     # does not hold it — so a dimension lookup through here yields None and
     # every caller has to cope with a third answer.
@@ -116,7 +116,7 @@ def test_name_from_index_returns_the_literal_empty_for_a_blanked_pad(win):
 
 
 def test_name_from_index_short_circuits_to_the_enlarged_spectrum(win):
-    # PIN (AUDIT.md H11): while a pad is enlarged this answers with the
+    # PIN: while a pad is enlarged this answers with the
     # enlarged spectrum for ANY index, including one it does not own. Fit
     # records that resolve a stored index through here get the wrong spectrum.
     add_spectrum(win, "h1", index=0)
@@ -169,8 +169,8 @@ def test_view_info_returns_none_for_a_pad_with_no_slot(win):
 
 
 def test_view_info_ignores_the_passed_index_while_a_pad_is_enlarged(win):
-    # PIN: the enlarged branch overrides the caller's index entirely. This is
-    # the display-tier half of the H11 pitfall pinned above.
+    # PIN: the enlarged branch overrides the caller's index entirely — the
+    # display-tier half of the pitfall pinned above.
     add_spectrum(win, "h1", index=0)
     add_spectrum(win, "h2", index=1)
     win.setSpectrumViewInfo(minx=11.0, index=0)
@@ -250,9 +250,9 @@ def test_set_geo_reuses_an_existing_slot(win):
 # ------------------------------------------------------------ the two tiers
 
 def test_the_two_metadata_tiers_are_independent(win):
-    # PIN (BUGS.md E7): same field names, different meanings. The store keeps
-    # the axis DEFINITION; the slot keeps the current VIEW range, which every
-    # zoom rewrites. Data-coordinate math must read the store tier.
+    # PIN: same field names, different meanings — the store keeps the axis
+    # DEFINITION and the slot the current VIEW range, which every zoom rewrites.
+    # Data-coordinate math must read the store tier.
     add_spectrum(win, "h1", index=0, minx=0.0, maxx=1024.0)
     win.setSpectrumViewInfo(minx=200.0, maxx=300.0, index=0)      # a zoom
     assert win.getSpectrumStoreInfo("minx", index=0) == 0.0

@@ -151,14 +151,8 @@ class PyREST:
     ## Spectrum requests
     ########################################
 
-    # get list of spectra in a dictionary form. Produce information about the spectra whose names match a pattern
-    # with glob wildcards characters. Each of the objects has the following fields:
-    #  name - spectrum name
-    #  type - spectrum type code
-    #  params - parameter definitions provided as an array of strings
-    #  axes - array of objects that describe the SpecTcl axes, each object has the attributes low, high, bins
-    #  chantype - channel type code (i.e. long)
-    #  gate - gate applied to the spectrum
+        # Spectra matching a glob pattern, each with its name, type code,
+        # parameter list, axis definitions and channel type.
     def listSpectrum(self, pattern="*"):
         url = self._build_url("spectcl/spectrum/list", filter=str(pattern))
         response = self.sendRequest(url)
@@ -174,12 +168,8 @@ class PyREST:
         self.sendRequest(url)
 
 
-    # create new spectrum. params and axes (list of lists) are lists.
-    #  name (mandatory)
-    #  type (mandatory) spectrum type code i.e. 1 for 1-d spectrum, 2 for 2-d spectrum
-    #  parameters (mandatory) parameter expressed as a space separated list
-    #  axes (mandatory) space separated list of SpecTcl axis i.e. {0 1023 1024} {0 511 512}
-    #  chantype - channel type code. defaults to long
+        # Create a spectrum. Parameters and axes arrive as lists; type is the
+        # SpecTcl type code, and each axis is a low/high/bins triple.
     def createSpectrum(self, name, types, params, axes):
         url = self._build_url("spectcl/spectrum/create") + "?" + str(name) + "&type=" + str(types) + "&parameters="
         if int(types) == 2:
@@ -209,24 +199,8 @@ class PyREST:
     ## Gate requests
     ########################################
 
-    # get list of gates in a dictionary form. List the definitions of gates
-    # whose names match a pattern with glob wildcards.
-    #  name
-    #  type
-    #  parameters
-    #       0
-    #       low
-    #       high
-    #  or
-    #  parameters
-    #       0
-    #       1
-    #  points
-    #       0
-    #          x
-    #          y
-    #       1
-    #          ...
+        # Gate definitions matching a glob pattern, each with its name, type and
+        # the parameters or points that define it.
     def listGate(self, pattern="*"):
         url = self._build_url("spectcl/gate/list", filter=str(pattern))
         response = self.sendRequest(url)
@@ -342,14 +316,8 @@ class PyREST:
     # Attaching data sources
     ############################################################
 
-    # The SpecTcl attach command can be accessed using the REST plugin. The
-    # query parameters are: type - options are file (to read data from a file)
-    # or pipe (to read data from a program on the other end of a pipe) source
-    # - the source string expected to attach the source type.
-    #          for "pipe" full command string
-    # size (optional) - sets the blocking factor for reads from the data source (default 8192)
-    # format (optional) - sets the data format. Acceptable values are ring (default), nscl (NSCLDAQ before v10),
-    #                     jumbo (fixed length buffers longer than 128K bytes from NSCLDAQ before v10), filter (XDR filter data)
+        # SpecTcl's attach command. Type is file or pipe, source is the string
+        # to attach, and size/format describe the block size and data format.
     def attachSource(self, types, source, size="8192", formats="ring"):
         url = self._build_url("spectcl/attach/attach", type=str(types), source=str(source), size=str(size), format=str(formats))
         self.sendRequest(url)
@@ -527,12 +495,9 @@ class PyREST:
     # Projecting spectra
     ############################################################
 
-    # Project an existing spectrum onto one of the axes creating a new
-    # spectrum. The query parameters are: snapshot - boolean value.
-    # contour (optional) - if specified, this is a contour that must have been displayable on the source spectrum. The projected spectrum
-    #                      The projected spectrum is initially populated only with counts that are within that contour. Furthermore, if the
-    #                      projected spectrum is not a snapshot spectrum, it is gated on that contour so that the projection remains faithful
-    #                      as new data arrive.
+        # Project a spectrum onto one axis, making a new spectrum. An optional
+        # contour restricts the projection to counts inside it, and snapshot
+        # decides whether the result keeps accumulating.
     def createProjection(self, snapshot, source, newname, direction, contour=""):
         url = self._build_url("spectcl/project", snapshot=str(snapshot), source=str(source), newname=str(newname), direction=str(direction), contour=str(contour))
         self.sendRequest(url)
@@ -541,14 +506,9 @@ class PyREST:
     # Spectrum underflow and overflow statistics
     ############################################################
 
-    # Returns the underflow and overflow statistics for the spectra whose names match the optional pattern query.
-    # Each object has the attributes:
-    # name
-    # underflows - array of per-axis underflow counts (x, then y for 2-d spectra)
-    # overflows - array of per-axis overflow counts (x, then y for 2-d spectra)
-    # Always a list: SpecTcl answers an error with a string or an int in
-    # "detail", which a caller iterating the objects would index as if it were
-    # one of them. The other list-returning endpoints here make the same promise.
+        # Underflow/overflow statistics for the spectra matching the pattern.
+        # Each object carries a name plus per-axis underflow and overflow counts,
+        # x then y.
     def getSpectrumStats(self, pattern="*"):
         url = self._build_url("spectcl/specstats", filter=str(pattern))
         response = self.sendRequest(url)
