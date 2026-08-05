@@ -1,11 +1,7 @@
 import matplotlib
 matplotlib.use("Qt5Agg")
-import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-#### Bashir imports
-# import time
-# from matplotlib.figure import Figure
-#####################
+from matplotlib.figure import Figure
 
 from PyQt5.QtWidgets import (
     QTabWidget, QWidget, QLabel, QPushButton, QCheckBox,
@@ -118,10 +114,10 @@ class Tabs(QTabWidget):
         if index >= 0 and index < self.count()-1:
             # Remove the tab from the QTabWidget
             self.removeTab(index)
-            # Take the session out first so plt.close hits the right figure —
+            # Take the session out first so the teardown hits the right figure —
             # after the registry renumbers, `index` names another tab.
             gone = self.sessions.delete(index)
-            plt.close(gone.widget.figure)
+            destroyFigure(gone.widget)
             return True
         elif index == self.count() - 1:
             self.logger.warning('deleteTab -- Trying to delete last + tab')
@@ -136,11 +132,33 @@ class Tabs(QTabWidget):
             self.logger.warning('swapTabDict -- Trying to swap tab dictionaries with last tab')
 
 
+def destroyFigure(widget):
+    """Tear down a closed tab's figure and canvas. Nothing else will ever free
+    them: the figure was built here rather than by pyplot, so no registry holds
+    it and dropping the reference alone leaves the artists and the canvas
+    widget alive for the life of the process."""
+    figure = getattr(widget, "figure", None)
+    if figure is None:
+        return
+    figure.clear()
+    canvas = getattr(figure, "canvas", None)
+    if canvas is None:
+        return
+    # a canvas built for a Qt tab is a widget; the Agg one used in tests is not
+    if hasattr(canvas, "setParent"):
+        canvas.setParent(None)
+    if hasattr(canvas, "deleteLater"):
+        canvas.deleteLater()
+
+
 class Plot(QWidget):
     def __init__(self, loggerMain, *args, **kwargs):
         super(Plot, self).__init__(*args, **kwargs)
 
-        self.figure = plt.figure()
+        # the canvas owns this figure: it is never handed to the pyplot
+        # registry, so it is freed with the tab instead of living as long as
+        # the process. destroyFigure is what frees it.
+        self.figure = Figure()
         self.canvas = FigureCanvas(self.figure)
 
         self.toolbar = NavigationToolbar(self.canvas, self)

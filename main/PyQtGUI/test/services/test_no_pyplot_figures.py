@@ -20,7 +20,6 @@ PYPLOT_FIGURE_CALLS = {"figure", "subplots", "subplot_mosaic", "gcf", "gca",
 
 # path relative to gui/ -> the calls still to be migrated
 ALLOWLIST = {
-    "PlotGUI.py": {"figure", "close"},
     "services/fit_manager.py": {"subplots"},
 }
 
