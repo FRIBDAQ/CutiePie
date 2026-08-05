@@ -416,6 +416,9 @@ class PlotController(QObject):
 
             ax.set_xlim(xmin, xmax)
             if dim == 1:
+                # counts start at zero; the store holds no y range for a 1-D
+                # spectrum, so Home pins the bottom here rather than reading it
+                ymin = 0
                 ymax = self.getMinMaxInRange(idx, xmin=xmin, xmax=xmax)
                 ax.set_ylim(ymin, ymax)
                 if self._get_spectrum_info("log", index=idx):

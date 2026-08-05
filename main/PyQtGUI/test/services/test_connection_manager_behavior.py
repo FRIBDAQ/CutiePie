@@ -632,3 +632,53 @@ def test_one_axis_spectrum_is_skipped_not_indexerror(env, monkeypatch):
 
     assert not env.store.contains("strip")
     assert env.cm._pending_adds == []
+
+
+# ------------------------------------------- 1-D y range: both arrival paths
+
+def _connect_populate(env, entries, rest_info):
+    """Drive the connect-time population directly: _on_connect_succeeded is
+    the half of the store population no other test reaches."""
+    env.cm.getSpectrumInfoFromREST = lambda: rest_info
+    env.cm._connect_thread = types.SimpleNamespace(quit=lambda: None)
+    env.cm._on_connect_succeeded(make_shm(*entries))
+
+
+def test_connect_stores_no_y_range_for_a_1d_spectrum(env):
+    """The shared-memory header sends zeros for a 1-D spectrum's y axis (and a
+    bin count of 0, which the -2 would turn into -2). None of that is an axis
+    definition, so nothing is stored."""
+    _connect_populate(
+        env,
+        [("h1", 1, 10, 0.0, 10.0, 0, 0.0, 0.0, np.arange(10, dtype=float))],
+        {"h1": {"parameters": ["p1"], "type": "1"}})
+
+    rec = env.store.get_record("h1")
+    assert rec["biny"] is None and rec["miny"] is None and rec["maxy"] is None
+
+
+def test_connect_keeps_the_y_range_of_a_2d_spectrum(env):
+    _connect_populate(
+        env,
+        [("h2", 2, 6, 0.0, 4.0, 6, 1.0, 5.0, np.arange(36, dtype=float).reshape(6, 6))],
+        {"h2": {"parameters": ["p1", "p2"], "type": "2"}})
+
+    rec = env.store.get_record("h2")
+    assert rec["biny"] == 4 and rec["miny"] == 1.0 and rec["maxy"] == 5.0
+
+
+def test_both_arrival_paths_agree_on_a_1d_record(env):
+    """The point of the fix: the same spectrum must not carry a different
+    record depending on whether it was bound before or after connect."""
+    _connect_populate(
+        env,
+        [("h1", 1, 10, 0.0, 10.0, 0, 0.0, 0.0, np.arange(10, dtype=float))],
+        {"h1": {"parameters": ["p1"], "type": "1"}})
+    at_connect = env.store.get_record("h1")
+
+    s = make_shm(("later", 1, 10, 0.0, 10.0, 0, 0.0, 0.0, np.arange(10, dtype=float)))
+    env.cm._process_spectrum_add("later", spec_info_1d(bins=8, high=10.0), s)
+    on_trace = env.store.get_record("later")
+
+    for key in ("biny", "miny", "maxy"):
+        assert at_connect[key] == on_trace[key], key

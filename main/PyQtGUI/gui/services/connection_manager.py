@@ -230,13 +230,23 @@ class ConnectionManager(QtCore.QObject):
                     data = s[9][i][0:-1]
                     data[0] = 0
 
+                # A 1-D spectrum has no y axis definition — its y is counts — and
+                # the shared-memory header says so by sending zeros. Store None
+                # rather than those zeros (which would also make biny -2), so a
+                # spectrum carries the same record whether it was here at connect
+                # or arrived later on a binding trace.
+                if s[2][i] == 1:
+                    biny = miny = maxy = None
+                else:
+                    biny, miny, maxy = s[6][i]-2, s[7][i], s[8][i]
+
                 if "s" in otherInfo[name]["type"]:
                     # summary bounds computed per spectrum — previously assigned only
                     # under dim==2, so a dim-1 "s"-type would reuse a stale value from
                     # an earlier iteration (or hit UnboundLocalError on the first)
                     self._spectra.set(
                         name, dim=s[2][i], binx=s[3][i]-2, minx=s[4][i], maxx=s[5][i] + 1,
-                        biny=s[6][i]-2, miny=s[7][i], maxy=s[8][i],
+                        biny=biny, miny=miny, maxy=maxy,
                         data=data, parameters=otherInfo[name]["parameters"],
                         type=otherInfo[name]["type"],
                         allow_data_replacement=True,   # fresh views from a new mirror
@@ -244,7 +254,7 @@ class ConnectionManager(QtCore.QObject):
                 else:
                     self._spectra.set(
                         name, dim=s[2][i], binx=s[3][i]-2, minx=s[4][i], maxx=s[5][i],
-                        biny=s[6][i]-2, miny=s[7][i], maxy=s[8][i],
+                        biny=biny, miny=miny, maxy=maxy,
                         data=data, parameters=otherInfo[name]["parameters"],
                         type=otherInfo[name]["type"],
                         allow_data_replacement=True,   # fresh views from a new mirror

@@ -662,3 +662,21 @@ def test_cutoff_change_on_one_pad_replots_only_that_pad(pc_mod, monkeypatch):
     r.set_info(index=1, cutoff=[2.0, 5.0])
     r.pc._updatePlotOnGui()
     assert replotted == [1]
+
+
+def test_home_zeroes_the_y_bottom_for_a_1d_pad(pc_mod, monkeypatch):
+    # The store holds no y range for a 1-D spectrum, so Home has to supply the
+    # bottom itself; reading None out of the store left set_ylim's lower limit
+    # untouched and a y-zoomed pad stayed zoomed after "Reset".
+    r = Rig(pc_mod, monkeypatch, nrows=1, ncols=2)
+    ax = r.add_1d(name="h1", index=0, binx=4, minx=0.0, maxx=4.0,
+                  data=np.arange(5, dtype=float))
+    line, = ax.plot([], [], drawstyle="steps")
+    r.set_info(index=0, spectrum=line)
+    assert r.store.get("h1", "miny") is None
+    ax.set_ylim(5.0, 6.0)                    # y-zoomed; Home must undo it
+
+    r.pc.customHomeButtonCallback(index=0)
+
+    assert ax.get_ylim()[0] == 0             # pre-fix: 5.0 (set_ylim(None, ...))
+    assert r.get_info("miny", index=0) == 0  # and the display tier agrees
