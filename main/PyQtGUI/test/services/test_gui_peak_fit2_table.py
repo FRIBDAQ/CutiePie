@@ -214,18 +214,21 @@ def win(monkeypatch):
     # methods, so both namespaces are covered
     monkeypatch.setattr(pfc, "fit_composite", fake_composite)
     monkeypatch.setattr(gui, "fit_composite", fake_composite, raising=False)
+    w.view_state = types.SimpleNamespace(
+        getSpectrumStoreInfo=lambda field, index=None, name=None: w.getSpectrumStoreInfo(
+            field, index=index, name=name),
+        getSpectrumViewInfo=lambda field, index=None: w.ax,
+        nameFromIndex=lambda index: "alpha",
+    )
     w.peak_fit2_controller = pfc.PeakFit2Controller(
         peak_tab=w.extraPopup.peak,
         spectra=types.SimpleNamespace(contains=lambda name: name == "alpha"),
-        get_store_info=lambda field, index=None, name=None: w.getSpectrumStoreInfo(
-            field, index=index, name=name),
-        get_view_info=lambda field, index=None: w.ax,
+        view_state=w.view_state,
         plot_controller=w.plot_controller,
         tabs=w.wTab,
         get_current_plot=lambda: w.currentPlot,
         get_gate_popup=lambda: types.SimpleNamespace(isVisible=lambda: False),
         get_sum_popup=lambda: types.SimpleNamespace(isVisible=lambda: False),
-        name_from_index=lambda index: "alpha",
         parent_widget=w,
         logger=w.logger,
     )

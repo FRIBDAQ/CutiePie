@@ -46,12 +46,16 @@ def win(monkeypatch):
                                           isEnlarged=False, _saved_axes=None)
 
     from controllers import peak_fit2_controller as pfc
+    w.view_state = types.SimpleNamespace(
+        getSpectrumStoreInfo=None,
+        getSpectrumViewInfo=lambda field, index=None: w.axes_by_index.get(index),
+        nameFromIndex=lambda index: w.names.get(index),
+    )
     w.peak_fit2_controller = pfc.PeakFit2Controller(
         peak_tab=types.SimpleNamespace(),
-        spectra=None, get_store_info=None,
-        get_view_info=lambda field, index=None: w.axes_by_index.get(index),
+        spectra=None,
+        view_state=w.view_state,
         plot_controller=None,
-        name_from_index=lambda index: w.names.get(index),
         logger=w.logger,
     )
     monkeypatch.setattr(

@@ -39,14 +39,13 @@ class PeakFit2Controller:
     _PEAK2_SIGNAL_BY_LABEL = {"Gaussian": "gaussian", "Crystal ball": "crystal_ball"}
     _PEAK2_BG_BY_LABEL = {"Linear": "poly1", "Quadratic": "poly2", "Cubic": "poly3"}
 
-    def __init__(self, peak_tab, spectra, get_store_info, get_view_info,
+    def __init__(self, peak_tab, spectra, view_state,
                  plot_controller, tabs=None, get_current_plot=None,
                  get_gate_popup=None, get_sum_popup=None,
-                 name_from_index=None, parent_widget=None, logger=None):
+                 parent_widget=None, logger=None):
         self._peak            = peak_tab          # extraPopup.peak
         self._spectra         = spectra
-        self._get_store_info  = get_store_info
-        self._get_view_info   = get_view_info
+        self.view_state       = view_state
         self._plot_controller = plot_controller
         self._tabs            = tabs
         self._get_current_plot = get_current_plot
@@ -54,7 +53,6 @@ class PeakFit2Controller:
         # replaced, and a torn-down one must read as "not blocking"
         self._get_gate_popup  = get_gate_popup
         self._get_sum_popup   = get_sum_popup
-        self._name_from_index = name_from_index
         self._parent_widget   = parent_widget
         self.logger = logger or logging.getLogger(__name__)
         # which canvases carry the press handler
@@ -712,19 +710,19 @@ class PeakFit2Controller:
             if self._get_current_plot().isEnlarged:
                 index = self._tabs.selectedPad(self._tabs.currentIndex())
 
-            name = self._name_from_index(index)
+            name = self.view_state.nameFromIndex(index)
             if not name:
                 self._peak2_status("[skip] Clicked pad holds no spectrum.")
                 return
-            if self._get_store_info("dim", index=index) != 1:
+            if self.view_state.getSpectrumStoreInfo("dim", index=index) != 1:
                 self._peak2_status("[skip] Peak Finder works on 1D spectra only.")
                 return
 
-            binx     = self._get_store_info("binx", index=index)
-            minxREST = self._get_store_info("minx", index=index)
-            maxxREST = self._get_store_info("maxx", index=index)
+            binx     = self.view_state.getSpectrumStoreInfo("binx", index=index)
+            minxREST = self.view_state.getSpectrumStoreInfo("minx", index=index)
+            maxxREST = self.view_state.getSpectrumStoreInfo("maxx", index=index)
             xtmp = self._plot_controller.createRange(binx, minxREST, maxxREST)
-            ytmp = self._get_store_info("data", index=index)
+            ytmp = self.view_state.getSpectrumStoreInfo("data", index=index)
             # bin centres to match the counts array; the fit window is chosen
             # automatically from the data around the click (plan A)
             xc = np.asarray(xtmp[:-1]) + 0.5 * np.diff(np.asarray(xtmp))
@@ -809,11 +807,11 @@ class PeakFit2Controller:
             self.logger.debug('_peak2_spectrum_arrays - %s is no longer in the store', name)
             return None
         try:
-            binx = self._get_store_info("binx", name=name)
-            minx = self._get_store_info("minx", name=name)
-            maxx = self._get_store_info("maxx", name=name)
+            binx = self.view_state.getSpectrumStoreInfo("binx", name=name)
+            minx = self.view_state.getSpectrumStoreInfo("minx", name=name)
+            maxx = self.view_state.getSpectrumStoreInfo("maxx", name=name)
             xtmp = self._plot_controller.createRange(binx, minx, maxx)
-            ytmp = self._get_store_info("data", name=name)
+            ytmp = self.view_state.getSpectrumStoreInfo("data", name=name)
             xc = np.asarray(xtmp[:-1]) + 0.5 * np.diff(np.asarray(xtmp))
             return xc, np.asarray(ytmp)[1:]
         except Exception:
@@ -920,19 +918,18 @@ class PeakFit2Controller:
                 except Exception:
                     self.logger.debug('peakFit2RedrawAll - stale artist', exc_info=True)
             try:
-                ax = self._get_view_info("axis", index=rec["index"])
+                ax = self.view_state.getSpectrumViewInfo("axis", index=rec["index"])
             except Exception:
                 ax = None
             # the pad may hold a different spectrum now, or none at all: a
             # removed spectrum or a geometry change clears the pad without
             # touching this record, and redrawing then puts an old fit on
             # somebody else's data
-            if self._name_from_index is not None:
-                try:
-                    if self._name_from_index(rec["index"]) != rec.get("name"):
-                        ax = None
-                except Exception:
+            try:
+                if self.view_state.nameFromIndex(rec["index"]) != rec.get("name"):
                     ax = None
+            except Exception:
+                ax = None
             if ax is None:
                 rec["artists"] = ()
                 continue

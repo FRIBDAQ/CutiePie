@@ -132,14 +132,16 @@ def win(monkeypatch):
     from controllers import peak_fit2_controller as pfc
     monkeypatch.setattr(gui, "QSettings", FakeSettings, raising=False)
     monkeypatch.setattr(pfc, "QSettings", FakeSettings)
+    w.view_state = types.SimpleNamespace(
+        getSpectrumStoreInfo=lambda field, index=None, name=None: w.getSpectrumStoreInfo(
+            field, index=index, name=name),
+        getSpectrumViewInfo=lambda field, index=None: w.getSpectrumViewInfo(field, index=index),
+        nameFromIndex=lambda index: None,
+    )
     w.peak_fit2_controller = pfc.PeakFit2Controller(
         peak_tab=w.extraPopup.peak,
         spectra=w.spectra,
-        # late-bound: several tests replace the window's lookups after the
-        # fixture has run, and must still reach the controller through them
-        get_store_info=lambda field, index=None, name=None: w.getSpectrumStoreInfo(
-            field, index=index, name=name),
-        get_view_info=lambda field, index=None: w.getSpectrumViewInfo(field, index=index),
+        view_state=w.view_state,
         plot_controller=w.plot_controller,
         logger=w.logger,
     )

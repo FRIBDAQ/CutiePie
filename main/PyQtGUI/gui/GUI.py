@@ -488,18 +488,12 @@ class MainWindow(QMainWindow):
         self.peak_fit2_controller = PeakFit2Controller(
             peak_tab=self.extraPopup.peak,
             spectra=self.spectra,
-            get_store_info=self.view_state.getSpectrumStoreInfo,
-            get_view_info=self.view_state.getSpectrumViewInfo,
+            view_state=self.view_state,
             plot_controller=self.plot_controller,
-            # the fit records stay on MainWindow until 8d moves the last group
-            # that writes them; read through the seam, never rebound here
             tabs=self.wTab,
             get_current_plot=lambda: self.currentPlot,
-            # late-bound: both popups are attributes that can be replaced, and
-            # a torn-down one must read as "not blocking"
             get_gate_popup=lambda: self.gatePopup,
             get_sum_popup=lambda: self.sumRegionPopup,
-            name_from_index=self.view_state.nameFromIndex,
             parent_widget=self,
             logger=self.logger,
         )

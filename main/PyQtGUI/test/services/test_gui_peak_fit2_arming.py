@@ -176,17 +176,20 @@ def win(monkeypatch):
     from controllers import peak_fit2_controller as pfc
     monkeypatch.setattr(pfc, "QSettings", FakeSettings)
     monkeypatch.setattr(pfc, "QInputDialog", FakeInputDialog)
+    w.view_state = types.SimpleNamespace(
+        getSpectrumStoreInfo=None,
+        getSpectrumViewInfo=None,
+        nameFromIndex=lambda index: "alpha",
+    )
     w.peak_fit2_controller = pfc.PeakFit2Controller(
         peak_tab=w.extraPopup.peak,
         spectra=None,
-        get_store_info=None,
-        get_view_info=None,
+        view_state=w.view_state,
         plot_controller=None,
         tabs=w.wTab,
         get_current_plot=lambda: w.currentPlot,
         get_gate_popup=lambda: w.gatePopup,
         get_sum_popup=lambda: w.sumRegionPopup,
-        name_from_index=lambda index: "alpha",
         parent_widget=w,
         logger=w.logger,
     )
