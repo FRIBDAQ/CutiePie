@@ -13,12 +13,11 @@ from services.peak_finder import (PEAK_ALGORITHMS, find_peaks_in_range,
 class PeakScanController:
 
     def __init__(self, peak_tab, get_current_plot, get_selected_index,
-                 get_store_info, get_view_info, plot_controller, logger=None):
+                 view_state, plot_controller, logger=None):
         self._peak           = peak_tab            # extraPopup.peak
         self._get_plot       = get_current_plot
         self._get_index      = get_selected_index
-        self._get_store_info = get_store_info
-        self._get_view_info  = get_view_info
+        self.view_state      = view_state
         self._plot_controller = plot_controller
         self.logger = logger or logging.getLogger(__name__)
 
@@ -135,7 +134,7 @@ class PeakScanController:
 
     def drawSinglePeaks(self, peaks, properties, data, index):
         self.logger.info('drawSinglePeaks - index, properties: %s, %s', index, properties)
-        ax = self._get_view_info("axis", index=self._get_index())
+        ax = self.view_state.getSpectrumViewInfo("axis", index=self._get_index())
         x = self.datax.tolist()
         self.peak_pos[index] = ax.plot(x[peaks[index]], int(data[peaks[index]]), "v", color="red")
         self.peak_vl[index] = ax.vlines(x=x[peaks[index]], ymin=data[peaks[index]] - properties["prominences"][index], ymax = data[peaks[index]], color = "red")
@@ -155,15 +154,15 @@ class PeakScanController:
         self.logger.info('analyzePeak')
         try:
             index = self._get_index()
-            ax = self._get_view_info("axis", index=index)
+            ax = self.view_state.getSpectrumViewInfo("axis", index=index)
             # input points for peak finding
             width = int(self._peak.peak_width.text())
-            binx = self._get_store_info("binx", index=index)
-            minxREST = self._get_store_info("minx", index=index)
-            maxxREST = self._get_store_info("maxx", index=index)
+            binx = self.view_state.getSpectrumStoreInfo("binx", index=index)
+            minxREST = self.view_state.getSpectrumStoreInfo("minx", index=index)
+            maxxREST = self.view_state.getSpectrumStoreInfo("maxx", index=index)
 
             xtmp = self._plot_controller.createRange(binx, minxREST, maxxREST)
-            ytmp = (self._get_store_info("data", index=index)).tolist()
+            ytmp = (self.view_state.getSpectrumStoreInfo("data", index=index)).tolist()
 
             xmin, xmax = ax.get_xlim()
             algo_name = self._peak.peak_algo.currentText()

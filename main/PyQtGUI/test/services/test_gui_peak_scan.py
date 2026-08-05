@@ -183,6 +183,10 @@ def win(monkeypatch):
     w.store = store
     w.getSpectrumViewInfo = lambda field, index=None: w.axes
     w.getSpectrumStoreInfo = lambda field, index=None: store[field]
+    w.view_state = types.SimpleNamespace(
+        getSpectrumViewInfo=lambda field, index=None: w.getSpectrumViewInfo(field, index=index),
+        getSpectrumStoreInfo=lambda field, index=None: w.getSpectrumStoreInfo(field, index=index),
+    )
     w.plot_controller = types.SimpleNamespace(
         createRange=lambda binx, minx, maxx: np.linspace(minx, maxx, binx))
 
@@ -192,10 +196,7 @@ def win(monkeypatch):
         peak_tab=w.extraPopup.peak,
         get_current_plot=lambda: w.currentPlot,
         get_selected_index=lambda: w.currentPlot.selected_plot_index,
-        # the seams stay late-bound: a test that replaces the window's lookup
-        # (the no-axes case) must reach the controller through the same door
-        get_store_info=lambda field, index=None: w.getSpectrumStoreInfo(field, index=index),
-        get_view_info=lambda field, index=None: w.getSpectrumViewInfo(field, index=index),
+        view_state=w.view_state,
         plot_controller=w.plot_controller,
         logger=w.logger,
     )

@@ -508,8 +508,7 @@ class MainWindow(QMainWindow):
             peak_tab=self.extraPopup.peak,
             get_current_plot=lambda: self.currentPlot,
             get_selected_index=lambda: self.currentPlot.selected_plot_index,
-            get_store_info=self.view_state.getSpectrumStoreInfo,
-            get_view_info=self.view_state.getSpectrumViewInfo,
+            view_state=self.view_state,
             plot_controller=self.plot_controller,
             logger=self.logger,
         )
