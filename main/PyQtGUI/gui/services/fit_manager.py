@@ -15,7 +15,6 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QObject, QSettings, QEventLoop, pyqtSignal
 
-from alpha_filter_dialog import AlphaChainIsoFilterDialog
 from services import shape_file
 
 FIT_PREFIX = "fit-_-"
@@ -1553,6 +1552,7 @@ class FitManager(QObject):
             self._close_alpha_filter_popup()
             return
 
+        from alpha_filter_dialog import AlphaChainIsoFilterDialog
         dlg = self._alphaFilterDlg or AlphaChainIsoFilterDialog(self._parent_widget)
         if not dlg.supports(fitln):
             self._close_alpha_filter_popup()

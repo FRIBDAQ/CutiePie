@@ -49,7 +49,6 @@ SERVICE_PACKAGES = frozenset({"services"})
 # Known module-scope violations being migrated.
 # path relative to gui/ -> set of forbidden module basenames still imported.
 ALLOWLIST = {
-    "services/fit_manager.py": {"alpha_filter_dialog"},
     "imgseg_creator.py": {"ImgSegPlot"},
     "cannye_creator.py": {"CannyEdgePlot"},
 }
