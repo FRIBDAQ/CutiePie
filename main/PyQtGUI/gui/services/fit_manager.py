@@ -21,6 +21,14 @@ from services import shape_file
 FIT_PREFIX = "fit-_-"
 
 
+def _make_csv_window(parent):
+    """Build the window the CSV plot is drawn in. The import is here rather
+    than at module scope so this module stays importable without a Qt widget
+    toolkit, which is what keeps its tests runnable headless."""
+    from CsvPlotGUI import CsvPlotWindow
+    return CsvPlotWindow(parent)
+
+
 class LoadedFitGroup:
     """Live-editable set of drawn lines for one loaded fit on an axis. Components can
     be added or removed one at a time while staying a single deletable group: every
@@ -122,6 +130,7 @@ class FitManager(QObject):
         self._csv_y            = None
         self._csv_path         = None
         self._csv_ax           = None
+        self._csv_win          = None   # the window that owns the CSV figure
         self._cal              = None
         self._alphaFilterDlg   = None
         self._loadedFitPanel   = None   # modeless Load-Fit component panel
@@ -216,11 +225,9 @@ class FitManager(QObject):
 
         self._csv_x, self._csv_y = x, y
 
-        if not hasattr(self, "_csv_ax") or self._csv_ax is None:
-            fig, ax = plt.subplots()
-            try: fig.canvas.manager.set_window_title("CSV")
-            except Exception: self.logger.debug('could not set CSV window title', exc_info=True)
-            self._csv_ax = ax
+        if getattr(self, "_csv_win", None) is None:
+            self._csv_win = _make_csv_window(self._parent_widget)
+            self._csv_ax = self._csv_win.ax
 
         ax = self._csv_ax
         ax.clear()
@@ -229,7 +236,7 @@ class FitManager(QObject):
         ax.relim()
         ax.autoscale_view()
         ax.figure.canvas.draw_idle()
-        ax.figure.show()
+        self._csv_win.showWindow()
 
     # ------------------------------------------------------------------
     # Save / load a fit curve (total + per-isotope components <-> CSV)

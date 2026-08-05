@@ -19,9 +19,9 @@ PYPLOT_FIGURE_CALLS = {"figure", "subplots", "subplot_mosaic", "gcf", "gca",
                        "axes", "subplot", "close"}
 
 # path relative to gui/ -> the calls still to be migrated
-ALLOWLIST = {
-    "services/fit_manager.py": {"subplots"},
-}
+# EMPTY: every figure in gui/ is now built outside pyplot. An entry here
+# again means a site regressed or a new one was written.
+ALLOWLIST = {}
 
 
 def _dotted(node):
