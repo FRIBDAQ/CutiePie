@@ -891,10 +891,16 @@ class PlotController(QObject):
         cutoff = self._get_spectrum_info("cutoff", index=index)
         if cutoff and len(cutoff) >= 2:
             minCutoff, maxCutoff = cutoff[0], cutoff[1]
-            if minCutoff is not None:
-                w = np.ma.masked_where(w < minCutoff, w)
-            if maxCutoff is not None:
-                w = np.ma.masked_where(w > maxCutoff, w)
+            # One combined condition, so the array is copied once rather than
+            # once per bound — this runs per pad on every render tick.
+            below = w < minCutoff if minCutoff is not None else None
+            above = w > maxCutoff if maxCutoff is not None else None
+            if below is not None and above is not None:
+                w = np.ma.masked_where(below | above, w)
+            elif below is not None:
+                w = np.ma.masked_where(below, w)
+            elif above is not None:
+                w = np.ma.masked_where(above, w)
         return w
 
     # fill the spectrum with new data. Called from addPlot and updatePlot;
