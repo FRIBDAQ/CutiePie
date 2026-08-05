@@ -48,11 +48,19 @@ class CopyPropertiesController:
 
         # setting up info for source histogram
         self._copy_attr.histoLabel.setText(name)
+        # z is the colour scale of a 2D image; a 1D pad has none, and applyCopy
+        # has always refused to copy it. Offer the boxes only where they mean
+        # something, and blank them so a previous 2D source's numbers cannot be
+        # read as this pad's.
+        self._set_z_fields_enabled(dim == 2)
         if dim == 2:
             spectrum = self._get_view_info("spectrum", index=index)
             zmin, zmax = spectrum.get_clim()
             self._copy_attr.histoScaleValueminZ.setText(f"{zmin}")
             self._copy_attr.histoScaleValuemaxZ.setText(f"{zmax}")
+        else:
+            self._copy_attr.histoScaleValueminZ.setText("")
+            self._copy_attr.histoScaleValuemaxZ.setText("")
         self._copy_attr.axisSLabel.setText("Log" if self._get_view_info("log", index=index) else "Linear")
         xmin = self._get_view_info("minx", index=index)
         xmax = self._get_view_info("maxx", index=index)
@@ -101,6 +109,16 @@ class CopyPropertiesController:
         except KeyError:
             self.logger.warning('copyPopup - KeyError occured', exc_info=True)
         self._copy_attr.show()
+
+    def _set_z_fields_enabled(self, on):
+        """Enable or disable the Min Z / Max Z pair. Disabling also unchecks:
+        a checked-but-disabled box would still read as checked at Apply."""
+        for w in (self._copy_attr.histoScaleminZ, self._copy_attr.histoScalemaxZ):
+            if not on:
+                w.setChecked(False)
+            w.setEnabled(on)
+        self._copy_attr.histoScaleValueminZ.setEnabled(on)
+        self._copy_attr.histoScaleValuemaxZ.setEnabled(on)
 
     # callback for copyAttr.okAttr
     def okCopy(self):
@@ -162,8 +180,13 @@ class CopyPropertiesController:
             ylim_src = ast.literal_eval(self._copy_attr.axisLimLabelY.text())
             scale_src = self._copy_attr.axisSLabel.text()
             scale_src_bool = True if scale_src == "Log" else False
-            zlim_src = [float(self._copy_attr.histoScaleValueminZ.text()),
-                        float(self._copy_attr.histoScaleValuemaxZ.text())]
+            # read only where it exists: the boxes are blank for a 1D source,
+            # and parsing them unconditionally would abort the whole copy —
+            # x, y and scale included — on a float("") deep in this try
+            zlim_src = None
+            if dim == 2:
+                zlim_src = [float(self._copy_attr.histoScaleValueminZ.text()),
+                            float(self._copy_attr.histoScaleValuemaxZ.text())]
 
             self.logger.debug('applyCopy - xlim_src, ylim_src, scale_src, zlim_src : %s, %s, %s, %s',
                               xlim_src, ylim_src, scale_src, zlim_src)
@@ -263,8 +286,12 @@ class CopyPropertiesController:
                 self._copy_attr.axisLimitX.setChecked(True)
                 self._copy_attr.axisLimitY.setChecked(True)
                 self._copy_attr.axisScale.setChecked(True)
-                self._copy_attr.histoScaleminZ.setChecked(True)
-                self._copy_attr.histoScalemaxZ.setChecked(True)
+                # "all" means all the ones this source actually has: on a 1D
+                # pad the z boxes are disabled and stay unchecked
+                if self._copy_attr.histoScaleminZ.isEnabled():
+                    self._copy_attr.histoScaleminZ.setChecked(True)
+                if self._copy_attr.histoScalemaxZ.isEnabled():
+                    self._copy_attr.histoScalemaxZ.setChecked(True)
             else:
                 self._copy_attr.axisLimitX.setChecked(False)
                 self._copy_attr.axisLimitY.setChecked(False)

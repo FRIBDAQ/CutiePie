@@ -40,6 +40,9 @@ class FakeCheck:
     def setEnabled(self, value):
         self.enabled = value
 
+    def isEnabled(self):
+        return self.enabled
+
 
 class FakeLabel:
     def __init__(self, text=""):
@@ -636,3 +639,68 @@ def test_connect_copy_toggles_the_button_colour(win):
     green = FakeButton("t", colour="#008000")
     win.connectCopy(green)
     assert "red" in green.style
+
+
+# ------------------------------------------------- z fields follow the source
+
+def z_widgets(win):
+    return (win.copyAttr.histoScaleminZ, win.copyAttr.histoScalemaxZ,
+            win.copyAttr.histoScaleValueminZ, win.copyAttr.histoScaleValuemaxZ)
+
+
+def test_popup_disables_the_z_fields_for_a_1d_source(win):
+    # a 1D pad has no colour scale, and applyCopy has always refused to copy
+    # one — the dialog used to offer it anyway, pre-filled with 0/256
+    add_pad(win, "src", 0)
+    # exactly what a 2D source leaves behind in the shared dialog
+    win.copyAttr.histoScaleminZ.setChecked(True)
+    win.copyAttr.histoScaleValueminZ.setText("3.0")
+    win.copyAttr.histoScaleValuemaxZ.setText("77.0")
+    win.copyPopup()
+    assert all(not w.enabled for w in z_widgets(win))
+    assert not win.copyAttr.histoScaleminZ.isChecked()
+    assert win.copyAttr.histoScaleValueminZ.text() == ""
+    assert win.copyAttr.histoScaleValuemaxZ.text() == ""
+
+
+def test_popup_enables_the_z_fields_for_a_2d_source(win):
+    ax = add_pad(win, "src", 0, dim=2)
+    image = ax.imshow([[0, 1], [2, 3]])
+    image.set_clim(3.0, 77.0)
+    win.setSpectrumViewInfo(spectrum=image, minx=0.0, maxx=1.0,
+                            miny=0.0, maxy=1.0, index=0)
+    win.copy_props._set_z_fields_enabled(False)       # as a 1D pad left them
+    win.copyPopup()
+    assert all(w.enabled for w in z_widgets(win))
+    assert win.copyAttr.histoScaleValueminZ.text() == "3.0"
+
+
+def test_select_all_properties_skips_the_disabled_z_boxes(win):
+    add_pad(win, "src", 0)
+    win.copyPopup()
+    master = FakeCheck(checked=True, text="Select all properties")
+    win.copy_props.histAllAttr(master)
+    assert win.copyAttr.axisLimitX.isChecked()
+    assert not win.copyAttr.histoScaleminZ.isChecked()
+    assert not win.copyAttr.histoScalemaxZ.isChecked()
+
+
+def test_apply_still_copies_x_and_y_with_the_z_boxes_blank(win):
+    # the z boxes are read inside applyCopy's try; parsing a blank one raised
+    # into the catch-all and took x, y and scale down with it
+    add_pad(win, "src", 0)
+    ax = add_pad(win, "dst", 1)
+    win.currentPlot.selected_plot_index = 0
+    win.copyPopup()
+    assert win.copyAttr.histoScaleValueminZ.text() == ""
+    win.copyAttr.axisLimLabelX.setText("[0.0,100.0]")
+    win.copyAttr.axisLimLabelY.setText("[1.0,50.0]")
+    win.copyAttr.axisLimitX._checked = True
+    win.copyAttr.axisLimitY._checked = True
+    win.copyAttr.buttons = action_buttons() + [target_button(1)]
+
+    win.copy_props.applyCopy()
+
+    assert win.getSpectrumViewInfo("minx", index=1) == 0.0
+    assert ax.get_xlim() == (0.0, 100.0)
+    assert ax.get_ylim() == (1.0, 50.0)
