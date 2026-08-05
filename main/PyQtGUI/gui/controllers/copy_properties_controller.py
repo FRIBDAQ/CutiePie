@@ -13,17 +13,12 @@ class CopyPropertiesController:
 
     def __init__(self, copy_attr,
                  get_selected_index, set_autoscale,
-                 get_store_info, get_view_info, set_view_info,
-                 get_geo, name_from_index, plot_position,
+                 view_state, plot_position,
                  plot_controller, parent_widget=None, logger=None):
         self._copy_attr          = copy_attr            # CopyPropertiesGUI
         self._get_selected_index = get_selected_index   # () -> int|None
         self._set_autoscale      = set_autoscale        # (bool) -> None
-        self._get_store_info     = get_store_info       # (key, index=|name=) -> value
-        self._get_view_info      = get_view_info        # (key, index=) -> value
-        self._set_view_info      = set_view_info        # (key=val, index=) -> None
-        self._get_geo            = get_geo              # () -> {index: name}
-        self._name_from_index    = name_from_index      # (index) -> str|None
+        self.view_state          = view_state
         self._plot_position      = plot_position        # (index) -> (row, col)
         self._plot_controller    = plot_controller
         self._parent_widget      = parent_widget        # parent for the target buttons
@@ -39,8 +34,8 @@ class CopyPropertiesController:
         if self._copy_attr.isVisible():
             self._copy_attr.close()
         index = self._get_selected_index()
-        name = self._name_from_index(index)
-        dim = self._get_store_info("dim", index=index)
+        name = self.view_state.nameFromIndex(index)
+        dim = self.view_state.getSpectrumStoreInfo("dim", index=index)
 
         if dim is None:
             self.logger.debug('copyPopup - dim is None', exc_info=True)
@@ -54,25 +49,25 @@ class CopyPropertiesController:
         # read as this pad's.
         self._set_z_fields_enabled(dim == 2)
         if dim == 2:
-            spectrum = self._get_view_info("spectrum", index=index)
+            spectrum = self.view_state.getSpectrumViewInfo("spectrum", index=index)
             zmin, zmax = spectrum.get_clim()
             self._copy_attr.histoScaleValueminZ.setText(f"{zmin}")
             self._copy_attr.histoScaleValuemaxZ.setText(f"{zmax}")
         else:
             self._copy_attr.histoScaleValueminZ.setText("")
             self._copy_attr.histoScaleValuemaxZ.setText("")
-        self._copy_attr.axisSLabel.setText("Log" if self._get_view_info("log", index=index) else "Linear")
-        xmin = self._get_view_info("minx", index=index)
-        xmax = self._get_view_info("maxx", index=index)
-        ymin = self._get_view_info("miny", index=index)
-        ymax = self._get_view_info("maxy", index=index)
+        self._copy_attr.axisSLabel.setText("Log" if self.view_state.getSpectrumViewInfo("log", index=index) else "Linear")
+        xmin = self.view_state.getSpectrumViewInfo("minx", index=index)
+        xmax = self.view_state.getSpectrumViewInfo("maxx", index=index)
+        ymin = self.view_state.getSpectrumViewInfo("miny", index=index)
+        ymax = self.view_state.getSpectrumViewInfo("maxy", index=index)
         # A pad can legitimately have no stored y range. The display tier gets
         # one only as a side effect of setAxisScale, which the render tick
         # calls just while autoscale is on, and a 1D spectrum that arrived on
         # a binding trace starts out with miny/maxy None (the connect-time
         # path fills them from the shared-memory header, the trace path has
         # nothing to fill them from).
-        ax = self._get_view_info("axis", index=index)
+        ax = self.view_state.getSpectrumViewInfo("axis", index=index)
         if ax:
             if not isinstance(xmin, Number) or not isinstance(xmax, Number):
                 xmin, xmax = ax.get_xlim()
@@ -91,8 +86,8 @@ class CopyPropertiesController:
             self._copy_attr.copy_log.removeRow(0)
 
         try:
-            for idx, nameTarget in self._get_geo().items():
-                if dim == self._get_store_info("dim", index=idx) and idx != index:
+            for idx, nameTarget in self.view_state.getGeo().items():
+                if dim == self.view_state.getSpectrumStoreInfo("dim", index=idx) and idx != index:
                     instance = QPushButton(nameTarget, self._parent_widget)
                     instance.setCheckable(True)
                     instance.setStyleSheet('QPushButton {color: red;}')
@@ -157,7 +152,7 @@ class CopyPropertiesController:
             self.logger.debug('applyCopy - x: %s, y: %s, scale: %s, minz: %s, maxz: %s',
                               copy_xlim, copy_ylim, copy_scale, copy_minz, copy_maxz)
 
-            dim = self._get_store_info("dim", index=self._get_selected_index())
+            dim = self.view_state.getSpectrumStoreInfo("dim", index=self._get_selected_index())
             indexes = []
 
             # creating list of target histograms
@@ -205,25 +200,25 @@ class CopyPropertiesController:
                 # outright (matplotlib warns and keeps its own, so only half
                 # the range copies). Clamp to the same floor setAxisScale uses
                 # for its log branch.
-                ax = self._get_view_info("axis", index=index)
+                ax = self.view_state.getSpectrumViewInfo("axis", index=index)
                 ymin_dst, ymax_dst = ylim_src[0], ylim_src[1]
                 if ax and ax.get_yscale() == "log" and ymin_dst <= 0:
                     ymin_dst = 0.001
 
                 # set the limits for x,y
                 if copy_xlim:
-                    self._set_view_info(minx=xlim_src[0], index=index)
-                    self._set_view_info(maxx=xlim_src[1], index=index)
+                    self.view_state.setSpectrumViewInfo(minx=xlim_src[0], index=index)
+                    self.view_state.setSpectrumViewInfo(maxx=xlim_src[1], index=index)
                 if copy_ylim:
-                    self._set_view_info(miny=ymin_dst, index=index)
-                    self._set_view_info(maxy=ymax_dst, index=index)
+                    self.view_state.setSpectrumViewInfo(miny=ymin_dst, index=index)
+                    self.view_state.setSpectrumViewInfo(maxy=ymax_dst, index=index)
                 # set log/lin scale
                 if copy_scale:
-                    self._set_view_info(log=scale_src_bool, index=index)
+                    self.view_state.setSpectrumViewInfo(log=scale_src_bool, index=index)
                 # set minZ/maxZ (either box copies both bounds)
                 if dim == 2 and (copy_minz or copy_maxz):
-                    self._set_view_info(minz=zlim_src[0], index=index)
-                    self._set_view_info(maxz=zlim_src[1], index=index)
+                    self.view_state.setSpectrumViewInfo(minz=zlim_src[0], index=index)
+                    self.view_state.setSpectrumViewInfo(maxz=zlim_src[1], index=index)
                 # apply to the target axes directly: updatePlot's only
                 # limits-application path is autoscale-gated, so view-tier
                 # writes alone never reach the screen (okCutoff precedent)
@@ -234,7 +229,7 @@ class CopyPropertiesController:
                 if copy_ylim:
                     ax.set_ylim(ymin_dst, ymax_dst)
                 if dim == 2 and (copy_minz or copy_maxz):
-                    spectrum = self._get_view_info("spectrum", index=index)
+                    spectrum = self.view_state.getSpectrumViewInfo("spectrum", index=index)
                     if spectrum is not None:
                         spectrum.set_clim(zlim_src[0], zlim_src[1])
                 if copy_scale:
@@ -299,7 +294,7 @@ class CopyPropertiesController:
                 self._copy_attr.histoScaleminZ.setChecked(False)
                 self._copy_attr.histoScalemaxZ.setChecked(False)
 
-        dim = self._get_store_info("dim", index=self._get_selected_index())
+        dim = self.view_state.getSpectrumStoreInfo("dim", index=self._get_selected_index())
 
         if dim == 1:
             self._copy_attr.histoScaleminZ.setEnabled(False)
