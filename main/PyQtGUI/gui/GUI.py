@@ -355,10 +355,8 @@ class MainWindow(QMainWindow):
 
         self.gate_manager = GateManager(
             spectra=self.spectra,
-            name_from_index=self.view_state.nameFromIndex,
-            get_spectrum_info=self.view_state.getSpectrumViewInfo,
+            view_state=self.view_state,
             get_is_enlarged=lambda: self.currentPlot.isEnlarged,
-            get_geo=self.view_state.getGeo,
             get_sum_region=lambda index, name: self.sum_region_manager.getSumRegion(index, name),
             get_current_canvas=lambda: self.wTab.plot(self.wTab.currentIndex()).canvas,
             integrate_popup=self.integratePopup,
@@ -378,8 +376,7 @@ class MainWindow(QMainWindow):
         )
         self.sum_region_manager = SumRegionManager(
             spectra=self.spectra,
-            name_from_index=self.view_state.nameFromIndex,
-            get_spectrum_info=self.view_state.getSpectrumViewInfo,
+            view_state=self.view_state,
             get_histo_names=lambda: [self.wConf.histo_list.itemText(i)
                                      for i in range(self.wConf.histo_list.count())],
             skip_auto=self.skipAutoUpdateThread,
@@ -412,13 +409,7 @@ class MainWindow(QMainWindow):
         self.plot_controller = PlotController(
             spectra=self.spectra,
             get_current_plot=lambda: self.currentPlot,
-            get_geo=self.view_state.getGeo,
-            set_geo=self.view_state.setGeo,
-            get_spectrum_info=self.view_state.getSpectrumViewInfo,
-            set_spectrum_info=self.view_state.setSpectrumViewInfo,
-            get_spectrum_info_dict=self.view_state.getSpectrumViewDict,
-            name_from_index=self.view_state.nameFromIndex,
-            get_enlarged_spectrum=self.view_state.getEnlargedSpectrum,
+            view_state=self.view_state,
             auto_index=self.autoIndex,
             next_index=self.nextIndex,
             bind_dynamic_signal=self.bindDynamicSignal,
@@ -461,11 +452,7 @@ class MainWindow(QMainWindow):
             spectra=self.spectra,
             get_current_plot=lambda: self.currentPlot,
             set_current_plot=lambda plot: setattr(self, "currentPlot", plot),
-            get_store_info=self.view_state.getSpectrumStoreInfo,
-            get_view_info=self.view_state.getSpectrumViewInfo,
-            set_view_info=self.view_state.setSpectrumViewInfo,
-            get_geo=self.view_state.getGeo,
-            set_geo=self.view_state.setGeo,
+            view_state=self.view_state,
             plot_controller=self.plot_controller,
             gate_manager=self.gate_manager,
             sum_region_manager=self.sum_region_manager,

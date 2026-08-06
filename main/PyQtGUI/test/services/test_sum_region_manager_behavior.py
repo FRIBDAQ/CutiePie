@@ -9,6 +9,7 @@ import logging
 import os
 import sys
 import threading
+import types
 
 import matplotlib
 matplotlib.use("Agg", force=True)
@@ -82,10 +83,13 @@ class Rig:
         self.msgbox = qt_stubs.fresh_message_box()
         monkeypatch.setattr(module, "QMessageBox", self.msgbox)
 
+        self.view_state = types.SimpleNamespace(
+            nameFromIndex=lambda i: self.info.get(i, {}).get("name"),
+            getSpectrumViewInfo=self.get_info,
+        )
         self.srm = module.SumRegionManager(
             spectra=self.store,
-            name_from_index=lambda i: self.info.get(i, {}).get("name"),
-            get_spectrum_info=self.get_info,
+            view_state=self.view_state,
             get_histo_names=lambda: self.histo_names,
             skip_auto=self.skip_auto,
             add_line=self.add_line,

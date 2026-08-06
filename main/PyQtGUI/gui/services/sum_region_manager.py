@@ -26,15 +26,13 @@ class SumRegionManager(QObject):
     integrationResultsReady      = pyqtSignal(list)   # table rows (each a 7-item list); [] = nothing to integrate
     integratePopupCloseRequested = pyqtSignal()
 
-    def __init__(self, spectra, name_from_index, get_spectrum_info,
-                 get_histo_names, skip_auto,
+    def __init__(self, spectra, view_state, get_histo_names, skip_auto,
                  add_line, remove_prev_line, get_rest,
                  check_and_cancel_gate,
                  sum_popup, parent_widget=None, logger=None):
         super().__init__()
         self._spectra               = spectra
-        self._name_from_index       = name_from_index      # (index) -> str
-        self._get_spectrum_info     = get_spectrum_info    # (key, index=) -> value
+        self.view_state             = view_state
         self._get_histo_names       = get_histo_names      # () -> [str]
         self._skip_auto             = skip_auto            # threading.Event
         self._add_line              = add_line             # (x, y, index[, label]) -> Line2D|None
@@ -195,7 +193,7 @@ class SumRegionManager(QObject):
 
     def saveSumRegion(self, index, name, region_name):
         self.logger.info('saveSumRegion - index: %s', index)
-        spectrum = self._get_spectrum_info("spectrum", index=index)
+        spectrum = self.view_state.getSpectrumViewInfo("spectrum", index=index)
         ax = spectrum.axes
         dim = self._spectra.get(name, "dim")
         if ax is None:
@@ -279,7 +277,7 @@ class SumRegionManager(QObject):
         self.logger.info('okSumRegion')
         sumRegionName = sum_region_name
         spec_index = self._active_sum_index
-        name = self._name_from_index(spec_index)
+        name = self.view_state.nameFromIndex(spec_index)
 
         if sumRegionName in self._saved_region_names:
             self.logger.debug('okSumRegion - sumRegionName: %s already exist', sumRegionName)
@@ -293,7 +291,7 @@ class SumRegionManager(QObject):
             msgBox.setDefaultButton(QMessageBox.Cancel)
             ret = msgBox.exec()
             if ret == QMessageBox.Yes:
-                ax = self._get_spectrum_info("axis", index=spec_index)
+                ax = self.view_state.getSpectrumViewInfo("axis", index=spec_index)
                 self.deleteSumRegion(spec_index, name, ax, sumRegionName)
                 self.sumRegionSelectionChanged.emit(sumRegionName)
             elif ret == QMessageBox.Cancel:

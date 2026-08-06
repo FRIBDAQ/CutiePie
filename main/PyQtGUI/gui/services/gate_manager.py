@@ -38,8 +38,8 @@ class GateManager(QObject):
     gateActionEditChecked   = pyqtSignal(bool)   # gateActionEdit.setChecked(value)
     gateActionEditEnabled   = pyqtSignal(bool)   # gateActionEdit.setEnabled(value)
 
-    def __init__(self, spectra, name_from_index, get_spectrum_info,
-                 get_is_enlarged, get_geo, get_sum_region, get_current_canvas,
+    def __init__(self, spectra, view_state,
+                 get_is_enlarged, get_sum_region, get_current_canvas,
                  integrate_popup, get_integrate_copy,
                  get_hide, get_annotate, get_edit_disable, get_readout,
                  get_gate_type, get_gate_name,
@@ -47,10 +47,8 @@ class GateManager(QObject):
                  gate_popup, parent_widget=None, logger=None):
         super().__init__()
         self._spectra              = spectra
-        self._name_from_index      = name_from_index        # (index) -> str
-        self._get_spectrum_info    = get_spectrum_info      # (key, index=) -> value
+        self.view_state            = view_state
         self._get_is_enlarged      = get_is_enlarged        # () -> bool
-        self._get_geo              = get_geo                # () -> {index: name}
         self._get_sum_region       = get_sum_region         # (index, name) -> list|None
         self._get_current_canvas   = get_current_canvas     # () -> canvas
         self._integrate_popup      = integrate_popup
@@ -100,7 +98,7 @@ class GateManager(QObject):
 
     def drawGate(self, index):
         self.logger.debug('drawGate - index: %s', index)
-        spectrumName = self._name_from_index(index)
+        spectrumName = self.view_state.nameFromIndex(index)
         if not spectrumName:
             self.logger.debug("drawGate: no name for index %s; skipping", index)
             return
@@ -121,7 +119,7 @@ class GateManager(QObject):
             parameters = parametersFormat
         self.logger.debug('drawGate - spectrumName, spectrumType, dim, paramters: %s, %s, %s, %s',
                           spectrumName, spectrumType, dim, parameters)
-        ax = self._get_spectrum_info("axis", index=index)
+        ax = self.view_state.getSpectrumViewInfo("axis", index=index)
         if ax is None:
             self.logger.debug('drawGate - ax is None')
             return
@@ -232,18 +230,18 @@ class GateManager(QObject):
         if self._get_is_enlarged():
             self.setGateAnnotation(0, doAnnotate)
         else:
-            for index, name in self._get_geo().items():
+            for index, name in self.view_state.getGeo().items():
                 if name:
                     self.setGateAnnotation(index, doAnnotate)
         self.canvasDrawRequested.emit()
 
     def setGateAnnotation(self, index, doAnnotate):
         self.logger.debug('setGateAnnotation - index, doAnnotate: %s, %s', index, doAnnotate)
-        ax = self._get_spectrum_info("axis", index=index)
+        ax = self.view_state.getSpectrumViewInfo("axis", index=index)
         if ax is None:
             self.logger.debug('setGateAnnotation - ax is None')
             return
-        dim = self._spectra.get(self._name_from_index(index), "dim")
+        dim = self._spectra.get(self.view_state.nameFromIndex(index), "dim")
 
         for child in ax.lines:
             label      = child.get_label()
@@ -273,7 +271,7 @@ class GateManager(QObject):
                         positionY = 0.95
                         offsetX   = (ax.get_xlim()[1] - ax.get_xlim()[0]) * 0.002
                         xy = self.getXYAnnotation(
-                            self._name_from_index(index),
+                            self.view_state.nameFromIndex(index),
                             gateName,
                             (positionX + offsetX, positionY),
                         )
@@ -351,8 +349,8 @@ class GateManager(QObject):
             self.logger.warning('pushGateToREST - REST client not available')
             return
 
-        dim          = self._get_spectrum_info("dim", index=self._active_gate_index)
-        name         = self._name_from_index(self._active_gate_index)
+        dim          = self.view_state.getSpectrumViewInfo("dim", index=self._active_gate_index)
+        name         = self.view_state.nameFromIndex(self._active_gate_index)
         parameters   = self._spectra.get(name, "parameters")
         spectrumType = self._spectra.get(name, "type")
 
@@ -626,7 +624,7 @@ class GateManager(QObject):
             "m2": ["c", "b"],
             "s":  ["NotDefinedYet"],
         }
-        spectrumType = self._spectra.get(self._name_from_index(index), "type")
+        spectrumType = self._spectra.get(self.view_state.nameFromIndex(index), "type")
         if spectrumType is None:
             return
 
@@ -666,8 +664,8 @@ class GateManager(QObject):
         # Builds the gate-name list for gateNameList; caller emits
         # gateNamesPrepared. Records the names in _gate_names so findText()
         # membership checks read service state, not the widget.
-        ax   = self._get_spectrum_info("axis", index=spec_index)
-        name = self._name_from_index(spec_index)
+        ax   = self.view_state.getSpectrumViewInfo("axis", index=spec_index)
+        name = self.view_state.nameFromIndex(spec_index)
         dim  = self._spectra.get(name, "dim")
         names = []
         if ax is None or dim is None:
@@ -699,11 +697,11 @@ class GateManager(QObject):
 
     def onGatePopupPreview(self):
         self.logger.info('onGatePopupPreview')
-        ax = self._get_spectrum_info("axis", index=self._active_gate_index)
+        ax = self.view_state.getSpectrumViewInfo("axis", index=self._active_gate_index)
         if ax is None:
             self.logger.debug('onGatePopupPreview - ax is None')
             return
-        name   = self._name_from_index(self._active_gate_index)
+        name   = self.view_state.nameFromIndex(self._active_gate_index)
         dim    = self._spectra.get(name, "dim")
         points = self.formatGatePopupPointText(dim)
         if points is None:
@@ -755,9 +753,9 @@ class GateManager(QObject):
             self.logger.debug('editGate - gateSpectrumIndex is None')
             return QMessageBox.about(self._parent_widget, "Warning!", "Please add at least one spectrum")
 
-        spectrumName = self._name_from_index(self._active_gate_index)
+        spectrumName = self.view_state.nameFromIndex(self._active_gate_index)
         dim = self._spectra.get(spectrumName, "dim")
-        ax  = self._get_spectrum_info("axis", index=self._active_gate_index)
+        ax  = self.view_state.getSpectrumViewInfo("axis", index=self._active_gate_index)
         if ax is None:
             self.logger.debug('editGate - ax is None')
             return
@@ -805,7 +803,7 @@ class GateManager(QObject):
         if not self._editing_gate:   # permanently wired in MainWindow; act only in edit mode
             return
         self.logger.info('gateNameListChanged')
-        ax = self._get_spectrum_info("axis", index=self._active_gate_index)
+        ax = self.view_state.getSpectrumViewInfo("axis", index=self._active_gate_index)
         if ax is None:
             self.logger.debug('gateNameListChanged - ax is None')
             return
@@ -842,7 +840,7 @@ class GateManager(QObject):
         self.logger.info('on_singleclick_gate - index: %s', index)
         if not self._get_is_enlarged():
             return
-        dim      = self._spectra.get(self._name_from_index(index), "dim")
+        dim      = self._spectra.get(self.view_state.nameFromIndex(index), "dim")
         gateType = self._get_gate_type()
         if dim == 1:
             l = self.addLine(float(event.xdata), 0, index)
@@ -893,7 +891,7 @@ class GateManager(QObject):
         self.logger.info('on_singleclick_gate_right - index: %s', index)
         if not self._get_is_enlarged():
             return
-        dim          = self._spectra.get(self._name_from_index(index), "dim")
+        dim          = self._spectra.get(self.view_state.nameFromIndex(index), "dim")
         gateType     = self._get_gate_type()
         gateTypeList1 = ["c", "gc"]
         gateTypeList2 = ["b"]
@@ -948,9 +946,9 @@ class GateManager(QObject):
 
     def on_singleclick_gate_edit(self, event):
         self.logger.info('on_singleclick_gate_edit')
-        name = self._name_from_index(self._active_gate_index)
+        name = self.view_state.nameFromIndex(self._active_gate_index)
         dim  = self._spectra.get(name, "dim")
-        ax   = self._get_spectrum_info("axis", index=self._active_gate_index)
+        ax   = self.view_state.getSpectrumViewInfo("axis", index=self._active_gate_index)
         if ax is None:
             self.logger.debug('on_singleclick_gate_edit - ax is None')
             return
@@ -967,7 +965,7 @@ class GateManager(QObject):
 
     def on_dblclick_gate_edit(self, event, index):
         self.logger.info('on_dblclick_gate_edit')
-        name = self._name_from_index(self._active_gate_index)
+        name = self.view_state.nameFromIndex(self._active_gate_index)
         dim  = self._spectra.get(name, "dim")
         if dim == 2:
             self._gate_edit_option = "2d_move_all"
@@ -976,8 +974,8 @@ class GateManager(QObject):
     def addLine(self, posx, posy, index, label=None, mode="gate"):
         self.logger.info('addLine - posx, posy, index, label: %s, %s, %s, %s',
                          posx, posy, index, label)
-        spectrum = self._get_spectrum_info("spectrum", index=index)
-        dim      = self._get_spectrum_info("dim", index=index)
+        spectrum = self.view_state.getSpectrumViewInfo("spectrum", index=index)
+        dim      = self.view_state.getSpectrumViewInfo("dim", index=index)
         if spectrum is None:
             self.logger.debug('addLine - spectrum is None')
             return
@@ -1043,9 +1041,9 @@ class GateManager(QObject):
 
     def insertPointGate(self, event):
         self.logger.info('insertPointGate')
-        name = self._name_from_index(self._active_gate_index)
+        name = self.view_state.nameFromIndex(self._active_gate_index)
         dim  = self._spectra.get(name, "dim")
-        ax   = self._get_spectrum_info("axis", index=self._active_gate_index)
+        ax   = self.view_state.getSpectrumViewInfo("axis", index=self._active_gate_index)
         if ax is None or dim != 2:
             self.logger.debug('insertPointGate - ax is None or dim!=2: %s', dim)
             return
@@ -1070,9 +1068,9 @@ class GateManager(QObject):
 
     def deletePointGate(self, event):
         self.logger.info('deletePointGate')
-        name = self._name_from_index(self._active_gate_index)
+        name = self.view_state.nameFromIndex(self._active_gate_index)
         dim  = self._spectra.get(name, "dim")
-        ax   = self._get_spectrum_info("axis", index=self._active_gate_index)
+        ax   = self.view_state.getSpectrumViewInfo("axis", index=self._active_gate_index)
         if ax is None or dim != 2:
             self.logger.debug('deletePointGate - ax is None or dim!=2: %s', dim)
             return
@@ -1124,7 +1122,7 @@ class GateManager(QObject):
             else:
                 markerPos = np.array([lineX, lineY])
                 try:
-                    ax = self._get_spectrum_info("axis", index=self._active_gate_index)
+                    ax = self.view_state.getSpectrumViewInfo("axis", index=self._active_gate_index)
                     if ax is None:
                         return
                     distances      = np.linalg.norm(markerPos - self.xyRef.reshape(2, -1), axis=0)
@@ -1153,7 +1151,7 @@ class GateManager(QObject):
         return pixel_distance * (axis_range / plotting_area_size)
 
     def updateTextGatePopup(self, gateList):
-        name = self._name_from_index(self._active_gate_index)
+        name = self.view_state.nameFromIndex(self._active_gate_index)
         dim  = self._spectra.get(name, "dim")
         if dim == 1:
             lineText = ""
@@ -1177,9 +1175,9 @@ class GateManager(QObject):
         if event.mouseevent.button != 1:
             return
         self.editThisGateLine = None
-        name = self._name_from_index(self._active_gate_index)
+        name = self.view_state.nameFromIndex(self._active_gate_index)
         dim  = self._spectra.get(name, "dim")
-        ax   = self._get_spectrum_info("axis", index=self._active_gate_index)
+        ax   = self.view_state.getSpectrumViewInfo("axis", index=self._active_gate_index)
         if ax is None:
             self.logger.debug('clickOnGateLine - ax is None')
             return

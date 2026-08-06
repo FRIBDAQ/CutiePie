@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 import threading
+import types
 
 import matplotlib
 matplotlib.use("Agg", force=True)
@@ -55,12 +56,15 @@ def make_gm(gm_mod, ax, gates):
     store.set("h1", dim=1, binx=4, minx=0.0, maxx=4.0,
               data=np.arange(5, dtype=float), parameters=["p1"], type="1")
     rest = FakeRest(gates)
+    view_state = types.SimpleNamespace(
+        nameFromIndex=lambda i: "h1",
+        getSpectrumViewInfo=lambda key, index=None: {"axis": ax}.get(key),
+        getGeo=lambda: {0: "h1"},
+    )
     return gm_mod.GateManager(
         spectra=store,
-        name_from_index=lambda i: "h1",
-        get_spectrum_info=lambda key, index=None: {"axis": ax}.get(key),
+        view_state=view_state,
         get_is_enlarged=lambda: True,
-        get_geo=lambda: {0: "h1"},
         get_sum_region=lambda i, n: None,
         get_current_canvas=lambda: ax.figure.canvas,
         integrate_popup=None,

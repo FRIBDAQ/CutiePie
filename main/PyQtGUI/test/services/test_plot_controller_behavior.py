@@ -8,6 +8,7 @@ import logging
 import os
 import sys
 import threading
+import types
 
 import matplotlib
 matplotlib.use("Agg", force=True)
@@ -98,16 +99,19 @@ class Rig:
         self.msgbox = qt_stubs.fresh_message_box()
         monkeypatch.setattr(module, "QMessageBox", self.msgbox)
 
+        self.view_state = types.SimpleNamespace(
+            getGeo=lambda: self.geo,
+            setGeo=self.geo.__setitem__,
+            getSpectrumViewInfo=self.get_info,
+            setSpectrumViewInfo=self.set_info,
+            getSpectrumViewDict=lambda: self.info,
+            nameFromIndex=lambda i: self.geo.get(i),
+            getEnlargedSpectrum=lambda: self.enlarged,
+        )
         self.pc = module.PlotController(
             spectra=self.store,
             get_current_plot=lambda: self.cp,
-            get_geo=lambda: self.geo,
-            set_geo=self.geo.__setitem__,
-            get_spectrum_info=self.get_info,
-            set_spectrum_info=self.set_info,
-            get_spectrum_info_dict=lambda: self.info,
-            name_from_index=lambda i: self.geo.get(i),
-            get_enlarged_spectrum=lambda: self.enlarged,
+            view_state=self.view_state,
             auto_index=lambda: self.auto_index_val,
             next_index=lambda: self.next_index_val,
             bind_dynamic_signal=lambda: self.bind_calls.append(1),

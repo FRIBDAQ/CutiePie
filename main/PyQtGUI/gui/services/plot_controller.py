@@ -29,9 +29,7 @@ class PlotController(QObject):
     cutoffPopupCloseRequested = pyqtSignal()
 
     def __init__(self, spectra,
-                 get_current_plot, get_geo, set_geo,
-                 get_spectrum_info, set_spectrum_info, get_spectrum_info_dict,
-                 name_from_index, get_enlarged_spectrum,
+                 get_current_plot, view_state,
                  auto_index, next_index, bind_dynamic_signal,
                  draw_gate, clean_popup_exit, auto_update_start,
                  stop_auto_update_thread,
@@ -40,13 +38,7 @@ class PlotController(QObject):
         super().__init__()
         self._spectra                 = spectra
         self._get_current_plot        = get_current_plot        # () -> wPlot widget
-        self._get_geo                 = get_geo                 # () -> {index: name}
-        self._set_geo                 = set_geo                 # (index, name) -> None
-        self._get_spectrum_info       = get_spectrum_info       # (key, index=) -> value
-        self._set_spectrum_info       = set_spectrum_info       # (key=val, index=) -> None
-        self._get_spectrum_info_dict  = get_spectrum_info_dict  # () -> dict
-        self._name_from_index         = name_from_index         # (index) -> str
-        self._get_enlarged_spectrum   = get_enlarged_spectrum   # () -> spectrum|None
+        self.view_state               = view_state
         self._auto_index              = auto_index              # () -> int
         self._next_index              = next_index              # () -> int
         self._bind_dynamic_signal     = bind_dynamic_signal     # () -> None
@@ -93,9 +85,9 @@ class PlotController(QObject):
         self.logger.debug('setAxisScale - index: %s', index)
 
         cp            = self._get_current_plot()
-        axisIsLog     = self._get_spectrum_info("log", index=index)
+        axisIsLog     = self.view_state.getSpectrumViewInfo("log", index=index)
         axisIsAutoScale = cp.histo_autoscale.isChecked()
-        name          = self._name_from_index(index)
+        name          = self.view_state.nameFromIndex(index)
         dim           = self._spectra.get(name, "dim")
 
         # A pad the store no longer knows has dim None, not 2. Changing the
@@ -108,13 +100,13 @@ class PlotController(QObject):
             return
 
         if dim == 1:
-            xmin = self._get_spectrum_info("minx", index=index)
-            xmax = self._get_spectrum_info("maxx", index=index)
+            xmin = self.view_state.getSpectrumViewInfo("minx", index=index)
+            xmax = self.view_state.getSpectrumViewInfo("maxx", index=index)
             if "x" in scale and xmin is not None and xmax is not None:
                 ax.set_xlim(xmin, xmax)
             if "y" in scale or "log" in scale:
-                ymin = self._get_spectrum_info("miny", index=index)
-                ymax = self._get_spectrum_info("maxy", index=index)
+                ymin = self.view_state.getSpectrumViewInfo("miny", index=index)
+                ymax = self.view_state.getSpectrumViewInfo("maxy", index=index)
                 if (not ymin or ymin is None or ymin == 0) and (not ymax or ymax is None or ymax == 0):
                     ymin = self.minY
                     ymax = self.maxY
@@ -133,29 +125,29 @@ class PlotController(QObject):
                         ymin = 0.001
                     if ymax <= 0:
                         self.logger.warning('setAxisScale - all value <0 for : %s - cannot log scale',
-                                            self._name_from_index(index))
+                                            self.view_state.nameFromIndex(index))
                     else:
                         ax.set_ylim(ymin, ymax)
                         ax.set_yscale("log")
                 else:
                     ax.set_ylim(ymin, ymax)
                     ax.set_yscale("linear")
-                self._set_spectrum_info(miny=ymin, index=index)
-                self._set_spectrum_info(maxy=ymax, index=index)
+                self.view_state.setSpectrumViewInfo(miny=ymin, index=index)
+                self.view_state.setSpectrumViewInfo(maxy=ymax, index=index)
         else:
-            xmin = self._get_spectrum_info("minx", index=index)
-            xmax = self._get_spectrum_info("maxx", index=index)
-            ymin = self._get_spectrum_info("miny", index=index)
-            ymax = self._get_spectrum_info("maxy", index=index)
+            xmin = self.view_state.getSpectrumViewInfo("minx", index=index)
+            xmax = self.view_state.getSpectrumViewInfo("maxx", index=index)
+            ymin = self.view_state.getSpectrumViewInfo("miny", index=index)
+            ymax = self.view_state.getSpectrumViewInfo("maxy", index=index)
 
             if "x" in scale and xmin is not None and xmax is not None:
                 ax.set_xlim(xmin, xmax)
             if "y" in scale and ymin is not None and ymax is not None:
                 ax.set_ylim(ymin, ymax)
             if "z" in scale or "log" in scale:
-                zmin     = self._get_spectrum_info("minz", index=index)
-                zmax     = self._get_spectrum_info("maxz", index=index)
-                spectrum = self._get_spectrum_info("spectrum", index=index)
+                zmin     = self.view_state.getSpectrumViewInfo("minz", index=index)
+                zmax     = self.view_state.getSpectrumViewInfo("maxz", index=index)
+                spectrum = self.view_state.getSpectrumViewInfo("spectrum", index=index)
                 if spectrum is None:
                     return
                 if (not zmin or zmin is None or zmin == 0) and (not zmax or zmax is None or zmax == 0):
@@ -165,14 +157,14 @@ class PlotController(QObject):
                     xmin, xmax = ax.get_xlim()
                     ymin, ymax = ax.get_ylim()
                     zmin, zmax = self.getMinMaxInRange(index, xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
-                    self._set_spectrum_info(maxz=zmax, index=index)
-                    self._set_spectrum_info(minz=zmin, index=index)
+                    self.view_state.setSpectrumViewInfo(maxz=zmax, index=index)
+                    self.view_state.setSpectrumViewInfo(minz=zmin, index=index)
                 spectrum.set_clim(vmin=zmin, vmax=zmax)
                 if axisIsLog:
                     self.setCmapNorm("log", index)
                 else:
                     self.setCmapNorm("linear", index)
-                self._set_spectrum_info(spectrum=spectrum, index=index)
+                self.view_state.setSpectrumViewInfo(spectrum=spectrum, index=index)
 
     # where the color bar is defined
     def setCmapNorm(self, scale, index):
@@ -181,7 +173,7 @@ class PlotController(QObject):
         if scale not in validScales or index is None:
             self.logger.debug('setCmapNorm - scale not in validScales or index is None')
             return
-        spectrum = self._get_spectrum_info("spectrum", index=index)
+        spectrum = self.view_state.getSpectrumViewInfo("spectrum", index=index)
         zmin, zmax = spectrum.get_clim()
 
         if scale == validScales[0]:
@@ -205,7 +197,7 @@ class PlotController(QObject):
             data = self._cutoff_masked_data(index)
             spectrum.set_cmap(palette)
             spectrum.set_norm(centeredNorm(data, 50000))
-        if self._get_enlarged_spectrum() is None:
+        if self.view_state.getEnlargedSpectrum() is None:
             ax    = spectrum.axes
             label = "colorbar_" + str(index)
             cp    = self._get_current_plot()
@@ -224,8 +216,8 @@ class PlotController(QObject):
             cp = self._get_current_plot()
             ax = None
             if cp.isEnlarged:
-                ax  = self._get_spectrum_info("axis", index=0)
-                dim = self._spectra.get(self._name_from_index(0), "dim")
+                ax  = self.view_state.getSpectrumViewInfo("axis", index=0)
+                dim = self._spectra.get(self.view_state.nameFromIndex(0), "dim")
                 if ax is None:
                     self.logger.debug('autoScaleAxisBox - isEnlarged TRUE - ax is None ')
                     return
@@ -235,8 +227,8 @@ class PlotController(QObject):
                     self.setAxisScale(ax, 0, "z")
                 self._draw_gate(0)
             elif forIndex is not None:
-                ax  = self._get_spectrum_info("axis", index=forIndex)
-                dim = self._spectra.get(self._name_from_index(forIndex), "dim")
+                ax  = self.view_state.getSpectrumViewInfo("axis", index=forIndex)
+                dim = self._spectra.get(self.view_state.nameFromIndex(forIndex), "dim")
                 if ax is None:
                     self.logger.debug('autoScaleAxisBox - forIndex - ax is None ')
                     return
@@ -245,10 +237,10 @@ class PlotController(QObject):
                 elif dim == 2:
                     self.setAxisScale(ax, forIndex, "z")
             else:
-                for index, name in self._get_geo().items():
+                for index, name in self.view_state.getGeo().items():
                     if name:
-                        ax  = self._get_spectrum_info("axis", index=index)
-                        dim = self._spectra.get(self._name_from_index(index), "dim")
+                        ax  = self.view_state.getSpectrumViewInfo("axis", index=index)
+                        dim = self._spectra.get(self.view_state.nameFromIndex(index), "dim")
                         if ax is None:
                             self.logger.debug('autoScaleAxisBox - isEnlarged FALSE - ax is None ')
                             return
@@ -279,7 +271,7 @@ class PlotController(QObject):
             ymin = limits["ymin"]
             ymax = limits["ymax"]
 
-        name  = self._name_from_index(index)
+        name  = self.view_state.nameFromIndex(index)
         dim   = self._spectra.get(name, "dim")
         minx  = self._spectra.get(name, "minx")
         maxx  = self._spectra.get(name, "maxx")
@@ -328,7 +320,7 @@ class PlotController(QObject):
     def getAxisProperties(self, index):
         self.logger.info('getAxisProperties')
         try:
-            ax = self._get_spectrum_info("axis", index=index)
+            ax = self.view_state.getSpectrumViewInfo("axis", index=index)
             if ax is None:
                 return None
             else:
@@ -346,11 +338,11 @@ class PlotController(QObject):
         cp = self._get_current_plot()
         cp.histo_autoscale.setChecked(False)
         index = self._auto_index()
-        spectrum = self._get_spectrum_info("spectrum", index=index)
+        spectrum = self.view_state.getSpectrumViewInfo("spectrum", index=index)
         if spectrum is None:
             return
         ax  = spectrum.axes
-        dim = self._spectra.get(self._name_from_index(index), "dim")
+        dim = self._spectra.get(self.view_state.nameFromIndex(index), "dim")
         if dim == 1:
             ymin, ymax = ax.get_ylim()
             if arg == "in":
@@ -358,9 +350,9 @@ class PlotController(QObject):
             elif arg == "out":
                 ymax = ymax * 2
             ax.set_ylim(ymin, ymax)
-            self._set_spectrum_info(miny=ymin, index=index)
-            self._set_spectrum_info(maxy=ymax, index=index)
-            self._set_spectrum_info(spectrum=spectrum, index=index)
+            self.view_state.setSpectrumViewInfo(miny=ymin, index=index)
+            self.view_state.setSpectrumViewInfo(maxy=ymax, index=index)
+            self.view_state.setSpectrumViewInfo(spectrum=spectrum, index=index)
         elif dim == 2:
             zmin, zmax = spectrum.get_clim()
             if arg == "in":
@@ -368,9 +360,9 @@ class PlotController(QObject):
             elif arg == "out":
                 zmax = zmax * 2
             spectrum.set_clim(zmin, zmax)
-            self._set_spectrum_info(minz=zmin, index=index)
-            self._set_spectrum_info(maxz=zmax, index=index)
-            self._set_spectrum_info(spectrum=spectrum, index=index)
+            self.view_state.setSpectrumViewInfo(minz=zmin, index=index)
+            self.view_state.setSpectrumViewInfo(maxz=zmax, index=index)
+            self.view_state.setSpectrumViewInfo(spectrum=spectrum, index=index)
         self._draw_gate(index)
         cp.canvas.draw()
 
@@ -397,16 +389,16 @@ class PlotController(QObject):
     # for the plot at index or for all plots when index is not given
     def customHomeButtonCallback(self, index=None):
         self.logger.info('customHomeButtonCallback - index: %s', index)
-        index_list = [idx for idx, name in self._get_geo().items() if index is None]
+        index_list = [idx for idx, name in self.view_state.getGeo().items() if index is None]
         if index is not None:
             index_list = [index]
         for idx in index_list:
             ax       = None
-            spectrum = self._get_spectrum_info("spectrum", index=idx)
+            spectrum = self.view_state.getSpectrumViewInfo("spectrum", index=idx)
             if spectrum is None:
                 continue
             ax   = spectrum.axes
-            name = self._name_from_index(idx)
+            name = self.view_state.nameFromIndex(idx)
             dim  = self._spectra.get(name, "dim")
             xmin = self._spectra.get(name, "minx")
             xmax = self._spectra.get(name, "maxx")
@@ -420,23 +412,23 @@ class PlotController(QObject):
                 ymin = 0
                 ymax = self.getMinMaxInRange(idx, xmin=xmin, xmax=xmax)
                 ax.set_ylim(ymin, ymax)
-                if self._get_spectrum_info("log", index=idx):
+                if self.view_state.getSpectrumViewInfo("log", index=idx):
                     ax.set_yscale("linear")
             if dim == 2:
                 ax.set_ylim(ymin, ymax)
                 zmin, zmax = self.getMinMaxInRange(idx, xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
                 spectrum.set_clim(vmin=zmin, vmax=zmax)
                 self.setCmapNorm("linear", idx)
-                self._set_spectrum_info(maxz=zmax, index=idx)
-                self._set_spectrum_info(minz=zmin, index=idx)
+                self.view_state.setSpectrumViewInfo(maxz=zmax, index=idx)
+                self.view_state.setSpectrumViewInfo(minz=zmin, index=idx)
             self._draw_gate(idx)
 
-            self._set_spectrum_info(log=None, index=idx)
-            self._set_spectrum_info(minx=xmin, index=idx)
-            self._set_spectrum_info(maxx=xmax, index=idx)
-            self._set_spectrum_info(miny=ymin, index=idx)
-            self._set_spectrum_info(maxy=ymax, index=idx)
-            self._set_spectrum_info(spectrum=spectrum, index=idx)
+            self.view_state.setSpectrumViewInfo(log=None, index=idx)
+            self.view_state.setSpectrumViewInfo(minx=xmin, index=idx)
+            self.view_state.setSpectrumViewInfo(maxx=xmax, index=idx)
+            self.view_state.setSpectrumViewInfo(miny=ymin, index=idx)
+            self.view_state.setSpectrumViewInfo(maxy=ymax, index=idx)
+            self.view_state.setSpectrumViewInfo(spectrum=spectrum, index=idx)
         self._get_current_plot().canvas.draw()
 
     # used by logButton; sets the log scale for the plot at index, or for all
@@ -454,24 +446,24 @@ class PlotController(QObject):
             index = arg[0]
 
         cp         = self._get_current_plot()
-        index_list = [idx for idx, name in self._get_geo().items() if logAllPlot or unlogAllPlot]
+        index_list = [idx for idx, name in self.view_state.getGeo().items() if logAllPlot or unlogAllPlot]
 
         if index is not None:
             index_list = [index]
         for idx in index_list:
             ax       = None
-            spectrum = self._get_spectrum_info("spectrum", index=idx)
+            spectrum = self.view_state.getSpectrumViewInfo("spectrum", index=idx)
             if spectrum is None:
                 continue
             ax = spectrum.axes
             if logAllPlot:
-                self._set_spectrum_info(index=idx, log=True)
+                self.view_state.setSpectrumViewInfo(index=idx, log=True)
             elif unlogAllPlot:
-                self._set_spectrum_info(index=idx, log=False)
-            elif self._get_spectrum_info("log", index=idx) and not logAllPlot and not unlogAllPlot:
-                self._set_spectrum_info(index=idx, log=False)
-            elif not self._get_spectrum_info("log", index=idx) and not logAllPlot and not unlogAllPlot:
-                self._set_spectrum_info(index=idx, log=True)
+                self.view_state.setSpectrumViewInfo(index=idx, log=False)
+            elif self.view_state.getSpectrumViewInfo("log", index=idx) and not logAllPlot and not unlogAllPlot:
+                self.view_state.setSpectrumViewInfo(index=idx, log=False)
+            elif not self.view_state.getSpectrumViewInfo("log", index=idx) and not logAllPlot and not unlogAllPlot:
+                self.view_state.setSpectrumViewInfo(index=idx, log=True)
 
             self.setAxisScale(ax, idx, "log")
         cp.canvas.draw()
@@ -532,15 +524,15 @@ class PlotController(QObject):
         if index is None:
             self.logger.debug('okCutoff - index is None')
             return
-        spectrum = self._get_spectrum_info("spectrum", index=index)
+        spectrum = self.view_state.getSpectrumViewInfo("spectrum", index=index)
         if spectrum is None:
             return
-        ax = self._get_spectrum_info("axis", index=index)
+        ax = self.view_state.getSpectrumViewInfo("axis", index=index)
         if ax is None:
             self.logger.debug('okCutoff - ax is None')
             return
 
-        name       = self._name_from_index(index)
+        name       = self.view_state.nameFromIndex(index)
         dim        = self._spectra.get(name, "dim")
         rangeXmin  = xmin_text
         rangeXmax  = xmax_text
@@ -570,32 +562,32 @@ class PlotController(QObject):
             if cutoffMin != "":
                 try:
                     cutoffVal[0] = float(cutoffMin)
-                    self._set_spectrum_info(cutoff=cutoffVal, index=index)
+                    self.view_state.setSpectrumViewInfo(cutoff=cutoffVal, index=index)
                 except (TypeError, ValueError):
                     self.logger.warning('okCutoff - invalid Z-min cutoff %r ignored', cutoffMin)
             if cutoffMax != "":
                 try:
                     cutoffVal[1] = float(cutoffMax)
-                    self._set_spectrum_info(cutoff=cutoffVal, index=index)
+                    self.view_state.setSpectrumViewInfo(cutoff=cutoffVal, index=index)
                 except (TypeError, ValueError):
                     self.logger.warning('okCutoff - invalid Z-max cutoff %r ignored', cutoffMax)
             if cutoffVal[0] is not None and cutoffVal[1] is not None and cutoffVal[1] < cutoffVal[0]:
                 cutoffVal = [cutoffVal[1], cutoffVal[0]]
-                self._set_spectrum_info(cutoff=cutoffVal, index=index)
+                self.view_state.setSpectrumViewInfo(cutoff=cutoffVal, index=index)
         try:
-            spectrum = self._get_spectrum_info("spectrum", index=index)
+            spectrum = self.view_state.getSpectrumViewInfo("spectrum", index=index)
             ax.set_xlim(float(rangeXmin), float(rangeXmax))
             ax.set_ylim(float(rangeYmin), float(rangeYmax))
-            self._set_spectrum_info(minx=rangeXmin, index=index)
-            self._set_spectrum_info(maxx=rangeXmax, index=index)
-            self._set_spectrum_info(miny=rangeYmin, index=index)
-            self._set_spectrum_info(maxy=rangeYmax, index=index)
+            self.view_state.setSpectrumViewInfo(minx=rangeXmin, index=index)
+            self.view_state.setSpectrumViewInfo(maxx=rangeXmax, index=index)
+            self.view_state.setSpectrumViewInfo(miny=rangeYmin, index=index)
+            self.view_state.setSpectrumViewInfo(maxy=rangeYmax, index=index)
             if dim == 2:
                 spectrum.set_clim(cutoffVal[0], cutoffVal[1])
-                self._set_spectrum_info(minz=cutoffVal[0], index=index)
-                self._set_spectrum_info(maxz=cutoffVal[1], index=index)
-                self._set_spectrum_info(spectrum=spectrum, index=index)
-            self._set_spectrum_info(spectrum=spectrum, index=index)
+                self.view_state.setSpectrumViewInfo(minz=cutoffVal[0], index=index)
+                self.view_state.setSpectrumViewInfo(maxz=cutoffVal[1], index=index)
+                self.view_state.setSpectrumViewInfo(spectrum=spectrum, index=index)
+            self.view_state.setSpectrumViewInfo(spectrum=spectrum, index=index)
             self._draw_gate(index)
             cp.canvas.draw()
         except Exception:
@@ -609,7 +601,7 @@ class PlotController(QObject):
         if index is None:
             return
         cutoffVal = [None, None]
-        self._set_spectrum_info(cutoff=cutoffVal, index=index)
+        self.view_state.setSpectrumViewInfo(cutoff=cutoffVal, index=index)
         if doUpdate:
             self.updatePlot()
         self.cutoffPopupCloseRequested.emit()
@@ -622,15 +614,15 @@ class PlotController(QObject):
         index = cp.selected_plot_index
         if index is None:
             return QMessageBox.about(self._parent_widget, "Warning!", "Please Add/Select a Spectrum")
-        name = self._name_from_index(index)
-        if self._get_spectrum_info("cutoff", index=index) is not None and len(self._get_spectrum_info("cutoff", index=index)) > 0:
-            ax  = self._get_spectrum_info("axis", index=index)
+        name = self.view_state.nameFromIndex(index)
+        if self.view_state.getSpectrumViewInfo("cutoff", index=index) is not None and len(self.view_state.getSpectrumViewInfo("cutoff", index=index)) > 0:
+            ax  = self.view_state.getSpectrumViewInfo("axis", index=index)
             dim = self._spectra.get(name, "dim")
             xmin, xmax = ax.get_xlim()
             ymin, ymax = ax.get_ylim()
             zmin = zmax = None
             if dim == 2:
-                spectrum = self._get_spectrum_info("spectrum", index=index)
+                spectrum = self.view_state.getSpectrumViewInfo("spectrum", index=index)
                 zmin, zmax = spectrum.get_clim()
             # MainWindow renders the popup from this payload
             self.cutoffPopupPrepared.emit({
@@ -641,30 +633,30 @@ class PlotController(QObject):
         else:
             QMessageBox.about(self._parent_widget, "Warning!", "Please Add/Select a Spectrum")
             self.logger.warning('cutoffButtonCallback - you broke something really bad - spectrum dict: %s',
-                                self._get_spectrum_info("cutoff", index=index))
+                                self.view_state.getSpectrumViewInfo("cutoff", index=index))
 
     # used in zoomCallback to save the new axis limits
     def updatePlotLimits(self):
         self.logger.debug('updatePlotLimits')
         cp    = self._get_current_plot()
         index = cp.selected_plot_index
-        ax    = self._get_spectrum_info("axis", index=index)
+        ax    = self.view_state.getSpectrumViewInfo("axis", index=index)
         if ax is None:
             self.logger.debug('updatePlotLimits - ax is None')
             return
 
         try:
             x_range, y_range = self.getAxisProperties(index)
-            self._set_spectrum_info(minx=x_range[0], index=index)
-            self._set_spectrum_info(maxx=x_range[1], index=index)
-            self._set_spectrum_info(miny=y_range[0], index=index)
-            self._set_spectrum_info(maxy=y_range[1], index=index)
+            self.view_state.setSpectrumViewInfo(minx=x_range[0], index=index)
+            self.view_state.setSpectrumViewInfo(maxx=x_range[1], index=index)
+            self.view_state.setSpectrumViewInfo(miny=y_range[0], index=index)
+            self.view_state.setSpectrumViewInfo(maxy=y_range[1], index=index)
 
-            spectrum = self._get_spectrum_info("spectrum", index=index)
+            spectrum = self.view_state.getSpectrumViewInfo("spectrum", index=index)
             ax.set_xlim(x_range[0], x_range[1])
             ax.set_ylim(y_range[0], y_range[1])
 
-            self._set_spectrum_info(spectrum=spectrum, index=index)
+            self.view_state.setSpectrumViewInfo(spectrum=spectrum, index=index)
             self._draw_gate(index)
         except Exception:
             self.logger.debug('updatePlotLimits - exception', exc_info=True)
@@ -713,21 +705,21 @@ class PlotController(QObject):
     def setupPlot(self, axis, index):
         self.logger.debug('setupPlot - index: %s', index)
         self._layout_dirty = True
-        if self._name_from_index(index):
-            name = self._name_from_index(index)
+        if self.view_state.nameFromIndex(index):
+            name = self.view_state.nameFromIndex(index)
             dim  = self._spectra.get(name, "dim")
-            minx = self._get_spectrum_info("minx", index=index)
-            maxx = self._get_spectrum_info("maxx", index=index)
-            binx = self._get_spectrum_info("binx", index=index)
-            biny = self._get_spectrum_info("biny", index=index)
+            minx = self.view_state.getSpectrumViewInfo("minx", index=index)
+            maxx = self.view_state.getSpectrumViewInfo("maxx", index=index)
+            binx = self.view_state.getSpectrumViewInfo("binx", index=index)
+            biny = self.view_state.getSpectrumViewInfo("biny", index=index)
             w    = self._cutoff_masked_data(index)
 
             if dim == 1:
                 axis.set_xlim(minx, maxx)
                 line, = axis.plot([], [], drawstyle='steps')
-                spec_name = self._get_spectrum_info("name", index=index)
+                spec_name = self.view_state.getSpectrumViewInfo("name", index=index)
                 axis.set_title("{}".format(spec_name))
-                self._set_spectrum_info(spectrum=line, index=index)
+                self.view_state.setSpectrumViewInfo(spectrum=line, index=index)
                 if len(w) > 0:
                     # Bin edges must span the spectrum's true axis range (REST
                     # store), like plotPlot and the 2D imshow extent below.
@@ -741,7 +733,7 @@ class PlotController(QObject):
                     binxREST = self._spectra.get(name, "binx")
                     X = np.array(self.createRange(binxREST, minxREST, maxxREST))
                     line.set_data(X, w)
-                    self._set_spectrum_info(spectrum=line, index=index)
+                    self.view_state.setSpectrumViewInfo(spectrum=line, index=index)
             else:
                 minxREST = self._spectra.get(name, "minx")
                 maxxREST = self._spectra.get(name, "maxx")
@@ -763,16 +755,16 @@ class PlotController(QObject):
                                        origin='lower',
                                        vmin=float(self.minZ), vmax=float(self.maxZ),
                                        cmap=self.palette)
-                self._set_spectrum_info(spectrum=spectrum, index=index)
+                self.view_state.setSpectrumViewInfo(spectrum=spectrum, index=index)
 
-                spec_name = self._get_spectrum_info("name", index=index)
+                spec_name = self.view_state.getSpectrumViewInfo("name", index=index)
                 axis.set_title("{}".format(spec_name))
 
                 if w is not None:
                     spectrum.set_data(w)
-                    self._set_spectrum_info(spectrum=spectrum, index=index)
+                    self.view_state.setSpectrumViewInfo(spectrum=spectrum, index=index)
 
-                if self._get_enlarged_spectrum() is None:
+                if self.view_state.getEnlargedSpectrum() is None:
                     divider = make_axes_locatable(axis)
                     cax = divider.append_axes('right', size='5%', pad=0.05)
                     label = "colorbar_" + str(index)
@@ -812,9 +804,9 @@ class PlotController(QObject):
 
         try:
             if cp.isLoaded:
-                self.logger.debug('addPlot - isLoaded TRUE - getGeo: %s', self._get_geo())
+                self.logger.debug('addPlot - isLoaded TRUE - getGeo: %s', self.view_state.getGeo())
                 cp.histo_autoscale.setChecked(True)
-                for key, value in self._get_geo().items():
+                for key, value in self.view_state.getGeo().items():
                     if self._spectra.get(value, "dim") is None:
                         continue
                     self.add(key)
@@ -828,32 +820,32 @@ class PlotController(QObject):
                     self.logger.debug('addPlot - isLoaded FALSE - dim is None')
                     return
 
-                self._set_spectrum_info(cutoff=None, index=index)
-                self._set_geo(index, name)
+                self.view_state.setSpectrumViewInfo(cutoff=None, index=index)
+                self.view_state.setGeo(index, name)
                 self.add(index)
 
                 cp.histo_autoscale.setChecked(True)
                 self.autoScaleAxisBox(index)
 
-                dim = self._spectra.get(self._name_from_index(index), "dim")
-                ax  = self._get_spectrum_info("axis", index=index)
+                dim = self._spectra.get(self.view_state.nameFromIndex(index), "dim")
+                ax  = self.view_state.getSpectrumViewInfo("axis", index=index)
                 xmin, xmax = ax.get_xlim()
 
                 if dim == 1:
-                    ymin = self._get_spectrum_info("miny", index=index)
+                    ymin = self.view_state.getSpectrumViewInfo("miny", index=index)
                     ymax = self.getMinMaxInRange(index, xmin=xmin, xmax=xmax)
                     ax.set_ylim(ymin, ymax)
                 else:
                     ymin, ymax = ax.get_ylim()
                     zmin, zmax = self.getMinMaxInRange(index, xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
-                    self._set_spectrum_info(maxz=zmax, index=index)
-                    self._set_spectrum_info(minz=zmin, index=index)
-                    spectrum = self._get_spectrum_info("spectrum", index=index)
+                    self.view_state.setSpectrumViewInfo(maxz=zmax, index=index)
+                    self.view_state.setSpectrumViewInfo(minz=zmin, index=index)
+                    spectrum = self.view_state.getSpectrumViewInfo("spectrum", index=index)
                     spectrum.set_clim(vmin=zmin, vmax=zmax)
-                    self._set_spectrum_info(spectrum=spectrum, index=index)
+                    self.view_state.setSpectrumViewInfo(spectrum=spectrum, index=index)
 
                 cp.logButton.setDown(False)
-                self._set_spectrum_info(log=False, index=index)
+                self.view_state.setSpectrumViewInfo(log=False, index=index)
                 self._draw_gate(index)
 
                 self.removeRectangle()
@@ -884,11 +876,11 @@ class PlotController(QObject):
         """Return the spectrum's data with its per-slot cutoff applied (a
         masked array). The canonical array lives in the SpectrumStore; the
         cutoff is a per-tab / per-slot display setting."""
-        name = self._name_from_index(index)
+        name = self.view_state.nameFromIndex(index)
         w = raw if raw is not None else self._spectra.get(name, "data")
         if w is None:
             return w
-        cutoff = self._get_spectrum_info("cutoff", index=index)
+        cutoff = self.view_state.getSpectrumViewInfo("cutoff", index=index)
         if cutoff and len(cutoff) >= 2:
             minCutoff, maxCutoff = cutoff[0], cutoff[1]
             # One combined condition, so the array is copied once rather than
@@ -907,12 +899,12 @@ class PlotController(QObject):
     # does not draw the plot itself
     def plotPlot(self, index, cmap=None):
         self.logger.debug('plotPlot - index: %s', index)
-        name     = self._name_from_index(index)
+        name     = self.view_state.nameFromIndex(index)
         dim      = self._spectra.get(name, "dim")
         minx     = self._spectra.get(name, "minx")
         maxx     = self._spectra.get(name, "maxx")
         binx     = self._spectra.get(name, "binx")
-        spectrum = self._get_spectrum_info("spectrum", index=index)
+        spectrum = self.view_state.getSpectrumViewInfo("spectrum", index=index)
         w        = self._cutoff_masked_data(index)
 
         if w is None or len(w) <= 0:
@@ -934,7 +926,7 @@ class PlotController(QObject):
             else:
                 spectrum.set_cmap(plt.get_cmap("viridis"))
 
-        self._set_spectrum_info(spectrum=spectrum, index=index)
+        self.view_state.setSpectrumViewInfo(spectrum=spectrum, index=index)
 
     @pyqtSlot()
     def _updatePlotOnGui(self):
@@ -949,12 +941,12 @@ class PlotController(QObject):
         counters, so a per-pad data sum is a reliable change signal — any
         increment moves it, and a clear resets it to 0 (also a change)."""
         try:
-            indices = [0] if cp.isEnlarged else list(self._get_geo().keys())
+            indices = [0] if cp.isEnlarged else list(self.view_state.getGeo().keys())
             pad_sigs = {}
             for index in indices:
-                name   = self._name_from_index(index)
-                log    = self._get_spectrum_info("log", index=index)
-                cutoff = self._get_spectrum_info("cutoff", index=index)
+                name   = self.view_state.nameFromIndex(index)
+                log    = self.view_state.getSpectrumViewInfo("log", index=index)
+                cutoff = self.view_state.getSpectrumViewInfo("cutoff", index=index)
                 w = self._spectra.get(name, "data") if name is not None else None
                 data_sig = float(np.ma.sum(w)) if w is not None and len(w) > 0 else None
                 pad_sigs[index] = (
@@ -1000,12 +992,12 @@ class PlotController(QObject):
         try:
             if cp.isEnlarged:
                 index = self._auto_index()
-                name  = self._name_from_index(index)
+                name  = self.view_state.nameFromIndex(index)
                 if index is None or self._spectra.get(name, "dim") is None:
                     self.logger.debug('updatePlot - index is None or dim is None')
                     return
                 self.logger.debug('updatePlot - self.currentPlot.isEnlarged TRUE')
-                ax = self._get_spectrum_info("axis", index=0)
+                ax = self.view_state.getSpectrumViewInfo("axis", index=0)
                 if ax is None:
                     # No axis built for the enlarged pad yet (polling started
                     # before Add/geometry, or the geo file drifted). Skip the
@@ -1015,7 +1007,7 @@ class PlotController(QObject):
                     self.logger.debug('updatePlot - ax is None (enlarged); skipping tick')
                     return
                 self.plotPlot(index)
-                dim = self._spectra.get(self._name_from_index(0), "dim")
+                dim = self._spectra.get(self.view_state.nameFromIndex(0), "dim")
                 if auto_scale_status:
                     if dim == 1:
                         self.setAxisScale(ax, 0, "x", "y")
@@ -1024,8 +1016,8 @@ class PlotController(QObject):
                 self._draw_gate(0)
             else:
                 self.logger.debug('updatePlot - self.currentPlot.isEnlarged FALSE')
-                for index, value in self._get_geo().items():
-                    ax = self._get_spectrum_info("axis", index=index)
+                for index, value in self.view_state.getGeo().items():
+                    ax = self.view_state.getSpectrumViewInfo("axis", index=index)
                     if ax is None:
                         # This geometry slot has no built axis yet — skip it and
                         # keep refreshing the valid pads. Never a modal here (see
@@ -1038,7 +1030,7 @@ class PlotController(QObject):
                                  and pad_sigs.get(index) == last_pads[index])
                     if not unchanged:
                         self.plotPlot(index)
-                        dim = self._spectra.get(self._name_from_index(index), "dim")
+                        dim = self._spectra.get(self.view_state.nameFromIndex(index), "dim")
                         if auto_scale_status:
                             if dim == 1:
                                 self.setAxisScale(ax, index, "x", "y")
@@ -1061,7 +1053,7 @@ class PlotController(QObject):
     def onColormapChange(self, cmap_name: str):
         self.logger.info("onColormapChange - cmap: %s", cmap_name)
 
-        if not self._get_geo():
+        if not self.view_state.getGeo():
             self.logger.debug("onColormapChange - no active plots")
             return
 
@@ -1114,17 +1106,17 @@ class PlotController(QObject):
                 self.palette = copy(plt.get_cmap(cmap_name))
                 self.palette.set_bad(color="white")
 
-            for index, _ in self._get_geo().items():
-                if self._spectra.get(self._name_from_index(index), "dim") != 2:
+            for index, _ in self.view_state.getGeo().items():
+                if self._spectra.get(self.view_state.nameFromIndex(index), "dim") != 2:
                     continue
-                spectrum = self._get_spectrum_info("spectrum", index=index)
+                spectrum = self.view_state.getSpectrumViewInfo("spectrum", index=index)
                 if spectrum is None:
                     continue
                 spectrum.set_cmap(self.palette)
-                self._set_spectrum_info(spectrum=spectrum, index=index)
+                self.view_state.setSpectrumViewInfo(spectrum=spectrum, index=index)
                 if cp.isEnlarged:
                     self.old_cmap = spectrum.get_cmap()
-                ax = self._get_spectrum_info("axis", index=index)
+                ax = self.view_state.getSpectrumViewInfo("axis", index=index)
                 if ax is not None:
                     cb_label = "colorbar_" + str(index)
                     cax = next((a for a in cp.figure.axes if a.get_label() == cb_label), None)

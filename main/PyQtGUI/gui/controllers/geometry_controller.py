@@ -12,8 +12,7 @@ class GeometryController:
 
     def __init__(self, tabs, conf, spectra,
                  get_current_plot, set_current_plot,
-                 get_store_info, get_view_info, set_view_info,
-                 get_geo, set_geo,
+                 view_state,
                  plot_controller, gate_manager, sum_region_manager,
                  connection_manager, gate_popup, sum_region_popup,
                  set_canvas_layout, add_plot, auto_update_start,
@@ -25,11 +24,7 @@ class GeometryController:
         self._spectra             = spectra
         self._get_current_plot    = get_current_plot
         self._set_current_plot    = set_current_plot    # applySession reassigns it
-        self._get_store_info      = get_store_info
-        self._get_view_info       = get_view_info
-        self._set_view_info       = set_view_info
-        self._get_geo             = get_geo
-        self._set_geo             = set_geo
+        self.view_state           = view_state
         self._plot_controller     = plot_controller
         self._gate_manager        = gate_manager
         self._sum_region_manager  = sum_region_manager
@@ -60,12 +55,12 @@ class GeometryController:
             return
         try:
             properties = {}
-            geo = self._get_geo()
+            geo = self.view_state.getGeo()
             for index in range(len(geo)):
                 try:
                     h_name = geo[index]
                     x_range, y_range = self._plot_controller.getAxisProperties(index)
-                    scale = True if self._get_view_info("log", index=index) else False
+                    scale = True if self.view_state.getSpectrumViewInfo("log", index=index) else False
                     properties[index] = {"name": h_name, "x": x_range, "y": y_range, "scale": scale}
                 except Exception:
                     self.logger.debug('saveGeo - pad %s skipped', index, exc_info=True)
@@ -139,7 +134,7 @@ class GeometryController:
         """Return a spectrum name present in the store that matches `name`, tolerating
         case differences (legacy .win files often store names upper-cased). Returns the
         exact name if it exists, a unique case-insensitive match otherwise, or None."""
-        if self._get_store_info("dim", name=name) is not None:
+        if self.view_state.getSpectrumStoreInfo("dim", name=name) is not None:
             return name
         lowered = name.lower()
         matches = [n for n in self._spectra.all_names() if n.lower() == lowered]
@@ -168,16 +163,16 @@ class GeometryController:
                     notFound.append(val_dict["name"])
                     continue
 
-                self._set_geo(index, resolved)
-                self._set_view_info(log=val_dict["scale"], index=index)
+                self.view_state.setGeo(index, resolved)
+                self.view_state.setSpectrumViewInfo(log=val_dict["scale"], index=index)
                 # Old .win files may omit the view range (no "Expanded"); when it
                 # is absent the spectrum keeps its natural full range from the store.
                 if val_dict.get("x") is not None:
-                    self._set_view_info(minx=val_dict["x"][0], index=index)
-                    self._set_view_info(maxx=val_dict["x"][1], index=index)
+                    self.view_state.setSpectrumViewInfo(minx=val_dict["x"][0], index=index)
+                    self.view_state.setSpectrumViewInfo(maxx=val_dict["x"][1], index=index)
                 if val_dict.get("y") is not None:
-                    self._set_view_info(miny=val_dict["y"][0], index=index)
-                    self._set_view_info(maxy=val_dict["y"][1], index=index)
+                    self.view_state.setSpectrumViewInfo(miny=val_dict["y"][0], index=index)
+                    self.view_state.setSpectrumViewInfo(maxy=val_dict["y"][1], index=index)
 
             if len(notFound) > 0:
                 self.logger.warning('loadGeo - definition not found for: %s', notFound)
