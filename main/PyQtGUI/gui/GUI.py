@@ -123,7 +123,7 @@ DEBUG = False
 
 # Fallback for an installed tree, where configure.ac is not shipped. Keep this
 # in sync with AC_INIT in configure.ac, which stays the source of truth.
-_VERSION_FALLBACK = "v1.6-002"
+_VERSION_FALLBACK = "v1.6-004"
 
 
 def cutiepie_version():
