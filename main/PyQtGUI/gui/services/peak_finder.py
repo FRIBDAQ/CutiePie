@@ -469,7 +469,11 @@ def autocomponent_refit(x, y, lo, hi, prev_result, max_components=5):
 
     if kept:
         spec["n_components"] = len(kept)
-        seeds = {f"mu{i + 1}": c["mu"] for i, c in enumerate(kept)}
+        seeds = {}
+        for i, c in enumerate(kept):
+            seeds[f"mu{i + 1}"] = c["mu"]
+            seeds[f"sigma{i + 1}"] = c["sigma"]
+            seeds[f"A{i + 1}"] = c["A"]
     else:
         # window moved off every previous peak — fall back to one fresh auto fit
         spec["n_components"] = 1
@@ -490,8 +494,15 @@ def autocomponent_refit(x, y, lo, hi, prev_result, max_components=5):
         if cand is None:
             break
         spec["n_components"] = len(r["components"]) + 1
-        seeds = {f"mu{i + 1}": m for i, m in enumerate(mus)}
-        seeds[f"mu{len(mus) + 1}"] = cand["mu"]
+        comps = r["components"]
+        seeds = {}
+        for i, c in enumerate(comps):
+            seeds[f"mu{i + 1}"] = c["mu"]
+            seeds[f"sigma{i + 1}"] = c["sigma"]
+            seeds[f"A{i + 1}"] = c["A"]
+        seeds[f"mu{len(comps) + 1}"] = cand["mu"]
+        seeds[f"sigma{len(comps) + 1}"] = cand["sigma"]
+        seeds[f"A{len(comps) + 1}"] = cand["A"]
         r2 = fit_composite(x, y, lo, hi, spec, seeds=seeds)
         if not r2["ok"]:
             break                       # keep the last good fit

@@ -1166,6 +1166,70 @@ def test_E42_respects_component_cap():
     assert r["ok"] and len(r["components"]) == 2
 
 
+def test_widen_window_preserves_found_peaks():
+    """Widening a window that already resolved two peaks must not lose them.
+
+    Reproduces the live report: peaks at 2300/2411/2545 (sigma 7/5/5) over a
+    linear background with Poisson noise.  A drag that covers the first two
+    finds them; extending to include the third used to reset the sigma seeds
+    to (window_width / 12), causing the optimizer to land in a basin where
+    one Gaussian modelled the background instead of a peak.
+    """
+    rng = np.random.default_rng(0)
+    x = np.arange(2200.0, 2650.0, 1.0)
+    bg = 50.0 + 0.02 * (x - 2200.0)
+    y_true = (300.0 * np.exp(-0.5 * ((x - 2300.0) / 7.0) ** 2)
+              + 200.0 * np.exp(-0.5 * ((x - 2411.0) / 5.0) ** 2)
+              + 200.0 * np.exp(-0.5 * ((x - 2545.0) / 5.0) ** 2) + bg)
+    y = rng.poisson(np.clip(y_true, 0, None)).astype(float)
+    spec = {"signal": "gaussian", "n_components": 1, "background": "poly1"}
+
+    # step 1: fit peaks 1+2 in a narrow window
+    r2 = fit_composite(x, y, 2270.0, 2450.0, spec,
+                       seeds={"mu1": 2300.0})
+    r2 = autocomponent_refit(x, y, 2270.0, 2450.0, r2)
+    assert r2["ok"] and len(r2["components"]) == 2
+    mus2 = sorted(c["mu"] for c in r2["components"])
+    assert abs(mus2[0] - 2300.0) < 3.0 and abs(mus2[1] - 2411.0) < 3.0
+
+    # step 2: widen to include peak 3 — must find all three
+    r3 = autocomponent_refit(x, y, 2270.0, 2580.0, r2)
+    assert r3["ok"]
+    assert len(r3["components"]) >= 3, (
+        f"expected 3 components, got {len(r3['components'])}; "
+        f"mus={[c['mu'] for c in r3['components']]}"
+    )
+    mus3 = sorted(c["mu"] for c in r3["components"])
+    assert abs(mus3[0] - 2300.0) < 5.0
+    assert abs(mus3[1] - 2411.0) < 5.0
+    assert abs(mus3[2] - 2545.0) < 5.0
+
+
+def test_widen_window_does_not_bloat_sigma():
+    """Sigma of existing peaks must stay close to their true value when the
+    window widens, not reset to (window_width / 12)."""
+    rng = np.random.default_rng(0)
+    x = np.arange(2200.0, 2650.0, 1.0)
+    bg = 50.0 + 0.02 * (x - 2200.0)
+    y_true = (300.0 * np.exp(-0.5 * ((x - 2300.0) / 7.0) ** 2)
+              + 200.0 * np.exp(-0.5 * ((x - 2411.0) / 5.0) ** 2)
+              + 200.0 * np.exp(-0.5 * ((x - 2545.0) / 5.0) ** 2) + bg)
+    y = rng.poisson(np.clip(y_true, 0, None)).astype(float)
+    spec = {"signal": "gaussian", "n_components": 1, "background": "poly1"}
+
+    r2 = fit_composite(x, y, 2270.0, 2450.0, spec,
+                       seeds={"mu1": 2300.0})
+    r2 = autocomponent_refit(x, y, 2270.0, 2450.0, r2)
+    assert r2["ok"] and len(r2["components"]) == 2
+
+    r3 = autocomponent_refit(x, y, 2270.0, 2580.0, r2)
+    assert r3["ok"]
+    for c in r3["components"]:
+        assert c["sigma"] < 15.0, (
+            f"sigma {c['sigma']:.1f} at mu {c['mu']:.1f} is bloated"
+        )
+
+
 # ===================== Crystal Ball multi-component =============================
 
 def test_E44_cb_doublet_auto_adds_and_shares_alpha_n():
