@@ -368,7 +368,7 @@ def fit_composite(x_axis, y_data, lo, hi, spec, fixed=None, seeds=None):
         p0[f"sigma{i}"] = max((hi - lo) / 12.0, bw)
         lb[f"A{i}"], ub[f"A{i}"] = 0.0, np.inf
         lb[f"mu{i}"], ub[f"mu{i}"] = float(xs[0]), float(xs[-1])
-        lb[f"sigma{i}"], ub[f"sigma{i}"] = bw * 0.25, float(xs[-1] - xs[0])
+        lb[f"sigma{i}"], ub[f"sigma{i}"] = bw * 0.25, float(xs[-1] - xs[0]) / 3.0
     for p in sh["shared"]:
         p0[p] = _SHARED_SEEDS[p]
         lb[p], ub[p] = _SHARED_BOUNDS[p]
@@ -436,10 +436,21 @@ def fit_composite(x_axis, y_data, lo, hi, spec, fixed=None, seeds=None):
         total_xx = total_xx + ci
         y_comp.append(ci + bg_xx)
     bg_params = {p: vals[p] for p in bgsh["params"]}
-    return dict(ok=True, components=components, redchi=redchi,
-                win_lo=lo, win_hi=hi, xx=xx, y_fit=total_xx + bg_xx,
-                y_bg=bg_xx, y_comp=y_comp, bg_params=bg_params,
-                shared_params=dict(shared_vals), spec=dict(spec))
+    result = dict(ok=True, components=components, redchi=redchi,
+                  win_lo=lo, win_hi=hi, xx=xx, y_fit=total_xx + bg_xx,
+                  y_bg=bg_xx, y_comp=y_comp, bg_params=bg_params,
+                  shared_params=dict(shared_vals), spec=dict(spec))
+
+    if bg in ("poly2", "poly3"):
+        anchor_spec = dict(spec, background="poly1")
+        anchor = fit_composite(x_axis, y_data, lo, hi, anchor_spec,
+                               fixed=fixed, seeds=seeds)
+        if anchor["ok"]:
+            curved_area = sum(c["area"] for c in components)
+            anchor_area = sum(c["area"] for c in anchor["components"])
+            if anchor_area > 0 and curved_area < 0.5 * anchor_area:
+                return anchor
+    return result
 
 
 def eval_composite_result(x, result):

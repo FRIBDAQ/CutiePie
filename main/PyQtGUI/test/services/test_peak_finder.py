@@ -1230,6 +1230,85 @@ def test_widen_window_does_not_bloat_sigma():
         )
 
 
+# ===================== B11: curved background absorbs peak ======================
+
+def test_cubic_background_does_not_absorb_peak():
+    """A cubic background over a narrow window (1.5 sigma half-width) must not
+    absorb the peak.  Before the sigma-bound and anchor fixes, this returned
+    area ~10,000 against a true 60,159."""
+    mu, sigma, A = 400.0, 8.0, 3000.0
+    true_area = A * sigma * np.sqrt(2 * np.pi)
+    x = np.arange(350.0, 450.0, 1.0)
+    bg = 100.0 + 0.5 * (x - 400.0)
+    y = A * np.exp(-0.5 * ((x - mu) / sigma) ** 2) + bg
+    half = 1.5 * sigma
+    spec = {"signal": "gaussian", "n_components": 1, "background": "poly3"}
+    r = fit_composite(x, y, mu - half, mu + half, spec)
+    assert r["ok"]
+    area = r["components"][0]["area"]
+    assert area > 0.5 * true_area, (
+        f"cubic absorbed the peak: area {area:.0f} vs true {true_area:.0f}"
+    )
+
+
+def test_cubic_background_does_not_explode_area():
+    """A cubic background must not let sigma blow up to the window width,
+    inflating the area to 168x the true value."""
+    rng = np.random.default_rng(7)
+    mu, sigma, A = 400.0, 8.0, 3000.0
+    true_area = A * sigma * np.sqrt(2 * np.pi)
+    x = np.arange(350.0, 450.0, 1.0)
+    bg = 100.0 + 0.5 * (x - 400.0)
+    y_true = A * np.exp(-0.5 * ((x - mu) / sigma) ** 2) + bg
+    y = rng.poisson(np.clip(y_true, 0, None)).astype(float)
+    half = 1.5 * sigma
+    spec = {"signal": "gaussian", "n_components": 1, "background": "poly3"}
+    r = fit_composite(x, y, mu - half, mu + half, spec)
+    assert r["ok"]
+    area = r["components"][0]["area"]
+    assert area < 2.0 * true_area, (
+        f"area exploded: {area:.0f} vs true {true_area:.0f}"
+    )
+
+
+def test_poly1_narrow_window_does_not_explode():
+    """Even poly1 can fail at a 1-sigma half-window if sigma is unbounded.
+    With the tightened sigma cap this must stay reasonable."""
+    rng = np.random.default_rng(3)
+    mu, sigma, A = 400.0, 8.0, 3000.0
+    true_area = A * sigma * np.sqrt(2 * np.pi)
+    x = np.arange(350.0, 450.0, 1.0)
+    bg = 100.0 + 0.5 * (x - 400.0)
+    y_true = A * np.exp(-0.5 * ((x - mu) / sigma) ** 2) + bg
+    y = rng.poisson(np.clip(y_true, 0, None)).astype(float)
+    half = 1.0 * sigma
+    spec = {"signal": "gaussian", "n_components": 1, "background": "poly1"}
+    r = fit_composite(x, y, mu - half, mu + half, spec)
+    assert r["ok"]
+    area = r["components"][0]["area"]
+    assert area < 3.0 * true_area, (
+        f"area exploded: {area:.0f} vs true {true_area:.0f}"
+    )
+
+
+def test_wide_window_cubic_is_unaffected():
+    """At a healthy 6-sigma half-window, the cubic background must still
+    report the correct area — the fixes must not over-constrain."""
+    mu, sigma, A = 400.0, 8.0, 3000.0
+    true_area = A * sigma * np.sqrt(2 * np.pi)
+    x = np.arange(300.0, 500.0, 1.0)
+    bg = 100.0 + 0.5 * (x - 400.0)
+    y = A * np.exp(-0.5 * ((x - mu) / sigma) ** 2) + bg
+    half = 6.0 * sigma
+    spec = {"signal": "gaussian", "n_components": 1, "background": "poly3"}
+    r = fit_composite(x, y, mu - half, mu + half, spec)
+    assert r["ok"]
+    area = r["components"][0]["area"]
+    assert abs(area - true_area) < 0.05 * true_area, (
+        f"wide-window cubic area wrong: {area:.0f} vs true {true_area:.0f}"
+    )
+
+
 # ===================== Crystal Ball multi-component =============================
 
 def test_E44_cb_doublet_auto_adds_and_shares_alpha_n():
