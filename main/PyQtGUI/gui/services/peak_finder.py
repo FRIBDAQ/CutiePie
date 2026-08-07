@@ -448,8 +448,10 @@ def fit_composite(x_axis, y_data, lo, hi, spec, fixed=None, seeds=None):
         if anchor["ok"]:
             curved_area = sum(c["area"] for c in components)
             anchor_area = sum(c["area"] for c in anchor["components"])
-            if anchor_area > 0 and curved_area < 0.5 * anchor_area:
-                return anchor
+            if anchor_area > 0:
+                ratio = curved_area / anchor_area
+                if ratio < 0.7 or ratio > 1.5:
+                    return anchor
     return result
 
 
