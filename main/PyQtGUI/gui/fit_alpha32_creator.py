@@ -28,6 +28,7 @@ except Exception:
     QApplication = None
 
 from fit_alpha_base import _GL7_T, _GL7_W, _INV_SQRT2, _as_float
+from fit_function import FitFunction
 
 
 def _emg_one_tail_stable(x, A, mu, sigma, tau):
@@ -153,9 +154,10 @@ def _inside01(v, default=0.5):
     return float(np.clip(f, 0.0, 1.0))
 
 
-class AlphaEMG32Fit:
+class AlphaEMG32Fit(FitFunction):
     def __init__(self, param_1=1, param_2=2, param_3=10,
                  eta_vary=True, eta_value=0):
+        super().__init__([])
         self.param_1 = param_1
         self.param_2 = param_2
         self.param_3 = param_3
