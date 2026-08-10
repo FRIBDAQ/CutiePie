@@ -543,9 +543,10 @@ class AlphaEMG22Fit(FitFunction):
         # Safe ratio (works with or without a fixed 'ratio' param)
         fitln_total._ratio = float(p['A2'].value) / max(float(p['A1'].value), 1e-12)
 
-        fitln_total.chi2 = float(getattr(res, "chisqr", np.nan))
-        fitln_total.redchi = float(getattr(res, "redchi", np.nan))
-        fitln_total.ndof = int(getattr(res, "nfree", 0))
+        self._attach_fit_stats(fitln_total,
+                               float(getattr(res, "chisqr", np.nan)),
+                               float(getattr(res, "redchi", np.nan)),
+                               int(getattr(res, "nfree", 0)))
 
         # fitln_total.set_gid("fit")   # <<< so your delete sweep catches it
 

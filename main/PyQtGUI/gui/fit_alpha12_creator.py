@@ -352,9 +352,10 @@ class AlphaEMG12Fit(FitFunction):
         yy = model.eval(res.params, x=xx)
         (fitln,) = axis.plot(xx, yy, lw=2)
         # fitln.set_gid("fit")   # <<< so your delete sweep catches it
-        fitln.chi2 = float(getattr(res, "chisqr", np.nan))
-        fitln.redchi = float(getattr(res, "redchi", np.nan))
-        fitln.ndof = int(getattr(res, "nfree", 0))
+        self._attach_fit_stats(fitln,
+                               float(getattr(res, "chisqr", np.nan)),
+                               float(getattr(res, "redchi", np.nan)),
+                               int(getattr(res, "nfree", 0)))
         return fitln
 
 class AlphaEMG12FitBuilder:

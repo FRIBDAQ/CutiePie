@@ -28,6 +28,7 @@ import matplotlib.pyplot as plt
 
 # Keep import so the factory can discover this module
 import fit_factory  # noqa: F401
+from fit_function import FitFunction
 
 # Optional GUI-abort
 try:
@@ -438,7 +439,7 @@ def _effective_subpeak(params, iso_name, iso_stem, q,
     )
 
 # ---- The fitter -----------------------------------------------------------------
-class AlphaMultiEMGSigmaFit:
+class AlphaMultiEMGSigmaFit(FitFunction):
     def __init__(self,
                  shape_file,
                  calib_a=7.1195126, calib_b=-7029.0,
@@ -450,6 +451,7 @@ class AlphaMultiEMGSigmaFit:
                  iso_scale_bounds=None,
                  shape_bounds=None,
                  normalize_chains=True):
+        super().__init__([])
 
         self.shape_file = shape_file
         self.normalize_chains = bool(normalize_chains)
@@ -1176,9 +1178,10 @@ class AlphaMultiEMGSigmaFit:
         }
         # per-peak sampled curves + params for the per-peak-per-chain save
         fitln_total.peak_series = peak_series
-        fitln_total.chi2 = float(getattr(res, "chisqr", np.nan))
-        fitln_total.redchi = float(getattr(res, "redchi", np.nan))
-        fitln_total.ndof = int(getattr(res, "nfree", 0))
+        self._attach_fit_stats(fitln_total,
+                               float(getattr(res, "chisqr", np.nan)),
+                               float(getattr(res, "redchi", np.nan)),
+                               int(getattr(res, "nfree", 0)))
         fitln_total._isotopes = [iso['name'] for iso in self._isotopes]
         #### for peak plot selection
         fitln_total._iso_lines = iso_lines

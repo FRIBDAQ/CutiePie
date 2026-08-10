@@ -47,6 +47,12 @@ class FitFunction:
         self.p_init = params
         self._should_abort = None
 
+    @staticmethod
+    def _attach_fit_stats(fitln, chi2, redchi, ndof):
+        fitln.chi2 = chi2
+        fitln.redchi = redchi
+        fitln.ndof = ndof
+
     def model(self, x, params):
         """Function body. Must be implemented in derived classes."""
         raise NotImplementedError()
@@ -97,9 +103,7 @@ class FitFunction:
             except Exception:
                 fitln = None
         if fitln is not None:
-            fitln.chi2 = res.chi2
-            fitln.redchi = res.redchi
-            fitln.ndof = res.ndof
+            self._attach_fit_stats(fitln, res.chi2, res.redchi, res.ndof)
         return fitln
 
     def _run(self, request):

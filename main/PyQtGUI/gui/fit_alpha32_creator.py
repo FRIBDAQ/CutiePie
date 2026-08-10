@@ -607,9 +607,10 @@ class AlphaEMG32Fit(FitFunction):
         line_tot._ratio2 = ratio2
         line_tot._ratio3 = ratio3
 
-        line_tot.chi2 = float(getattr(res, "chisqr", np.nan))
-        line_tot.redchi = float(getattr(res, "redchi", np.nan))
-        line_tot.ndof = int(getattr(res, "nfree", 0))
+        self._attach_fit_stats(line_tot,
+                               float(getattr(res, "chisqr", np.nan)),
+                               float(getattr(res, "redchi", np.nan)),
+                               int(getattr(res, "nfree", 0)))
 
         return line_tot
 
