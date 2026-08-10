@@ -40,6 +40,8 @@ elif os.path.exists(os.path.join(cwd, "fit_skel_creator.py")) and os.path.exists
 #scriptdir = mydir + '/../Script'   # SpecTcl install
 #sys.path.append(scriptdir)
 
+import CPyConverter as cpy
+
 #  If we are in windows, we need to allow DLL's to be loaded
 #  from our script dir so:
 #
