@@ -170,7 +170,7 @@ class MainWindow(QMainWindow):
     # emitted from a worker thread, delivered on the GUI thread
     _gateNameFetched = pyqtSignal(str, object)
 
-    def __init__(self, factory, fit_factory, *args, **kwargs):
+    def __init__(self, fit_factory, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
 
         # ensure GUI dies when SpecTcl dies (was an import-time call in the class body)
@@ -182,7 +182,7 @@ class MainWindow(QMainWindow):
         # capture widgets and threading events built before them, and the
         # signal wiring captures the services.
         self._setup_logging()
-        self._build_widgets(factory, fit_factory)
+        self._build_widgets(fit_factory)
         self._build_services()
         self._init_runtime_state()
         self._wire_signals()
@@ -227,7 +227,7 @@ class MainWindow(QMainWindow):
         #following line to avoid main logger printing log in addition to its handlers
         self.logger.propagate = False
 
-    def _build_widgets(self, factory, fit_factory):
+    def _build_widgets(self, fit_factory):
         """Window shell, layouts, the toolbar/tab widgets and the nine popups.
 
         factory/fit_factory are the two __init__ arguments this phase stores
@@ -236,7 +236,6 @@ class MainWindow(QMainWindow):
         self.setWindowFlag(Qt.WindowMinimizeButtonHint, True)
         self.setWindowFlag(Qt.WindowMaximizeButtonHint, True)
 
-        self.factory = factory
         self.fit_factory = fit_factory
 
 

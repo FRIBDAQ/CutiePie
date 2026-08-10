@@ -87,15 +87,15 @@ import fit_gp1_creator
 import fit_gp2_creator
 
 
-import algo_factory
-# skeleton for user-based ML implementation
-import algo_skel_creator
-# already implemented examples
-import kmean_creator
-import gmm_creator
-# imgseg/cannye pull in OpenCV (cv2); re-enable with their register_builder calls below
-# import imgseg_creator
-# import cannye_creator
+# import algo_factory
+# # skeleton for user-based ML implementation
+# import algo_skel_creator
+# # already implemented examples
+# import kmean_creator
+# import gmm_creator
+# # imgseg/cannye pull in OpenCV (cv2); re-enable with their register_builder calls below
+# # import imgseg_creator
+# # import cannye_creator
 
 # print("Check import : ",fit_skel_creator.__file__)
 
@@ -208,27 +208,27 @@ config_fit_alph_sigma_multi = {
     # "fix_ratios": True,
     # "wmode_default": 2,  
 }
-#######################################
-##  ML
-#######################################
-algofactory = algo_factory.AlgoFactory()
-# Configurable parameters for Skel (for the full param list, please see skel_creator.py)
-config_algo_skel = {
-    'param_1': 5,
-    'param_2': 'test',
-    'param_3': 100
-}
-
-# Configurable parameters for KMean (for the full param list, please see kmean_creator.py)
-config_algo_kmean = {
-    'n_clusters': 3,
-    'n_init': 10
-}
-
-# Configurable parameters for Gaussian Mixture Model (for the full param list, please see gmm_creator.py)
-config_algo_gmm = {
-    'n_components': 4,
-}
+# #######################################
+# ##  ML
+# #######################################
+# algofactory = algo_factory.AlgoFactory()
+# # Configurable parameters for Skel (for the full param list, please see skel_creator.py)
+# config_algo_skel = {
+#     'param_1': 5,
+#     'param_2': 'test',
+#     'param_3': 100
+# }
+#
+# # Configurable parameters for KMean (for the full param list, please see kmean_creator.py)
+# config_algo_kmean = {
+#     'n_clusters': 3,
+#     'n_init': 10
+# }
+#
+# # Configurable parameters for Gaussian Mixture Model (for the full param list, please see gmm_creator.py)
+# config_algo_gmm = {
+#     'n_components': 4,
+# }
 '''
 # Configurable parameters for Image Segmentation (for the full param list, please see imgseg_creator.py)
 config_algo_img = {
@@ -265,14 +265,14 @@ fitfactory.register_builder('AlphaEMGMultiSigma', fit_alpha_multi_sigma_creator.
 fitfactory.register_builder('Skeleton', fit_skel_creator.SkelFitBuilder(), config_fit_skel)
 
 # ML Algorithm registration
-algofactory.register_builder('Skeleton', algo_skel_creator.SkelAlgoBuilder(), config_algo_skel)
-algofactory.register_builder('KMean', kmean_creator.KMeanAlgoBuilder(), config_algo_kmean)
-algofactory.register_builder('Gaussian MM', gmm_creator.GMMAlgoBuilder(), config_algo_gmm)
-#algofactory.register_builder('Image Segmentation', imgseg_creator.ImgSegAlgoBuilder(), config_algo_img)
-#algofactory.register_builder('Canny Edge', cannye_creator.CannyEdgeAlgoBuilder(), config_algo_canny)
+# algofactory.register_builder('Skeleton', algo_skel_creator.SkelAlgoBuilder(), config_algo_skel)
+# algofactory.register_builder('KMean', kmean_creator.KMeanAlgoBuilder(), config_algo_kmean)
+# algofactory.register_builder('Gaussian MM', gmm_creator.GMMAlgoBuilder(), config_algo_gmm)
+# algofactory.register_builder('Image Segmentation', imgseg_creator.ImgSegAlgoBuilder(), config_algo_img)
+# algofactory.register_builder('Canny Edge', cannye_creator.CannyEdgeAlgoBuilder(), config_algo_canny)
 
 app = QApplication(sys.argv)
-gui = MainWindow(algofactory, fitfactory)
+gui = MainWindow(fitfactory)
 gui.show()
 sys.exit(app.exec_())
 

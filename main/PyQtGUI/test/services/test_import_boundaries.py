@@ -49,8 +49,6 @@ SERVICE_PACKAGES = frozenset({"services"})
 # Known module-scope violations being migrated.
 # path relative to gui/ -> set of forbidden module basenames still imported.
 ALLOWLIST = {
-    "imgseg_creator.py": {"ImgSegPlot"},
-    "cannye_creator.py": {"CannyEdgePlot"},
 }
 
 
@@ -163,17 +161,12 @@ def test_sys_path_inventory():
         "Main.py",
         "GUI.py",
         # creator plugins (standalone-importable by design)
-        "algo_skel_creator.py",
-        "cannye_creator.py",
         "fit_alpha12_creator.py",
         "fit_alpha22_creator.py",
         "fit_alpha32_creator.py",
         "fit_alpha_linear_creator.py",
         "fit_alpha_multi_creator.py",
         "fit_alpha_multi_sigma_creator.py",
-        "gmm_creator.py",
-        "imgseg_creator.py",
-        "kmean_creator.py",
     })
     hits = set()
     for root, _dirs, files in os.walk(GUI_DIR):
