@@ -42,6 +42,7 @@ from scipy.special import erfcx, erfc
 import fit_factory  # keep import so the factory can discover this module  # noqa: F401
 
 from fit_alpha_base import _GL7_T, _GL7_W, _INV_SQRT2, _as_float
+from fit_function import FitFunction
 try:
     from PyQt5.QtWidgets import QApplication
 except Exception:
@@ -123,9 +124,10 @@ def _get(params, name):
     except Exception:
         return np.nan
 
-class AlphaEMG12Fit:
+class AlphaEMG12Fit(FitFunction):
     def __init__(self, param_1=1, param_2=2, param_3=10,
                  eta_vary=True, eta_value=0):
+        super().__init__([])
         self.param_1 = param_1
         self.param_2 = param_2
         self.param_3 = param_3
