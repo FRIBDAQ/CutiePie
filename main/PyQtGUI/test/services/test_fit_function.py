@@ -190,3 +190,27 @@ def test_run_remembers_the_fitted_parameters():
     res = fit.run(ff.FitRequest(x=x, y=y, xmin=x[0], xmax=x[-1],
                                 params=SEED))
     assert list(fit._last_params) == list(res.params)
+
+
+# ---- Alpha EMG inheritance checks ----
+
+_ALPHA_CLASSES = [
+    ("fit_alpha12_creator", "AlphaEMG12Fit"),
+    ("fit_alpha22_creator", "AlphaEMG22Fit"),
+    ("fit_alpha32_creator", "AlphaEMG32Fit"),
+    ("fit_alpha_multi_sigma_creator", "AlphaMultiEMGSigmaFit"),
+]
+
+
+@pytest.mark.parametrize("module_name,class_name", _ALPHA_CLASSES,
+                         ids=[c for _, c in _ALPHA_CLASSES])
+def test_alpha_fits_are_fit_functions(module_name, class_name):
+    pytest.importorskip("lmfit")
+    mod = __import__(module_name)
+    cls = getattr(mod, class_name)
+    assert issubclass(cls, ff.FitFunction)
+    obj = cls.__new__(cls)
+    obj._should_abort = None
+    assert hasattr(obj, "_iter_cb")
+    assert hasattr(obj, "_attach_fit_stats")
+    assert obj._iter_cb() == False
