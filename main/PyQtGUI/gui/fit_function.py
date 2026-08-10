@@ -43,8 +43,9 @@ class FitFunction:
     estimation.
     
     """
-    def __init__(self, params):
-        self.p_init = params # Initial guesses
+    def __init__(self, params, **kwargs):
+        self.p_init = params
+        self._should_abort = None
 
     def model(self, x, params):
         """Function body. Must be implemented in derived classes."""
