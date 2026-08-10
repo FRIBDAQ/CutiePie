@@ -27,6 +27,7 @@ except Exception:
     QApplication = None
 
 from fit_alpha_base import _GL7_T, _GL7_W, _INV_SQRT2, _as_float
+from fit_function import FitFunction
 
 def _peak_binned(x, A, mu, s, t1, t2, eta, bw):
     """Single EMG (two-tail) with the same GL7 bin integration used by the total."""
@@ -128,8 +129,9 @@ def parse_wmode(v, default=2):
     except Exception:
         return int(default)
 
-class AlphaEMG22Fit:
+class AlphaEMG22Fit(FitFunction):
     def __init__(self, param_1=1, param_2=2, param_3=10):
+        super().__init__([])
         self.param_1 = param_1
         self.param_2 = param_2
         self.param_3 = param_3
