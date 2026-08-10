@@ -43,10 +43,6 @@ import fit_factory  # keep import so the factory can discover this module  # noq
 
 from fit_alpha_base import _GL7_T, _GL7_W, _INV_SQRT2, _as_float
 from fit_function import FitFunction
-try:
-    from PyQt5.QtWidgets import QApplication
-except Exception:
-    QApplication = None
 
 
 
@@ -252,20 +248,9 @@ class AlphaEMG12Fit(FitFunction):
         else:  # wmode == 2 (IRLS) – seed with data weights
             weights = w_from_data(y)
 
-        # ---- Bashir's Abort callback ----
-        _should_abort = getattr(self, "_should_abort", None)
-
-        def _iter_cb(params=None, iter=None, resid=None, *args, **kwargs):
-            # let the GUI process clicks so Abort can be pressed
-            if QApplication is not None:
-                QApplication.processEvents()
-            # returning True tells lmfit to stop
-            return bool(_should_abort and _should_abort())
-        ###########################################################
-
         # First fit
         res = model.fit(y, params=pars, x=x, method='least_squares', weights=weights, max_nfev=2000,
-                iter_cb=_iter_cb,   # Bashir added for aborting fit 
+                iter_cb=self._iter_cb,   # Bashir added for aborting fit 
         )
         # IRLS refinement (one step) if requested
         if wmode == 2:
@@ -273,14 +258,14 @@ class AlphaEMG12Fit(FitFunction):
                 yhat = model.eval(res.params, x=x)
                 w = 1.0 / np.sqrt(np.clip(yhat, 1.0, None))
                 res = model.fit(y, params=res.params.copy(), x=x, method='least_squares', weights=w,
-                                max_nfev=1500, iter_cb=_iter_cb
+                                max_nfev=1500, iter_cb=self._iter_cb
                 )
             except Exception:
                 pass
 
         R2_plain = getattr(res, "rsquared", None)
 
-        if _iter_cb():
+        if self._iter_cb():
             return None
 
         if R2_plain is None:

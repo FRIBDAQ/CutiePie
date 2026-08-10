@@ -4,6 +4,11 @@ from typing import Optional, Sequence, Tuple
 import numpy as np
 from scipy.optimize import minimize
 
+try:
+    from PyQt5.QtWidgets import QApplication
+except Exception:
+    QApplication = None
+
 
 @dataclass
 class FitRequest:
@@ -46,6 +51,14 @@ class FitFunction:
     def __init__(self, params, **kwargs):
         self.p_init = params
         self._should_abort = None
+
+    def _iter_cb(self, params=None, iter=None, resid=None, *args, **kwargs):
+        """lmfit iteration callback: pump the Qt event loop so Abort can
+        be pressed, then return True if the fit should stop."""
+        if QApplication is not None:
+            QApplication.processEvents()
+        abort = self._should_abort
+        return bool(abort and abort())
 
     @staticmethod
     def _attach_fit_stats(fitln, chi2, redchi, ndof):

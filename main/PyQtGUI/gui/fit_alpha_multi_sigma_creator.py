@@ -30,12 +30,6 @@ import matplotlib.pyplot as plt
 import fit_factory  # noqa: F401
 from fit_function import FitFunction
 
-# Optional GUI-abort
-try:
-    from PyQt5.QtWidgets import QApplication
-except Exception:
-    QApplication = None
-
 from fit_alpha_base import (
     _GL7_T, _GL7_W, _GL3_T, _GL3_W, _INV_SQRT2,
     _safe_name, _parse_percent,
@@ -691,17 +685,10 @@ class AlphaMultiEMGSigmaFit(FitFunction):
         # Initial weights
         w_fit = None if wmode == 0 else _weights_from(yf)
 
-        # Abort callback
-        _should_abort = getattr(self, "_should_abort", None)
-        def _iter_cb(params=None, iter=None, resid=None, *args, **kwargs):
-            if QApplication is not None:
-                QApplication.processEvents()
-            return bool(_should_abort and _should_abort())
-
         # First fit
         res = model.fit(yf, params=pars, x=xf, method='least_squares',
                         weights=w_fit, fit_kws=dict(loss='linear'),
-                        max_nfev=2000, iter_cb=_iter_cb)
+                        max_nfev=2000, iter_cb=self._iter_cb)
 
         # IRLS if requested
         if wmode == 2:
@@ -713,8 +700,8 @@ class AlphaMultiEMGSigmaFit(FitFunction):
                     new = model.fit(yf, params=last.params.copy(), x=xf,
                                     method='least_squares', weights=w_fit,
                                     fit_kws=dict(loss='linear'), max_nfev=1500,
-                                    iter_cb=_iter_cb)
-                    if _should_abort and _should_abort():
+                                    iter_cb=self._iter_cb)
+                    if self._iter_cb():
                         fit_results.append("[abort] Stopped during IRLS.")
                         return None
                     rel = abs(new.chisqr - last.chisqr) / max(last.chisqr, 1.0)
@@ -725,7 +712,7 @@ class AlphaMultiEMGSigmaFit(FitFunction):
             except Exception:
                 pass
 
-        if _iter_cb():
+        if self._iter_cb():
             return None
 
         # ---------------- Reporting ----------------

@@ -21,10 +21,6 @@ from scipy.special import erfcx, erfc
 
 # Keep import so the factory can discover this module
 import fit_factory  # noqa: F401
-try:
-    from PyQt5.QtWidgets import QApplication
-except Exception:
-    QApplication = None
 
 from fit_alpha_base import _GL7_T, _GL7_W, _INV_SQRT2, _as_float
 from fit_function import FitFunction
@@ -360,22 +356,11 @@ class AlphaEMG22Fit(FitFunction):
 
         fit_kws = dict(loss='soft_l1', f_scale=1.0)  # only works with method='least_squares'
 
-        # ---- Bashir's Abort callback ----
-        _should_abort = getattr(self, "_should_abort", None)
-
-        def _iter_cb(params=None, iter=None, resid=None, *args, **kwargs):
-            # let the GUI process clicks so Abort can be pressed
-            if QApplication is not None:
-                QApplication.processEvents()
-            # returning True tells lmfit to stop
-            return bool(_should_abort and _should_abort())
-        #########################################################
-
         # First fit
         # res = model.fit(y, params=pars, x=x, method='least_squares', weights=weights)
         res = model.fit(y, params=pars, x=x, method='least_squares',
                 weights=weights, fit_kws=fit_kws, max_nfev=2000,
-                iter_cb=_iter_cb # Bashir added for aborting fit
+                iter_cb=self._iter_cb # Bashir added for aborting fit
                 )
 
         if res.params['eta1'].value < 0.02:
@@ -398,7 +383,7 @@ class AlphaEMG22Fit(FitFunction):
                     w = 1.0 / np.sqrt(np.clip(yhat, 1.0, None))
                     new = model.fit(y, params=res.params.copy(), x=x,
                                     method='least_squares', weights=w, fit_kws=fit_kws,
-                                    max_nfev=1500, iter_cb=_iter_cb # Bashir added for aborting fit
+                                    max_nfev=1500, iter_cb=self._iter_cb # Bashir added for aborting fit
                                     )
                     if abs(new.chisqr - res.chisqr)/max(res.chisqr,1) < 1e-3:
                         res = new; break
@@ -406,7 +391,7 @@ class AlphaEMG22Fit(FitFunction):
             except Exception:
                 pass
 
-        if _iter_cb():
+        if self._iter_cb():
             return None
 
         R2_plain = getattr(res, "rsquared", None)
