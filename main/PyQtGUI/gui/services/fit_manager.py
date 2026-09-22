@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
     QMessageBox, QFileDialog, QDialog, QLabel, QPushButton, QCheckBox,
     QHBoxLayout, QVBoxLayout, QInputDialog, QTextEdit,
 )
-from PyQt5.QtCore import Qt, QObject, QSettings, QEventLoop, pyqtSignal
+from PyQt5.QtCore import Qt, QObject, QSettings, QEventLoop, QTimer, pyqtSignal
 
 from services import shape_file
 
@@ -1240,8 +1240,9 @@ class FitManager(QObject):
         self._cal = SimpleNamespace(
             active=True, ax=ax, x=np.asarray(x), y=np.asarray(y),
             min_pts=int(min_pts), max_pts=int(max_pts), halfwin=float(snap_halfwin),
-            MU=[], E=[], artists=[], dlg=dlg, status=status
+            MU=[], E=[], artists=[], dlg=dlg, status=status, pending=False
         )
+        cal = self._cal
 
         def _snap_mu(x0):
             x = self._cal.x; y = self._cal.y
@@ -1261,21 +1262,38 @@ class FitManager(QObject):
             )
             btn_done.setEnabled(n >= self._cal.min_pts)
 
+        def _prompt_point(xdata):
+            # Runs from a zero-delay timer, never inside the canvas press
+            # handler. A modal dialog created while the mouse button is still
+            # held can stay unmapped on some platforms (seen on WSL), and an
+            # application-modal dialog nobody can see is a frozen GUI.
+            try:
+                if self._cal is not cal or not cal.active:
+                    return
+                if len(cal.MU) >= cal.max_pts:
+                    QMessageBox.information(self._parent_widget, "Max points",
+                                            f"Already have {cal.max_pts} points.")
+                    return
+                mu, yy = _snap_mu(xdata)
+                val, ok = QInputDialog.getDouble(self._parent_widget, "Energy (keV)", "Energy:",
+                                                 0.0, -1e9, 1e9, 6)
+                if not ok or self._cal is not cal:
+                    return
+                cal.MU.append(float(mu)); cal.E.append(float(val))
+                m1, = ax.plot([mu], [yy], marker='o', ms=6)
+                m2 = ax.axvline(mu, ls=':', lw=1.0)
+                cal.artists.append((m1, m2))
+                ax.figure.canvas.draw_idle()
+                _update_status()
+            finally:
+                cal.pending = False
+
         def _add_point(xdata):
-            if len(self._cal.MU) >= self._cal.max_pts:
-                QMessageBox.information(dlg, "Max points", f"Already have {self._cal.max_pts} points.")
+            if cal.pending:
                 return
-            mu, yy = _snap_mu(xdata)
-            val, ok = QInputDialog.getDouble(dlg, "Energy (keV)", "Energy:", 0.0, -1e9, 1e9, 6)
-            if not ok:
-                return
-            self._cal.MU.append(float(mu)); self._cal.E.append(float(val))
-            m1, = ax.plot([mu], [yy], marker='o', ms=6)
-            m2 = ax.axvline(mu, ls=':', lw=1.0)
-            self._cal.artists.append((m1, m2))
-            ax.figure.canvas.draw_idle()
-            _update_status()
-        self._cal.add_point = _add_point
+            cal.pending = True
+            QTimer.singleShot(0, lambda: _prompt_point(xdata))
+        cal.add_point = _add_point
 
         def _undo():
             if not self._cal.MU: return

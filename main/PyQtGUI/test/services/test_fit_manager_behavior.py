@@ -1007,3 +1007,78 @@ def test_well_formed_v2_file_still_parses(env, tmp_path):
     struct = env.fm._read_fit_curve_file(path)
     assert struct is not None
     assert [n for n, _ in struct["components"]] == ["total"]
+
+
+# ------------------------------------------------- energy calibration prompt
+
+class _CalWidget:
+    """Widget double for the calibration dialog's parts: records text/enabled,
+    exposes clicked/finished signals, and swallows everything else."""
+
+    def __init__(self, *a, **k):
+        self.clicked = qt_stubs.BoundStubSignal()
+        self.finished = qt_stubs.BoundStubSignal()
+        self.text = None
+        self.enabled = None
+
+    def setText(self, t):      self.text = t
+    def setEnabled(self, b):   self.enabled = b
+    def accept(self):          self.finished.emit(1)
+    def reject(self):          self.finished.emit(0)
+    def __getattr__(self, name):
+        return lambda *a, **k: None
+
+
+def test_calibration_click_defers_prompt_and_drops_duplicate(env, monkeypatch):
+    """add_point (the ctrl+click hook) must not open the energy prompt
+    synchronously: it schedules a zero-delay timer, a second click while one
+    is pending is dropped, the prompt is parented to the main window, and a
+    prompt that fires after the dialog closed is a no-op."""
+    fm = env.mod
+    timer = qt_stubs.RecordingTimer()
+    prompts = []
+    parent = object()
+    env.fm._parent_widget = parent
+
+    class FakeInputDialog:
+        @staticmethod
+        def getDouble(*a, **k):
+            prompts.append(a)
+            return 5486.0, True
+
+    class DrivingLoop:
+        def __init__(self): self.quit_calls = 0
+        def quit(self, *a):  self.quit_calls += 1
+        def exec_(self):
+            cal = env.fm._cal
+            cal.add_point(500.0)
+            cal.add_point(500.0)                  # click while pending: dropped
+            assert prompts == [], "prompt opened inside the press handler"
+            assert cal.pending is True
+            assert [m for m, _ in timer.scheduled] == [0]
+            timer.scheduled[0][1]()               # the deferred prompt fires
+            assert len(prompts) == 1
+            assert prompts[0][0] is parent        # parented to the main window
+            assert cal.MU == [500.0] and cal.E == [5486.0]
+            assert cal.pending is False
+            assert len(cal.artists) == 1 and cal.status.text.startswith("1 point(s)")
+            cal.add_point(600.0)                  # pending when the dialog closes
+            cal.dlg.reject()
+
+    for name in ("QDialog", "QLabel", "QPushButton", "QHBoxLayout", "QVBoxLayout"):
+        monkeypatch.setattr(fm, name, _CalWidget)
+    monkeypatch.setattr(fm, "QInputDialog", FakeInputDialog)
+    monkeypatch.setattr(fm, "QTimer", timer)
+    monkeypatch.setattr(fm, "QEventLoop", DrivingLoop)
+
+    ax = make_ax()
+    x = np.arange(0.0, 1000.0)
+    y = np.zeros_like(x); y[500] = 10.0
+    result = env.fm._prompt_energy_calibration(ax, x, y, min_pts=2, max_pts=4, snap_halfwin=150)
+
+    assert result is None                          # cancelled
+    assert env.fm._cal is None                     # teardown cleared the state
+    assert len(timer.scheduled) == 2
+    timer.scheduled[1][1]()                        # stale prompt after teardown
+    assert len(prompts) == 1                       # ... is a no-op
+    assert len(ax.lines) == 0                      # markers removed on close
