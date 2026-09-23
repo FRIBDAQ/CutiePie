@@ -214,3 +214,63 @@ def test_alpha_fits_are_fit_functions(module_name, class_name):
     assert hasattr(obj, "_iter_cb")
     assert hasattr(obj, "_attach_fit_stats")
     assert obj._iter_cb() == False
+
+
+# ---- the abort/pump seam is injected, never imported ----
+
+def test_iter_cb_pumps_the_injected_callable_and_tolerates_a_bare_instance():
+    f = ff.FitFunction([])
+    pumped = []
+    f._pump_events = lambda: pumped.append(1)
+    f._should_abort = lambda: True
+    assert f._iter_cb() is True and pumped == [1]
+    # a subclass that skipped super().__init__ has neither attribute; the
+    # callback must not raise on lmfit's first iteration
+    bare = ff.FitFunction.__new__(ff.FitFunction)
+    assert bare._iter_cb() is False
+
+
+def test_fit_function_module_is_qt_free():
+    import inspect
+    assert "PyQt5" not in inspect.getsource(ff)
+
+
+def test_base_init_rejects_unknown_keywords():
+    with pytest.raises(TypeError):
+        ff.FitFunction([], eta_value=0.01)
+
+
+# ---- every Alpha creator subclasses the base and runs its constructor ----
+# Read from source, not imported: two of them need lmfit and one needs a shape
+# file, and a skip here would hide exactly the class that forgot.
+
+_ALPHA_SOURCES = [
+    ("fit_alpha12_creator.py", "AlphaEMG12Fit"),
+    ("fit_alpha22_creator.py", "AlphaEMG22Fit"),
+    ("fit_alpha32_creator.py", "AlphaEMG32Fit"),
+    ("fit_alpha_multi_sigma_creator.py", "AlphaMultiEMGSigmaFit"),
+    ("fit_alpha_multi_creator.py", "AlphaMultiEMGFit"),
+    ("fit_alpha_linear_creator.py", "AlphaEMGLinearFit"),
+]
+
+
+@pytest.mark.parametrize("fname,cls_name", _ALPHA_SOURCES,
+                         ids=[c for _, c in _ALPHA_SOURCES])
+def test_alpha_creator_inherits_and_calls_the_base_constructor(fname, cls_name):
+    import ast, os
+    path = os.path.join(os.path.dirname(__file__), "..", "..", "gui", fname)
+    with open(path, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    cls = next(n for n in tree.body
+               if isinstance(n, ast.ClassDef) and n.name == cls_name)
+    assert "FitFunction" in [getattr(b, "id", None) for b in cls.bases], (
+        f"{cls_name} does not subclass FitFunction")
+    init = next(n for n in cls.body
+                if isinstance(n, ast.FunctionDef) and n.name == "__init__")
+    calls_super = any(
+        isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "__init__"
+        and isinstance(n.func.value, ast.Call)
+        and getattr(n.func.value.func, "id", None) == "super"
+        for n in ast.walk(init))
+    assert calls_super, f"{cls_name}.__init__ never calls super().__init__"

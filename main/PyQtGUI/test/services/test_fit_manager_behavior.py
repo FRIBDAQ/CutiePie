@@ -5,6 +5,7 @@ writes -> signals, widget reads -> method arguments)."""
 
 import importlib
 import logging
+import types
 import os
 import sys
 import threading
@@ -1112,3 +1113,24 @@ def test_is_busy_clears_when_the_plugin_fails(fm_mod, monkeypatch):
 def test_is_busy_stays_false_when_the_fit_never_starts(env):
     env.fm.fit(None, None, None, "Gaus")        # no context: early return
     assert env.fm.is_busy() is False
+
+
+# -------------------------------------------- calibration click seam + pump
+
+def test_calibration_click_routes_only_to_the_axes_being_calibrated(env):
+    ax, other = make_ax(), make_ax()
+    assert env.fm.calibration_click(5.0, ax) is False      # no dialog open
+    picked = []
+    env.fm._cal = types.SimpleNamespace(ax=ax, add_point=picked.append)
+    assert env.fm.calibration_click(5.0, other) is False
+    assert env.fm.calibration_click(None, ax) is False
+    assert env.fm.calibration_click(5.0, ax) is True
+    assert picked == [5.0]
+
+
+def test_fit_injects_the_abort_flag_and_the_event_pump(fm_mod, monkeypatch):
+    env = fit_env(fm_mod, monkeypatch)
+    env.fm.fit(0, "h1", make_ax(), "Gaus", ["1.5"] + [""] * 19, "2", "8")
+    fit = env.factory.fit
+    assert callable(fit._should_abort) and fit._should_abort() is False
+    assert callable(fit._pump_events)

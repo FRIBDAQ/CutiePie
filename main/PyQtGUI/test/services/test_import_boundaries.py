@@ -9,6 +9,8 @@ Layers (top to bottom):
 Rules:
     1. Services must not import presentation modules at module scope.
     2. Domain must not import presentation or service modules at module scope.
+    3. Domain must not import PyQt5 at module scope: the plugin base is what
+       every user-authored creator inherits, so Qt there is Qt everywhere.
 
 Function-scope (deferred) imports are the approved escape hatch and are not
 flagged.  ALLOWLIST tracks known module-scope violations being migrated; an
@@ -145,6 +147,16 @@ def test_domain_does_not_import_presentation_or_services():
         "Domain modules importing presentation or services: %s. Domain modules "
         "must depend only on other domain modules and infrastructure."
         % offenders)
+
+
+def test_domain_does_not_import_qt():
+    """Rule 3. A guarded `try: from PyQt5 ...` counts: the try body runs at
+    import time."""
+    offenders = {rel for rel, full in _domain_files()
+                 if "PyQt5" in _module_scope_imports(full)}
+    assert not offenders, (
+        "Domain modules importing PyQt5: %s. Inject the Qt behavior from "
+        "fit_manager (the way _should_abort is injected) instead." % sorted(offenders))
 
 
 def test_sys_path_inventory():

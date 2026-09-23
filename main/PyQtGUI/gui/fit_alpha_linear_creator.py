@@ -12,6 +12,7 @@ import numpy as np
 
 # Keep import so the factory can discover this module
 import fit_factory  # noqa: F401
+from fit_function import FitFunction
 
 _here = os.path.dirname(os.path.abspath(__file__))
 if _here not in sys.path:
@@ -155,12 +156,13 @@ def _weighted_nnls(X, y, w):
     return _nnls(Xw, yw)
 
 # ---------------- The linear fitter ----------------
-class AlphaEMGLinearFit:
+class AlphaEMGLinearFit(FitFunction):
     def __init__(self,
                  shape_file=os.path.join(os.getcwd(), "shapes_Chand.txt"),
                  calib_a=7.1195126, calib_b=-7029.0,
                  wmode_default=1,
                  allow_baseline=False):
+        super().__init__([])
         self.shape_file    = shape_file
         self.calib_a       = float(calib_a)
         self.calib_b       = float(calib_b)
@@ -321,9 +323,7 @@ class AlphaEMGLinearFit:
         fitln_total.components = sub_lines
         fitln_total.component_data = {'x': xx, 'ytot': ytot}
         fitln_total._isotopes = [iso['name'] for iso in self._isotopes]
-        fitln_total.chi2 = float(chisq)
-        fitln_total.redchi = float(redchi)
-        fitln_total.ndof = int(dof)
+        self._attach_fit_stats(fitln_total, float(chisq), float(redchi), int(dof))
 
         return fitln_total
 

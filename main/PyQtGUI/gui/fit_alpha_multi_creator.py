@@ -19,6 +19,7 @@ from lmfit import Model, Parameters, fit_report
 
 # Keep import so the factory can discover this module
 import fit_factory  # noqa: F401
+from fit_function import FitFunction
 
 from fit_alpha_base import (
     _GL7_T, _GL7_W, _GL3_T, _GL3_W, _safe_name,
@@ -145,13 +146,14 @@ def _load_shapes(shape_file, a, b):
 
 # ---- The fitter ------------------------------------------------------------------
 
-class AlphaMultiEMGFit:
+class AlphaMultiEMGFit(FitFunction):
     def __init__(self,
                  shape_file,
                  calib_a=7.1195126, calib_b=-7029.0,
                  allow_shift=True, shift_bound=100.0,
                  fix_ratios=True,
                  wmode_default=2):
+        super().__init__([])
         self.shape_file    = shape_file
         self.calib_a       = float(calib_a)
         self.calib_b       = float(calib_b)
@@ -303,7 +305,8 @@ class AlphaMultiEMGFit:
 
         # single initial fit
         res = model.fit(yf, params=pars, x=xf, method='least_squares',
-                        weights=w_fit, fit_kws=fit_kws, max_nfev=2000)
+                        weights=w_fit, fit_kws=fit_kws, max_nfev=2000,
+                        iter_cb=self._iter_cb)
 
         # IRLS: switch weights to model
         if wmode == 2:
@@ -314,7 +317,8 @@ class AlphaMultiEMGFit:
                     w_fit = 1.0 / np.sqrt(np.clip(yhat, 1.0, None))
                     new = model.fit(yf, params=last.params.copy(), x=xf,
                                     method='least_squares', weights=w_fit,
-                                    fit_kws=fit_kws, max_nfev=1500)
+                                    fit_kws=fit_kws, max_nfev=1500,
+                                    iter_cb=self._iter_cb)
                     rel = abs(new.chisqr - last.chisqr) / max(last.chisqr, 1.0)
                     last = new
                     if rel < IRLS_IMPROVE:
@@ -322,6 +326,9 @@ class AlphaMultiEMGFit:
                 res = last
             except Exception:
                 pass
+
+        if self._iter_cb():
+            return None
 
         '''
         # ---------------- Reporting ----------------
@@ -476,9 +483,10 @@ class AlphaMultiEMGFit:
         fitln_total.components = sub_lines
         fitln_total.component_data = {'x': xx, 'ytot': ytot}
         fitln_total._isotopes = [iso['name'] for iso in self._isotopes]
-        fitln_total.chi2 = float(getattr(res, "chisqr", np.nan))
-        fitln_total.redchi = float(getattr(res, "redchi", np.nan))
-        fitln_total.ndof = int(getattr(res, "nfree", 0))
+        self._attach_fit_stats(fitln_total,
+                               float(getattr(res, "chisqr", np.nan)),
+                               float(getattr(res, "redchi", np.nan)),
+                               int(getattr(res, "nfree", 0)))
         return fitln_total
 
 

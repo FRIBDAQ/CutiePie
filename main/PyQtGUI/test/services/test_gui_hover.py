@@ -166,7 +166,8 @@ def win(monkeypatch):
     w.mouse_x = None
     w.gate_manager = Recorder()
     w.sum_region_manager = Recorder()
-    w.fit_manager = types.SimpleNamespace(_cal=None, is_busy=lambda: False)
+    w.fit_manager = types.SimpleNamespace(is_busy=lambda: False,
+                                          calibration_click=lambda xdata, axes: False)
     w.plot_controller = Recorder()
     w.refreshed = []
     # the async refresh moved to ViewState with the cache (stage 9), and
@@ -527,9 +528,39 @@ def test_calibration_click_still_lands_while_a_fit_is_running(win, monkeypatch):
     picked = []
     win.fit_manager = types.SimpleNamespace(
         is_busy=lambda: True,
-        _cal=types.SimpleNamespace(active=True, ax=ax, add_point=picked.append))
+        calibration_click=lambda xdata, axes: picked.append((xdata, axes)) or True)
     ev = fake_event(ax, x=25.0, button=1)
     ev.guiEvent = types.SimpleNamespace(modifiers=lambda: 0x04000000)
     win.on_press(ev)
-    assert picked == [25.0]
+    assert picked == [(25.0, ax)]
+    assert win.gate_manager.calls == []
+
+
+def test_a_ctrl_click_nobody_is_calibrating_on_falls_through(win, monkeypatch):
+    """FitManager answers False when no calibration is collecting points on
+    that axes; the press then routes as usual instead of being swallowed."""
+    gui = gui_stubs.import_gui()
+    monkeypatch.setattr(gui.Qt, "ControlModifier", 0x04000000, raising=False)
+    ax = add_pad(win, "h1", 0)
+    win.cleanPopupExit = lambda *a: None
+    win.currentPlot.toCreateGate = True
+    ev = fake_event(ax, x=25.0, button=1)
+    ev.guiEvent = types.SimpleNamespace(modifiers=lambda: 0x04000000)
+    win.on_press(ev)
+    assert [c[0] for c in win.gate_manager.calls] == ["on_singleclick_gate"]
+
+
+def test_a_consumed_calibration_click_is_not_routed_anywhere_else(win, monkeypatch):
+    """When FitManager takes the ctrl+click, on_press must stop: with a gate
+    editor open the same press would otherwise also place a gate point."""
+    gui = gui_stubs.import_gui()
+    monkeypatch.setattr(gui.Qt, "ControlModifier", 0x04000000, raising=False)
+    ax = add_pad(win, "h1", 0)
+    win.cleanPopupExit = lambda *a: None
+    win.currentPlot.toCreateGate = True
+    win.fit_manager = types.SimpleNamespace(is_busy=lambda: False,
+                                            calibration_click=lambda xdata, axes: True)
+    ev = fake_event(ax, x=25.0, button=1)
+    ev.guiEvent = types.SimpleNamespace(modifiers=lambda: 0x04000000)
+    win.on_press(ev)
     assert win.gate_manager.calls == []

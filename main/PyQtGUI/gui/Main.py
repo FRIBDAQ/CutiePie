@@ -40,7 +40,9 @@ elif os.path.exists(os.path.join(cwd, "fit_skel_creator.py")):
 #scriptdir = mydir + '/../Script'   # SpecTcl install
 #sys.path.append(scriptdir)
 
-import CPyConverter as cpy
+# Load the shared-memory extension before PyQt5 and the GUI pull it in
+# themselves: on the acquisition box the reverse order failed at startup.
+import CPyConverter as cpy  # noqa: F401
 
 #  If we are in windows, we need to allow DLL's to be loaded
 #  from our script dir so:

@@ -4,11 +4,6 @@ from typing import Optional, Sequence, Tuple
 import numpy as np
 from scipy.optimize import minimize
 
-try:
-    from PyQt5.QtWidgets import QApplication
-except Exception:
-    QApplication = None
-
 
 @dataclass
 class FitRequest:
@@ -48,16 +43,21 @@ class FitFunction:
     estimation.
     
     """
-    def __init__(self, params, **kwargs):
+    def __init__(self, params):
         self.p_init = params
+        # both are injected by the caller that owns the GUI (fit_manager sets
+        # them on every plugin before start); this module stays Qt-free
         self._should_abort = None
+        self._pump_events = None
 
     def _iter_cb(self, params=None, iter=None, resid=None, *args, **kwargs):
-        """lmfit iteration callback: pump the Qt event loop so Abort can
-        be pressed, then return True if the fit should stop."""
-        if QApplication is not None:
-            QApplication.processEvents()
-        abort = self._should_abort
+        """lmfit iteration callback: let the caller pump its event loop so
+        Abort can be pressed, then return True if the fit should stop."""
+        # getattr: a subclass that skipped super().__init__ must not crash here
+        pump = getattr(self, "_pump_events", None)
+        if pump is not None:
+            pump()
+        abort = getattr(self, "_should_abort", None)
         return bool(abort and abort())
 
     @staticmethod

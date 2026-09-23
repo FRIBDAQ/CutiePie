@@ -10,8 +10,8 @@ import numpy as np
 from types import SimpleNamespace
 
 from PyQt5.QtWidgets import (
-    QMessageBox, QFileDialog, QDialog, QLabel, QPushButton, QCheckBox,
-    QHBoxLayout, QVBoxLayout, QInputDialog, QTextEdit,
+    QApplication, QMessageBox, QFileDialog, QDialog, QLabel, QPushButton,
+    QCheckBox, QHBoxLayout, QVBoxLayout, QInputDialog, QTextEdit,
 )
 from PyQt5.QtCore import Qt, QObject, QSettings, QEventLoop, QTimer, pyqtSignal
 
@@ -180,6 +180,16 @@ class FitManager(QObject):
         loop so Abort stays clickable, which lets other slots run mid-fit;
         the ones that rebuild or destroy axes ask here and refuse."""
         return self._fit_busy
+
+    def calibration_click(self, xdata, axes):
+        """Hand a ctrl+click to the open energy-calibration dialog. True when
+        it was consumed; False when no calibration is collecting points on
+        `axes`, so the caller routes the press as usual."""
+        cal = self._cal
+        if cal is None or axes is not cal.ax or xdata is None:
+            return False
+        cal.add_point(xdata)
+        return True
 
     def on_abort_clicked(self):
         self._abort_fit = True
@@ -1076,7 +1086,11 @@ class FitManager(QObject):
 
                     fit = self._factory.create(fit_funct, **config)
 
+                    # the plugin base is Qt-free: it gets the abort flag and the
+                    # event pump from here rather than importing them
                     setattr(fit, "_should_abort", lambda: getattr(self, "_abort_fit", False))
+                    setattr(fit, "_pump_events",
+                            getattr(QApplication, "processEvents", None) or (lambda: None))
 
                     EMG_MODELS = {
                         "AlphaEMG1","AlphaEMG12","AlphaEMG2","AlphaEMG22",
@@ -1247,7 +1261,7 @@ class FitManager(QObject):
         lay = QVBoxLayout(dlg); lay.addWidget(info); lay.addWidget(status); lay.addLayout(hl)
 
         self._cal = SimpleNamespace(
-            active=True, ax=ax, x=np.asarray(x), y=np.asarray(y),
+            ax=ax, x=np.asarray(x), y=np.asarray(y),
             min_pts=int(min_pts), max_pts=int(max_pts), halfwin=float(snap_halfwin),
             MU=[], E=[], artists=[], dlg=dlg, status=status, pending=False
         )
@@ -1277,7 +1291,7 @@ class FitManager(QObject):
             # held can stay unmapped on some platforms (seen on WSL), and an
             # application-modal dialog nobody can see is a frozen GUI.
             try:
-                if self._cal is not cal or not cal.active:
+                if self._cal is not cal:
                     return
                 if len(cal.MU) >= cal.max_pts:
                     QMessageBox.information(self._parent_widget, "Max points",

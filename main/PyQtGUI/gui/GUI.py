@@ -1080,15 +1080,13 @@ class MainWindow(QMainWindow):
             index = self.wTab.selectedPad(self.wTab.currentIndex())
         self.currentPlot.selected_plot_index = index
 
-        ##### Bashir added for energy calibration ####################
-        # --- Calibration capture (Ctrl + Left-click while the calibration dialog is open) ---
-        cal = getattr(self.fit_manager, "_cal", None)
-        if cal and getattr(cal, "active", False) and (event.inaxes is cal.ax):
-            ge = getattr(event, "guiEvent", None)
-            ctrl = bool(ge and (ge.modifiers() & Qt.ControlModifier))
-            if ctrl and event.button == 1 and (event.xdata is not None):
-                cal.add_point(event.xdata)
-                return  # swallow so it doesn’t trigger other actions
+        # a ctrl+left-click belongs to the energy-calibration dialog when one is
+        # collecting points on this pad; the service says whether it took it
+        ge = getattr(event, "guiEvent", None)
+        ctrl = bool(ge and (ge.modifiers() & Qt.ControlModifier))
+        if (ctrl and event.button == 1 and event.xdata is not None
+                and self.fit_manager.calibration_click(event.xdata, event.inaxes)):
+            return
 
 
 ##################################################################################################
