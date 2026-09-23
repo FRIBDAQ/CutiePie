@@ -120,6 +120,7 @@ def win(monkeypatch):
         zoomPress=False, toCreateGate=False, toEditGate=False,
         toCreateSumRegion=False)
     w.gatePopup = types.SimpleNamespace(isVisible=lambda: False)
+    w.fit_busy = False
     w.sumRegionPopup = types.SimpleNamespace(isVisible=lambda: False)
 
     w.store = dict(SPECTRUM)
@@ -194,6 +195,7 @@ def win(monkeypatch):
         get_current_plot=lambda: w.currentPlot,
         get_gate_popup=lambda: w.gatePopup,
         get_sum_popup=lambda: w.sumRegionPopup,
+        is_fit_busy=lambda: w.fit_busy,
         parent_widget=w,
         logger=w.logger,
     )
@@ -272,6 +274,18 @@ def test_another_pad_interaction_blocks_the_press(win, flag):
     setattr(win.currentPlot, flag, True)
     win.onPeakFit2Press(Event(inaxes=win.ax))
     assert win.peak2_fits == []
+
+
+def test_a_running_fit_blocks_the_press(win):
+    """A FitManager fit pumps the event loop mid-fit; an armed finder must
+    not draw a fit on the pad that fit is about to tag its artists on."""
+    win.peak2_armed = True
+    win.fit_busy = True
+    win.onPeakFit2Press(Event(inaxes=win.ax))
+    assert win.peak2_fits == []
+    win.fit_busy = False
+    win.onPeakFit2Press(Event(inaxes=win.ax))
+    assert len(win.peak2_fits) == 1
 
 
 def test_a_left_press_on_an_end_handle_starts_a_drag_not_a_fit(win):

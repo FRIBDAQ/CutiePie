@@ -42,6 +42,7 @@ class PeakFit2Controller:
     def __init__(self, peak_tab, spectra, view_state,
                  plot_controller, tabs=None, get_current_plot=None,
                  get_gate_popup=None, get_sum_popup=None,
+                 is_fit_busy=None,
                  parent_widget=None, logger=None):
         self._peak            = peak_tab          # extraPopup.peak
         self._spectra         = spectra
@@ -53,6 +54,9 @@ class PeakFit2Controller:
         # replaced, and a torn-down one must read as "not blocking"
         self._get_gate_popup  = get_gate_popup
         self._get_sum_popup   = get_sum_popup
+        # FitManager pumps the event loop mid-fit, so an armed press can land
+        # while a fit is tagging the pad's new artists as its own
+        self._is_fit_busy     = is_fit_busy
         self._parent_widget   = parent_widget
         self.logger = logger or logging.getLogger(__name__)
         # which canvases carry the press handler
@@ -162,6 +166,8 @@ class PeakFit2Controller:
         """True while another pad interaction owns clicks: rubber-band
         zoom, gate create/edit, or summing-region create. An armed Peak
         Finder 2 must not also fit on those presses."""
+        if self._is_fit_busy is not None and self._is_fit_busy():
+            return True
         cp = self._get_current_plot()
         if cp.zoomPress or cp.toCreateGate or cp.toEditGate or cp.toCreateSumRegion:
             return True

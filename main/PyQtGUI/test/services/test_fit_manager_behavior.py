@@ -1082,3 +1082,33 @@ def test_calibration_click_defers_prompt_and_drops_duplicate(env, monkeypatch):
     timer.scheduled[1][1]()                        # stale prompt after teardown
     assert len(prompts) == 1                       # ... is a no-op
     assert len(ax.lines) == 0                      # markers removed on close
+
+
+# ------------------------------------------------------------ busy predicate
+
+def test_is_busy_is_true_only_while_the_plugin_runs(fm_mod, monkeypatch):
+    """The fit pumps the event loop, so other slots can run mid-fit; they
+    ask is_busy() to refuse. It must be True exactly while the plugin runs."""
+    env = fit_env(fm_mod, monkeypatch)
+    ax = make_ax()
+    seen = []
+    env.factory.fit.side_effect = lambda: seen.append(env.fm.is_busy())
+    assert env.fm.is_busy() is False
+    env.fm.fit(0, "h1", ax, "Gaus", ["1.5"] + [""] * 19, "2", "8")
+    assert seen == [True]
+    assert env.fm.is_busy() is False
+
+
+def test_is_busy_clears_when_the_plugin_fails(fm_mod, monkeypatch):
+    def boom():
+        raise NameError("plugin blew up")
+    env = fit_env(fm_mod, monkeypatch)
+    env.factory.fit.side_effect = boom
+    env.fm.fit(0, "h1", make_ax(), "Gaus", ["1.5"] + [""] * 19, "2", "8")
+    assert env.fm.is_busy() is False
+    assert env.busy == [(True,), (False,)]
+
+
+def test_is_busy_stays_false_when_the_fit_never_starts(env):
+    env.fm.fit(None, None, None, "Gaus")        # no context: early return
+    assert env.fm.is_busy() is False

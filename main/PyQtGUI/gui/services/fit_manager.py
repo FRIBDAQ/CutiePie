@@ -124,6 +124,7 @@ class FitManager(QObject):
         self.logger   = logger or logging.getLogger(__name__)
         # instance state
         self._abort_fit        = False
+        self._fit_busy         = False
         self._use_csv_fit      = False
         self._csv_x            = None
         self._csv_y            = None
@@ -173,6 +174,12 @@ class FitManager(QObject):
     # ------------------------------------------------------------------
     # Abort
     # ------------------------------------------------------------------
+
+    def is_busy(self):
+        """True while fit() is inside a plugin. The plugin pumps the event
+        loop so Abort stays clickable, which lets other slots run mid-fit;
+        the ones that rebuild or destroy axes ask here and refuse."""
+        return self._fit_busy
 
     def on_abort_clicked(self):
         self._abort_fit = True
@@ -940,6 +947,7 @@ class FitManager(QObject):
             spectrumName = name
 
         self._abort_fit = False
+        self._fit_busy = True
         self.fitBusyChanged.emit(True)
 
         self.logger.debug('fit - spectrumName, fit_funct, index: %s, %s, %s', spectrumName, fit_funct, index)
@@ -1213,6 +1221,7 @@ class FitManager(QObject):
             self.logger.exception('fit - NameError')
 
         finally:
+            self._fit_busy = False
             self.fitBusyChanged.emit(False)
 
     # ------------------------------------------------------------------

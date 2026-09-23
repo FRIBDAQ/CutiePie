@@ -180,6 +180,8 @@ def win(monkeypatch):
     gui = gui_stubs.import_gui()
     w = gui.MainWindow.__new__(gui.MainWindow)
     w.logger = logging.getLogger("test.geometry")
+    # the load/apply slots refuse while a fit runs; no fit here
+    w.fit_manager = types.SimpleNamespace(is_busy=lambda: False)
     w.spectra = SpectrumStore()
     w.wTab = FakeTabs()
     w.currentPlot = w.wTab.plot(0)

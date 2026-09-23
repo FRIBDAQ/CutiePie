@@ -480,6 +480,7 @@ class MainWindow(QMainWindow):
             get_current_plot=lambda: self.currentPlot,
             get_gate_popup=lambda: self.gatePopup,
             get_sum_popup=lambda: self.sumRegionPopup,
+            is_fit_busy=lambda: self.fit_manager.is_busy(),
             parent_widget=self,
             logger=self.logger,
         )
@@ -1048,6 +1049,14 @@ class MainWindow(QMainWindow):
             self.currentPlot.zoomPress = False
 
 
+    def _fitInProgress(self, action):
+        # A running fit pumps the Qt event loop so Abort stays clickable, so any
+        # slot can fire mid-fit; the ones that rebuild or destroy axes refuse here.
+        if self.fit_manager.is_busy():
+            self.logger.warning('%s ignored: a fit is running', action)
+            return True
+        return False
+
     #callback for button_press_event
     def on_press(self, event):
         self.logger.info('on_press')
@@ -1087,6 +1096,11 @@ class MainWindow(QMainWindow):
 
 ##################################################################################################
 
+
+        # calibration above is the one press a running fit wants; everything
+        # below would draw on, select or rebuild the pad it is fitting
+        if self._fitInProgress('on_press'):
+            return
 
         if event.dblclick:
             if self.currentPlot.toCreateGate or self.currentPlot.toCreateSumRegion :
@@ -1379,6 +1393,8 @@ class MainWindow(QMainWindow):
 
     def closeTab(self, index):
         self.logger.info('closeTab')
+        if self._fitInProgress('closeTab'):
+            return
         #For now, if change tab while working on gate, close any ongoing gate action
         if self.currentPlot.toCreateGate or self.currentPlot.toEditGate or self.gatePopup.isVisible():
             self.gate_manager.cancelGate()
@@ -1526,6 +1542,8 @@ class MainWindow(QMainWindow):
         # the geometry combos and tab widget live here; the service only
         # keeps the geometry_applied flag (markGeometryApplied).
         self.logger.info('setCanvasLayout')
+        if self._fitInProgress('setCanvasLayout'):
+            return
         indexTab = self.wTab.currentIndex()
         nRow = int(self.wConf.histo_geo_row.currentText())
         nCol = int(self.wConf.histo_geo_col.currentText())
@@ -1659,9 +1677,13 @@ class MainWindow(QMainWindow):
         return self.geometry_controller.applyGeometryToCurrentTab(infoGeo)
 
     def loadGeo(self):
+        if self._fitInProgress('loadGeo'):
+            return
         self.geometry_controller.loadGeo()
 
     def loadGeoAll(self):
+        if self._fitInProgress('loadGeoAll'):
+            return
         self.geometry_controller.loadGeoAll()
 
     def _applySession(self, tabsInfo):
@@ -1719,6 +1741,8 @@ class MainWindow(QMainWindow):
     # geometrically add plots to the right place
     # plot axis as defined in the ReST interface.
     def addPlot(self):
+        if self._fitInProgress('addPlot'):
+            return
         selected = (self.wConf.histo_list.currentText()
                     if self.wConf.histo_list.count() else None)
         return self.plot_controller.addPlot(

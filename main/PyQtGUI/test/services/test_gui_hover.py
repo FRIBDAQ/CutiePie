@@ -166,7 +166,7 @@ def win(monkeypatch):
     w.mouse_x = None
     w.gate_manager = Recorder()
     w.sum_region_manager = Recorder()
-    w.fit_manager = types.SimpleNamespace(_cal=None)
+    w.fit_manager = types.SimpleNamespace(_cal=None, is_busy=lambda: False)
     w.plot_controller = Recorder()
     w.refreshed = []
     # the async refresh moved to ViewState with the cache (stage 9), and
@@ -489,3 +489,47 @@ def test_a_completed_fetch_clears_the_inflight_marker(gate_win):
     gate_win._gate_name_inflight.add("h1")
     gate_win._on_gate_name_fetched("h1", [{"gate": "gateA"}])
     assert "h1" not in gate_win._gate_name_inflight
+
+
+# ------------------------------------------------ presses while a fit runs
+
+def test_press_is_ignored_while_a_fit_is_running(win):
+    """A fit pumps the event loop so Abort stays clickable, which lets every
+    canvas press through mid-fit. Gate/sum-region/select presses must be
+    dropped while FitManager reports busy."""
+    ax = add_pad(win, "h1", 0)
+    win.cleanPopupExit = lambda *a: None
+    win.currentPlot.toCreateGate = True
+    win.fit_manager.is_busy = lambda: True
+    win.on_press(fake_event(ax, x=25.0, button=1))
+    assert win.gate_manager.calls == []
+
+    win.currentPlot.toCreateGate = False
+    selected = []
+    win.on_singleclick = selected.append
+    win.on_press(fake_event(ax, x=25.0, button=1))
+    win.on_press(fake_event(ax, x=25.0, button=1, dblclick=True))
+    assert selected == []
+
+    # mutation check: the same presses route once the fit is over
+    win.fit_manager.is_busy = lambda: False
+    win.on_press(fake_event(ax, x=25.0, button=1))
+    assert selected == [0]
+
+
+def test_calibration_click_still_lands_while_a_fit_is_running(win, monkeypatch):
+    """The energy-calibration ctrl+click happens INSIDE the fit; the busy gate
+    must sit below it, or calibration could never collect a point."""
+    gui = gui_stubs.import_gui()
+    monkeypatch.setattr(gui.Qt, "ControlModifier", 0x04000000, raising=False)
+    ax = add_pad(win, "h1", 0)
+    win.cleanPopupExit = lambda *a: None
+    picked = []
+    win.fit_manager = types.SimpleNamespace(
+        is_busy=lambda: True,
+        _cal=types.SimpleNamespace(active=True, ax=ax, add_point=picked.append))
+    ev = fake_event(ax, x=25.0, button=1)
+    ev.guiEvent = types.SimpleNamespace(modifiers=lambda: 0x04000000)
+    win.on_press(ev)
+    assert picked == [25.0]
+    assert win.gate_manager.calls == []
