@@ -75,7 +75,6 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 # 11) 1D/2D region integration
 # 12) Fitting
 # 13) Peak Finding
-# 14) Clustering
 # 15) Overlaying pic
 # 16) Jupyter Notebook
 # 17) Misc Tools
@@ -230,8 +229,8 @@ class MainWindow(QMainWindow):
     def _build_widgets(self, fit_factory):
         """Window shell, layouts, the toolbar/tab widgets and the nine popups.
 
-        factory/fit_factory are the two __init__ arguments this phase stores
-        and initializes; they are passed in rather than read off self so the
+        fit_factory is the one __init__ argument this phase stores and
+        initializes; it is passed in rather than read off self so the
         statements stay in their original order."""
         self.setWindowFlag(Qt.WindowMinimizeButtonHint, True)
         self.setWindowFlag(Qt.WindowMaximizeButtonHint, True)
@@ -321,8 +320,6 @@ class MainWindow(QMainWindow):
         # copy attributes windows
         self.copyAttr = CopyProperties()
 
-        # initialize factory from algo_creator
-        #self.factory.initialize(self.extraPopup.imaging.clusterAlgo)
         # initialize factory from fit_creator
         self.fit_factory.initialize(self.extraPopup.fit_list)
 

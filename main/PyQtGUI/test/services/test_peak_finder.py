@@ -1426,3 +1426,80 @@ def test_E52_row_quotes_the_primary_component():
     mu_cell = format_composite_fit_row(9, r)["cells"][1]
     assert mu_cell[1] == pytest.approx(primary["mu"])
     assert mu_cell[1] != pytest.approx(r["components"][0]["mu"])
+
+
+# ================= M35: the linear-anchor fallback is disclosed =================
+import services.peak_finder as _pf
+from services.peak_finder import requested_spec
+
+
+def _fallback_case():
+    """1σ half-window, quadratic background, Poisson seed 0: the curved fit's
+    area lands outside the anchor's 0.7–1.5 band, so fit_composite keeps the
+    poly1 anchor instead."""
+    mu, sigma, A = 400.0, 8.0, 3000.0
+    x = np.arange(350.0, 450.0, 1.0)
+    bg = 100.0 + 0.5 * (x - 400.0)
+    y_true = A * np.exp(-0.5 * ((x - mu) / sigma) ** 2) + bg
+    y = np.random.default_rng(0).poisson(np.clip(y_true, 0, None)).astype(float)
+    spec = {"signal": "gaussian", "n_components": 1, "background": "poly2"}
+    return x, y, mu - sigma, mu + sigma, spec
+
+
+def _kept_case():
+    """6σ half-window, cubic: healthy, the curved fit is kept."""
+    mu, sigma, A = 400.0, 8.0, 3000.0
+    x = np.arange(300.0, 500.0, 1.0)
+    y = A * np.exp(-0.5 * ((x - mu) / sigma) ** 2) + 100.0 + 0.5 * (x - 400.0)
+    spec = {"signal": "gaussian", "n_components": 1, "background": "poly3"}
+    return x, y, mu - 6 * sigma, mu + 6 * sigma, spec
+
+
+def test_fallback_result_is_stamped_with_the_requested_background():
+    x, y, lo, hi, spec = _fallback_case()
+    r = fit_composite(x, y, lo, hi, spec)
+    assert r["ok"] and r["spec"]["background"] == "poly1"     # the anchor was kept
+    assert r["fallback_from"] == "poly2"
+    assert requested_spec(r) == dict(r["spec"], background="poly2")
+
+
+def test_a_fit_that_kept_its_background_carries_no_fallback_mark():
+    x, y, lo, hi, spec = _kept_case()
+    r = fit_composite(x, y, lo, hi, spec)
+    assert r["ok"] and r["spec"]["background"] == "poly3"
+    assert "fallback_from" not in r
+    assert requested_spec(r) == r["spec"]
+
+
+def test_autocomponent_refit_re_requests_the_curved_background(monkeypatch):
+    """A drag refit must ask for what the user chose, not for the anchor the
+    previous fit fell back to — otherwise one narrow window downgrades the
+    fit for good."""
+    x, y, lo, hi, spec = _fallback_case()
+    prev = fit_composite(x, y, lo, hi, spec)
+    assert prev["fallback_from"] == "poly2"
+    seen = []
+    real = _pf.fit_composite
+
+    def spy(xa, ya, l, h, s, fixed=None, seeds=None):
+        seen.append(dict(s))
+        return real(xa, ya, l, h, s, fixed=fixed, seeds=seeds)
+
+    monkeypatch.setattr(_pf, "fit_composite", spy)
+    _pf.autocomponent_refit(x, y, lo - 20.0, hi + 20.0, prev)
+    assert seen[0]["background"] == "poly2"
+
+
+def test_fallback_is_named_in_the_output_and_the_row():
+    x, y, lo, hi, spec = _fallback_case()
+    r = fit_composite(x, y, lo, hi, spec)
+    out = format_composite_fit_output(1, r)
+    assert "fell back" in out and "quadratic" in out and "linear" in out
+    row = format_composite_fit_row(1, r)
+    assert row["cells"][0][0] == "1 †"
+    assert "fell back" in row["tooltip"]
+
+    x, y, lo, hi, spec = _kept_case()
+    plain = format_composite_fit_row(2, fit_composite(x, y, lo, hi, spec))
+    assert "†" not in plain["cells"][0][0]
+    assert "fell back" not in plain["tooltip"]

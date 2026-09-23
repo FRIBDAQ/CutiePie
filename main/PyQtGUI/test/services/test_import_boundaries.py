@@ -29,8 +29,7 @@ PRESENTATION_MODULES = frozenset({
     "OutputGUI", "OutputIntegrate", "SpecialFunctionsGUI",
     "otherOptions", "Functions1DGUI", "Functions2DGUI",
     "JoystickGUI", "WebWindow", "CsvPlotGUI",
-    "CannyEdgePlot", "ImgSegPlot",
-    "dialogs", "alpha_filter_dialog", "skel_plot",
+    "dialogs", "alpha_filter_dialog",
 })
 
 PRESENTATION_PACKAGES = frozenset({"controllers", "adapters"})

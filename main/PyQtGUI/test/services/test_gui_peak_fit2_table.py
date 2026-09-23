@@ -797,3 +797,41 @@ def test_a_successful_edit_updates_the_row_and_reports(win):
     win._peak2_open_edit(rec, 50.0)
     assert "Peak 2 (edited)" in status(win)
     assert table(win).rowCount() == 1
+
+
+# ------------------------------------------------ M35: fallback disclosure
+
+def test_selecting_a_fallen_back_fit_keeps_the_requested_background_in_the_menu(win):
+    """The result's spec is what was FITTED (poly1, so the curve evaluates);
+    the menu must show what was ASKED FOR, or selecting the row silently
+    changes the user's setting."""
+    add_fit(win, number=1)
+    win.peak2_fits[0]["result"]["fallback_from"] = "poly3"
+    select_row(win, 0)
+    win._peak2_row_selected()
+    assert win.extraPopup.peak.peak2_bg.currentText() == "Cubic"
+
+
+def test_a_refit_reports_the_fitted_background_and_the_fallback(win):
+    rec = add_fit(win, number=1)
+    win.extraPopup.peak.peak2_bg.value = "Cubic"
+    fb = fit_result()
+    fb["fallback_from"] = "poly3"
+    win.refit_result = fb
+    win._peak2_refit_selected(rec)
+    assert "gaussian/poly1" in status(win)
+    assert "cubic" in status(win) and "linear" in status(win)
+
+    # mutation check: a fit that kept its background says nothing extra
+    win.refit_result = fit_result(spec={"signal": "gaussian", "background": "poly3",
+                                        "n_components": 1, "tail_side": "low"})
+    win._peak2_refit_selected(rec)
+    assert "gaussian/poly3" in status(win) and "fell back" not in status(win)
+
+
+def test_an_edit_refit_re_requests_the_fallen_back_background(win):
+    rec = add_fit(win, number=1)
+    rec["result"]["fallback_from"] = "poly3"
+    win.dialog_script = {"mu": 51.0, "accept": True}
+    win._peak2_open_edit(rec, 50.0)
+    assert win.refits and win.refits[0]["spec"]["background"] == "poly3"

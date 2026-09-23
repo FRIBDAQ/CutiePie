@@ -24,7 +24,7 @@ if "USERDIR" in os.environ:
     sys.path.append(os.environ["USERDIR"])
     print("The .py user-based files are in ",os.environ["USERDIR"])
 # Check if the user-based files are in the current working directory.
-elif os.path.exists(os.path.join(cwd, "fit_skel_creator.py")) and os.path.exists(os.path.join(cwd, "algo_skel_creator.py")):
+elif os.path.exists(os.path.join(cwd, "fit_skel_creator.py")):
     print("The .py user-based files are in the current working directory.")
     sys.path.append(cwd)
     
@@ -88,16 +88,6 @@ import fit_p2_creator
 import fit_gp1_creator
 import fit_gp2_creator
 
-
-# import algo_factory
-# # skeleton for user-based ML implementation
-# import algo_skel_creator
-# # already implemented examples
-# import kmean_creator
-# import gmm_creator
-# # imgseg/cannye pull in OpenCV (cv2); re-enable with their register_builder calls below
-# # import imgseg_creator
-# # import cannye_creator
 
 # print("Check import : ",fit_skel_creator.__file__)
 
@@ -210,46 +200,6 @@ config_fit_alph_sigma_multi = {
     # "fix_ratios": True,
     # "wmode_default": 2,  
 }
-# #######################################
-# ##  ML
-# #######################################
-# algofactory = algo_factory.AlgoFactory()
-# # Configurable parameters for Skel (for the full param list, please see skel_creator.py)
-# config_algo_skel = {
-#     'param_1': 5,
-#     'param_2': 'test',
-#     'param_3': 100
-# }
-#
-# # Configurable parameters for KMean (for the full param list, please see kmean_creator.py)
-# config_algo_kmean = {
-#     'n_clusters': 3,
-#     'n_init': 10
-# }
-#
-# # Configurable parameters for Gaussian Mixture Model (for the full param list, please see gmm_creator.py)
-# config_algo_gmm = {
-#     'n_components': 4,
-# }
-'''
-# Configurable parameters for Image Segmentation (for the full param list, please see imgseg_creator.py)
-config_algo_img = {
-    'nclusters': 5,
-    'criteria' : (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.2),
-    'attempts' :10,
-    'flags': cv2.KMEANS_RANDOM_CENTERS
-}
-
-# Configurable parameters for Canny Edge (for the full param list, please see cannye_creator.py)
-config_algo_canny = {
-    'sigma': 1,
-    'kernel_size': 7,
-    'lowthreshold': 0.05,
-    'highthreshold': 0.15,
-    'weak_pixel': 75,
-    'strong_pixel': 255
-}
-'''
 # Fitting function registration
 # Gauss is registered first so it is the default selection in the dropdown
 fitfactory.register_builder('Gauss', fit_gaus_creator.GausFitBuilder(), config_fit_gaus)
@@ -265,13 +215,6 @@ fitfactory.register_builder('AlphaEMG32', fit_alpha32_creator.AlphaEMG32FitBuild
 fitfactory.register_builder('AlphaEMGMultiSigma', fit_alpha_multi_sigma_creator.AlphaMultiEMGSigmaFitBuilder(), config_fit_alph_sigma_multi)
 # fitfactory.register_builder('AlphaEMGLinear', fit_alpha_linear_creator.AlphaEMGLinearFitBuilder(), config_fit_alph_linear)
 fitfactory.register_builder('Skeleton', fit_skel_creator.SkelFitBuilder(), config_fit_skel)
-
-# ML Algorithm registration
-# algofactory.register_builder('Skeleton', algo_skel_creator.SkelAlgoBuilder(), config_algo_skel)
-# algofactory.register_builder('KMean', kmean_creator.KMeanAlgoBuilder(), config_algo_kmean)
-# algofactory.register_builder('Gaussian MM', gmm_creator.GMMAlgoBuilder(), config_algo_gmm)
-# algofactory.register_builder('Image Segmentation', imgseg_creator.ImgSegAlgoBuilder(), config_algo_img)
-# algofactory.register_builder('Canny Edge', cannye_creator.CannyEdgeAlgoBuilder(), config_algo_canny)
 
 app = QApplication(sys.argv)
 gui = MainWindow(fitfactory)

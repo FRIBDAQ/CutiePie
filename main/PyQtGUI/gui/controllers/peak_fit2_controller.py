@@ -12,11 +12,12 @@ from PyQt5.QtWidgets import (QDialog, QFormLayout, QHBoxLayout, QInputDialog,
                              QLineEdit, QPushButton, QTableWidgetItem,
                              QVBoxLayout)
 
-from services.peak_finder import (autocomponent_refit, find_duplicate_mu,
-                                  fit_composite, fit_composite_auto,
-                                  fix_peak_window, format_composite_fit_row,
-                                  fwhm_to_sigma, nearest_component_index,
-                                  nearest_window_edge, primary_component,
+from services.peak_finder import (autocomponent_refit, fallback_note,
+                                  find_duplicate_mu, fit_composite,
+                                  fit_composite_auto, fix_peak_window,
+                                  format_composite_fit_row, fwhm_to_sigma,
+                                  nearest_component_index, nearest_window_edge,
+                                  primary_component, requested_spec,
                                   sigma_to_fwhm, validate_gauss_edit)
 
 
@@ -276,7 +277,9 @@ class PeakFit2Controller:
         # sync the menus to the selected fit's spec (signals blocked inside, so
         # this never triggers _peak2_shape_changed's re-fit)
         if sel_rec is not None:
-            self._peak2_sync_menus_to_spec(sel_rec["result"].get("spec", {}))
+            # the menus show what was asked for; a fallen-back result's own
+            # spec names the anchor that was actually fitted
+            self._peak2_sync_menus_to_spec(requested_spec(sel_rec["result"]))
         for c in canvases:
             try:
                 c.draw_idle()
@@ -425,8 +428,9 @@ class PeakFit2Controller:
         rec["result"] = r
         rec["artists"] = self._peak2_draw(ax, r)
         self._peak2_update_row(rec["number"], r, tag="edited")
-        self._peak2_status(f"Peak {rec['number']} → {spec['signal']}/"
-                           f"{spec['background']}: μ = {self._peak2_result_mu(r):.6g}")
+        self._peak2_status(self._peak2_with_note(
+            f"Peak {rec['number']} → {r['spec']['signal']}/"
+            f"{r['spec']['background']}: μ = {self._peak2_result_mu(r):.6g}", r))
         ax.figure.canvas.draw_idle()
 
     def _peak2_open_edit(self, rec, click_x):
@@ -531,7 +535,7 @@ class PeakFit2Controller:
         fixed_c = {(f"mu{suffix}" if k == "mu" else f"sigma{suffix}"): v
                    for k, v in fixed.items()}
         seeds = {f"mu{i + 1}": comp["mu"] for i, comp in enumerate(comps)}
-        r = fit_composite(xc, y, float(xx[0]), float(xx[-1]), prev["spec"],
+        r = fit_composite(xc, y, float(xx[0]), float(xx[-1]), requested_spec(prev),
                           fixed=fixed_c, seeds=seeds)
         if not r["ok"]:
             self._peak2_status(f"[failed] edit (Peak {rec['number']}): "
@@ -545,8 +549,8 @@ class PeakFit2Controller:
         rec["result"] = r
         rec["artists"] = self._peak2_draw(ax, r)
         self._peak2_update_row(rec["number"], r, tag="edited")
-        self._peak2_status(f"Peak {rec['number']} (edited): "
-                           f"μ = {self._peak2_result_mu(r):.6g}")
+        self._peak2_status(self._peak2_with_note(
+            f"Peak {rec['number']} (edited): μ = {self._peak2_result_mu(r):.6g}", r))
         ax.figure.canvas.draw_idle()
 
     # ------------------------------------------------------------------
@@ -655,8 +659,9 @@ class PeakFit2Controller:
         self._peak2_update_row(rec["number"], r, tag="edited")
         ncomp = len(r["components"])
         extra = f" ({ncomp} components)" if ncomp > 1 else ""
-        self._peak2_status(f"Peak {rec['number']} (window edited){extra}: "
-                           f"μ = {self._peak2_result_mu(r):.6g}")
+        self._peak2_status(self._peak2_with_note(
+            f"Peak {rec['number']} (window edited){extra}: "
+            f"μ = {self._peak2_result_mu(r):.6g}", r))
         canvas.draw_idle()
 
     def _peak2_try_edit(self, event):
@@ -838,6 +843,13 @@ class PeakFit2Controller:
     # ------------------------------------------------------------------
     # widget reads
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _peak2_with_note(msg, r):
+        """Append the anchor-fallback clause to a status line when `r` fell
+        back to a linear background."""
+        note = fallback_note(r)
+        return f"{msg} — {note}" if note else msg
 
     def _peak2_status(self, msg):
         """Show the latest Peak Finder 2 status/feedback line (armed/config/

@@ -451,8 +451,30 @@ def fit_composite(x_axis, y_data, lo, hi, spec, fixed=None, seeds=None):
             if anchor_area > 0:
                 ratio = curved_area / anchor_area
                 if ratio < 0.7 or ratio > 1.5:
+                    # the anchor is what gets drawn and refit from; keep what was
+                    # asked for so the surface can say so and refits re-request it
+                    anchor["fallback_from"] = bg
                     return anchor
     return result
+
+
+def requested_spec(result):
+    """The spec the user asked for: the result's own spec, with the background
+    restored when the linear anchor replaced a curved one."""
+    spec = dict(result.get("spec", {}))
+    if result.get("fallback_from"):
+        spec["background"] = result["fallback_from"]
+    return spec
+
+
+def fallback_note(result):
+    """One clause naming the anchor fallback, or '' when the fit kept its
+    background."""
+    fb = result.get("fallback_from")
+    if not fb:
+        return ""
+    return (f"background fell back to linear: the "
+            f"{_BACKGROUND_LABELS.get(fb, fb)} fit was rejected by the linear anchor")
 
 
 def eval_composite_result(x, result):
@@ -477,7 +499,7 @@ def autocomponent_refit(x, y, lo, hi, prev_result, max_components=5):
     **shrink-drop**: components of the previous fit whose μ fell outside the
     new window are dropped (renumbered implicitly)."""
     lo, hi = (float(lo), float(hi)) if lo <= hi else (float(hi), float(lo))
-    spec = dict(prev_result["spec"])
+    spec = requested_spec(prev_result)
     kept = [c for c in prev_result["components"] if lo <= c["mu"] <= hi]
 
     if kept:
@@ -848,8 +870,10 @@ def format_composite_fit_output(peak_no, r, tag=None):
     if not r.get("ok"):
         return f"{label}: FAILED — {r.get('error', 'unknown error')}"
     spec = r.get("spec", {})
+    note = fallback_note(r)
+    note = f"\n   {note}" if note else ""
     if _is_gauss_linear(spec):
-        return format_gauss_fit_output(peak_no, _composite_gl_flat(r), tag=tag)
+        return format_gauss_fit_output(peak_no, _composite_gl_flat(r), tag=tag) + note
     header = (f"{label} [{_spec_label(spec)}, "
               f"window {r['win_lo']:.6g}–{r['win_hi']:.6g}, "
               f"red-χ² = {r['redchi']:.3g}]")
@@ -858,7 +882,7 @@ def format_composite_fit_output(peak_no, r, tag=None):
         lines.append(f"   #{i}: μ = {c['mu']:.6g} ± {c['dmu']:.2g}, "
                      f"FWHM = {c['fwhm']:.4g} ± {c['dfwhm']:.2g}, "
                      f"area = {c['area']:.4g} ± {c['darea']:.2g} counts")
-    return "\n".join(lines)
+    return "\n".join(lines) + note
 
 
 def format_composite_fit_row(peak_no, r, tag=None):
@@ -867,8 +891,15 @@ def format_composite_fit_row(peak_no, r, tag=None):
     multi-component fit shows its strongest component's μ/FWHM, the summed area,
     and marks the ``#`` cell ``×k``."""
     spec = r.get("spec", {})
+    # a dagger on the # cell says the linear anchor replaced the requested
+    # curved background; the tooltip spells it out
+    mark = " †" if r.get("fallback_from") else ""
     if _is_gauss_linear(spec):
-        return format_gauss_fit_row(peak_no, _composite_gl_flat(r), tag=tag)
+        row = format_gauss_fit_row(peak_no, _composite_gl_flat(r), tag=tag)
+        text, key = row["cells"][0]
+        row["cells"][0] = (text + mark, key)
+        row["tooltip"] = format_composite_fit_output(peak_no, r, tag=tag)
+        return row
     comps = r["components"]
     k = len(comps)
     primary = primary_component(r)
@@ -876,7 +907,7 @@ def format_composite_fit_row(peak_no, r, tag=None):
     marker = " *" if tag else ""
     mult = f"×{k}" if k > 1 else ""     # only a genuine doublet+ shows the count
     cells = [
-        (f"{peak_no}{mult}{marker}", float(peak_no)),
+        (f"{peak_no}{mult}{marker}{mark}", float(peak_no)),
         (f"{primary['mu']:.6g} ± {primary['dmu']:.2g}", float(primary["mu"])),
         (f"{primary['fwhm']:.4g} ± {primary['dfwhm']:.2g}", float(primary["fwhm"])),
         (f"{total_area:.4g}", total_area),

@@ -3,7 +3,7 @@ matplotlib.use("Qt5Agg")
 
 from PyQt5 import QtCore
 from PyQt5.QtWidgets import (
-    QComboBox, QDialog, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
+    QDialog, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QSlider, QToolButton, QVBoxLayout,
 )
 
@@ -14,36 +14,6 @@ class Fncts2D(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-
-    def create_clusterBox(self):
-        clusterBox = QGroupBox("Clustering 2D")
-        
-        self.clusterN_label = QLabel("Number of Clusters")
-        self.clusterN = QComboBox()
-        for i in range(20):
-            self.clusterN.addItem(str(i+1))
-        self.clusterAlgo_label = QLabel("Clustering Algorithm")
-        self.clusterAlgo = QComboBox()        
-        self.threshold_label = QLabel("Threshold Level (0)")
-        self.threshold_slider = QSlider(QtCore.Qt.Horizontal, self)
-        self.threshold_slider.setMinimum(0)
-        self.threshold_slider.setMaximum(300)
-        self.threshold_slider.setTickInterval(1)
-        self.threshold_slider.setValue(0)
-        self.analyzerButton = QPushButton("Analyze", self)
-        
-        layoutC = QVBoxLayout()
-        layoutC.addWidget(self.clusterN_label)
-        layoutC.addWidget(self.clusterN)
-        layoutC.addWidget(self.clusterAlgo_label)
-        layoutC.addWidget(self.clusterAlgo)
-        #layoutC.addWidget(self.threshold_label)
-        #layoutC.addWidget(self.threshold_slider)        
-        layoutC.addWidget(self.analyzerButton)       
-        layoutC.addStretch(1)
-        clusterBox.setLayout(layoutC)
-        
-        return clusterBox
 
     def create_liseBox(self):    
         liseBox = QGroupBox("Overlay an Image")        

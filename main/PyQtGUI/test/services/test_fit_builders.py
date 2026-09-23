@@ -16,10 +16,7 @@ import pytest
 GUI = pathlib.Path(__file__).resolve().parents[2] / "gui"
 sys.path.insert(0, str(GUI))
 
-_ALGO_CREATORS = {"algo_skel_creator", "cannye_creator", "gmm_creator",
-                   "imgseg_creator", "kmean_creator"}
-CREATORS = sorted(p for p in GUI.glob("*_creator.py")
-                  if p.stem not in _ALGO_CREATORS)
+CREATORS = sorted(GUI.glob("*_creator.py"))
 
 
 def builder_classes(path):
