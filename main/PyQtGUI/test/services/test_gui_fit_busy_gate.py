@@ -39,7 +39,8 @@ def win():
     w = gui_stubs.bare_window("test.fit_busy_gate")
     w.fit_manager = types.SimpleNamespace(is_busy=lambda: True)
     for attr in ("wTab", "wConf", "currentPlot", "plot_controller",
-                 "geometry_controller", "gatePopup", "sumRegionPopup"):
+                 "geometry_controller", "gatePopup", "sumRegionPopup",
+                 "connection_manager", "connectConfig"):
         setattr(w, attr, Strict())
     return w
 
@@ -50,6 +51,7 @@ def win():
     ("setCanvasLayout", ()),
     ("loadGeo", ()),
     ("loadGeoAll", ()),
+    ("okConnect", ()),      # a mirror re-transfer rebuilds every canvas
 ])
 def test_rebuild_slots_return_without_touching_the_window(win, slot, args):
     assert getattr(win, slot)(*args) is None

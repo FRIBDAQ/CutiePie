@@ -1100,6 +1100,20 @@ def test_is_busy_is_true_only_while_the_plugin_runs(fm_mod, monkeypatch):
     assert env.fm.is_busy() is False
 
 
+def test_is_busy_clears_when_a_pre_plugin_step_fails(fm_mod, monkeypatch):
+    """Everything that runs after the busy flag is armed must sit inside the
+    try/finally that clears it. A raise while clearing the previous fit's
+    artists used to leave is_busy() True for the rest of the session."""
+    def boom(fig):
+        raise RuntimeError("artist clear blew up")
+    env = fit_env(fm_mod, monkeypatch)
+    monkeypatch.setattr(env.fm, "_clear_all_fit_artists_in_figure", boom)
+    with pytest.raises(RuntimeError):
+        env.fm.fit(0, "h1", make_ax(), "Gaus", ["1.5"] + [""] * 19, "2", "8")
+    assert env.fm.is_busy() is False
+    assert env.busy == [] or env.busy[-1] == (False,)
+
+
 def test_is_busy_clears_when_the_plugin_fails(fm_mod, monkeypatch):
     def boom():
         raise NameError("plugin blew up")

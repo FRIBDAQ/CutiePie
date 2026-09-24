@@ -1984,6 +1984,9 @@ class MainWindow(QMainWindow):
         self.connectConfig.show()
     def okConnect(self):
         self.logger.info('okConnect')
+        # a mirror re-transfer rebuilds every tab's canvas under a running fit
+        if self._fitInProgress('okConnect'):
+            return
         self.connectShMem()
         self.closeConnect()
     def closeConnect(self):

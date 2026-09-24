@@ -956,10 +956,6 @@ class FitManager(QObject):
                 return
             spectrumName = name
 
-        self._abort_fit = False
-        self._fit_busy = True
-        self.fitBusyChanged.emit(True)
-
         self.logger.debug('fit - spectrumName, fit_funct, index: %s, %s, %s', spectrumName, fit_funct, index)
 
         if not use_csv:
@@ -980,6 +976,11 @@ class FitManager(QObject):
             minxREST = self._spectra.get(spectrumName, "minx")
             maxxREST = self._spectra.get(spectrumName, "maxx")
 
+        # Arm busy right at the try: the finally below is the only place it is
+        # cleared, so a raise anywhere between would leave it set for the session.
+        self._abort_fit = False
+        self._fit_busy = True
+        self.fitBusyChanged.emit(True)
         try:
             if spectrumName != "":
                 if dim == 1:
