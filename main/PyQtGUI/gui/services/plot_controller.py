@@ -755,6 +755,12 @@ class PlotController(QObject):
                                        origin='lower',
                                        vmin=float(self.minZ), vmax=float(self.maxZ),
                                        cmap=self.palette)
+                # Resample the counts down to screen pixels before colour-mapping:
+                # matplotlib's default maps the full-resolution array first when
+                # downsampling, the dominant render-tick cost for a large 2-D
+                # spectrum, and with nearest-neighbour sampling the pixels are identical.
+                if hasattr(spectrum, "set_interpolation_stage"):
+                    spectrum.set_interpolation_stage("data")
                 self.view_state.setSpectrumViewInfo(spectrum=spectrum, index=index)
 
                 spec_name = self.view_state.getSpectrumViewInfo("name", index=index)
@@ -915,7 +921,14 @@ class PlotController(QObject):
             X = np.array(self.createRange(binx, minx, maxx))
             spectrum.set_data(X, w)
         else:
-            w = np.ma.masked_where(w == 0, w)
+            # Build the zero-mask directly: masked_where would copy the whole 2-D
+            # array and its mask on every tick, while set_data takes its own copy
+            # anyway, so aliasing the store's live array here is safe.
+            if np.ma.isMaskedArray(w):
+                zero_mask = np.ma.getmaskarray(w) | (np.ma.getdata(w) == 0)
+            else:
+                zero_mask = (w == 0)
+            w = np.ma.MaskedArray(np.ma.getdata(w), mask=zero_mask, copy=False)
             spectrum.set_data(w)
             if cmap is not None:
                 spectrum.set_cmap(cmap)
