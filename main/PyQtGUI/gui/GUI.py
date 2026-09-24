@@ -1067,6 +1067,19 @@ class MainWindow(QMainWindow):
 
         if not event.inaxes: return
 
+        # a ctrl+left-click belongs to the energy-calibration dialog when one is
+        # collecting points on this pad; the service says whether it took it
+        ge = getattr(event, "guiEvent", None)
+        ctrl = bool(ge and (ge.modifiers() & Qt.ControlModifier))
+        if (ctrl and event.button == 1 and event.xdata is not None
+                and self.fit_manager.calibration_click(event.xdata, event.inaxes)):
+            return
+
+        # calibration above is the one press a running fit wants; everything
+        # below would reset a popup, select, draw on or rebuild the pad it is fitting
+        if self._fitInProgress('on_press'):
+            return
+
         # if gatePopup or sumRegionPopup exit with [X], want to reset everything as if gate/SumReg Editor hasn't been openned
         self.cleanPopupExit(False)
 
@@ -1080,22 +1093,9 @@ class MainWindow(QMainWindow):
             index = self.wTab.selectedPad(self.wTab.currentIndex())
         self.currentPlot.selected_plot_index = index
 
-        # a ctrl+left-click belongs to the energy-calibration dialog when one is
-        # collecting points on this pad; the service says whether it took it
-        ge = getattr(event, "guiEvent", None)
-        ctrl = bool(ge and (ge.modifiers() & Qt.ControlModifier))
-        if (ctrl and event.button == 1 and event.xdata is not None
-                and self.fit_manager.calibration_click(event.xdata, event.inaxes)):
-            return
-
 
 ##################################################################################################
 
-
-        # calibration above is the one press a running fit wants; everything
-        # below would draw on, select or rebuild the pad it is fitting
-        if self._fitInProgress('on_press'):
-            return
 
         if event.dblclick:
             if self.currentPlot.toCreateGate or self.currentPlot.toCreateSumRegion :
@@ -1448,6 +1448,9 @@ class MainWindow(QMainWindow):
     
     def clickedTab(self, index):
         self.logger.info('clickedTab - index: %s',index)
+        # switching tabs restarts the poller and rebinds the press handler
+        if self._fitInProgress('clickedTab'):
+            return
         # self.setCanvasLayout()
         # print("clickedTab - index: %s",index)
         # End current auto update thread, to avoid thread issue, will start a new thread if/when tab is not empty

@@ -267,6 +267,20 @@ def test_delete_fit_removes_only_known_indices(env):
     assert env.fm.listFitLineLabels(ax) == ["1"]
 
 
+def test_tagging_skips_gate_and_sum_region_artists(env):
+    """The auto-update tick keeps running under a fit and creates lines for a
+    gate that first appears then. Tagging by id alone would hand those lines
+    to the fit, and Delete Fit would remove them."""
+    ax = make_ax()
+    before = env.fm._snap_ax_ids(ax)
+    gate, = ax.plot([1, 1], [0, 1], label="gate_-_g1_-_0")
+    region, = ax.plot([2, 2], [0, 1], label="sumReg_-_r1_-_")
+    curve, = ax.plot([0, 1], [1, 1])
+    env.fm._tag_new_fit_artists(ax, before, fit_idx=2)
+    assert curve.get_gid() == "fit-2"
+    assert gate.get_gid() is None and region.get_gid() is None
+
+
 def test_tag_and_clear_fit_artists(env):
     ax = make_ax()
     keep, = ax.plot([0, 1], [0, 0])                   # pre-existing artist

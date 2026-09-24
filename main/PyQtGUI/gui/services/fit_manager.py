@@ -1624,7 +1624,12 @@ class FitManager(QObject):
         # line, subpeak curves, labels — deletes as a unit. fit_idx=None keeps
         # the generic "fit" gid, for callers with no index to hand.
         gid = "fit" if fit_idx is None else f"fit-{fit_idx}"
+        # The auto-update tick keeps drawing under a fit and creates lines for
+        # a gate or summing region that first appears then; those are not ours.
         def _tag(a):
+            label = getattr(a, "get_label", lambda: "")() or ""
+            if label.startswith(("gate_-_", "sumReg_-_")):
+                return
             if hasattr(a, "set_gid"): a.set_gid(gid)
         for l in getattr(ax, "lines", []):
             if id(l) not in before_ids: _tag(l)

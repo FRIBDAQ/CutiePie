@@ -291,6 +291,39 @@ def test_setup_plot_2d_imshow_extent_from_store(rig):
     assert list(spectrum.get_extent()) == [0.0, 4.0, 0.0, 8.0]
 
 
+def add_2d(rig, name="m2", index=0, n=4, data=None):
+    if data is None:
+        data = np.arange(n * n, dtype=np.int32).reshape(n, n)
+    rig.store.set(name, dim=2, binx=n, minx=0.0, maxx=float(n),
+                  biny=n, miny=0.0, maxy=float(n), data=data,
+                  parameters=[], type="2")
+    rig.geo[index] = name
+    ax = rig.cp.figure.axes[index]
+    rig.info.setdefault(index, {}).update(axis=ax, name=name, minx=0.0, maxx=float(n),
+                                          miny=0.0, maxy=float(n), binx=n, biny=n)
+    rig.pc.setupPlot(ax, index)
+    return rig.get_info("spectrum", index=index)
+
+
+def test_setup_plot_2d_resamples_before_colour_mapping(rig):
+    # the render-tick win: matplotlib must downsample the counts to screen
+    # pixels first, not colour-map the full array and then throw pixels away
+    spectrum = add_2d(rig)
+    assert spectrum.get_interpolation_stage() == "data"
+
+
+def test_plot_plot_2d_artist_owns_a_copy_and_masks_zeros(rig):
+    # plotPlot hands the artist a masked view of the live shm array and relies
+    # on set_data copying it; the store array must never be what the artist holds
+    data = np.array([[0, 3], [5, 0]], dtype=np.int32)
+    spectrum = add_2d(rig, n=2, data=data)
+    rig.pc.plotPlot(0)
+    held = spectrum.get_array()
+    assert not np.shares_memory(np.ma.getdata(held), rig.store.get("m2", "data"))
+    assert np.ma.getmaskarray(held).tolist() == [[True, False], [False, True]]
+    assert np.ma.getdata(held).tolist() == data.tolist()
+
+
 def test_update_plot_grid_flow(rig):
     ax = rig.add_1d()
     line = make_line(ax)

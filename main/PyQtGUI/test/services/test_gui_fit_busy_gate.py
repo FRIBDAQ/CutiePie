@@ -52,6 +52,7 @@ def win():
     ("loadGeo", ()),
     ("loadGeoAll", ()),
     ("okConnect", ()),      # a mirror re-transfer rebuilds every canvas
+    ("clickedTab", (1,)),   # switches currentPlot and restarts the poller
 ])
 def test_rebuild_slots_return_without_touching_the_window(win, slot, args):
     assert getattr(win, slot)(*args) is None

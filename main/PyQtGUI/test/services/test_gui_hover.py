@@ -518,6 +518,20 @@ def test_press_is_ignored_while_a_fit_is_running(win):
     assert selected == [0]
 
 
+def test_press_while_a_fit_is_running_touches_no_window_state(win):
+    """The busy gate must sit above the two mutations on_press makes on its
+    way in: the popup reset and the pad selection. A mid-fit click may not
+    change which pad is selected."""
+    ax = add_pad(win, "h1", 0)
+    cleaned = []
+    win.cleanPopupExit = lambda *a: cleaned.append(a)
+    win.currentPlot.selected_plot_index = 7
+    win.fit_manager.is_busy = lambda: True
+    win.on_press(fake_event(ax, x=25.0, button=1))
+    assert cleaned == []
+    assert win.currentPlot.selected_plot_index == 7
+
+
 def test_calibration_click_still_lands_while_a_fit_is_running(win, monkeypatch):
     """The energy-calibration ctrl+click happens INSIDE the fit; the busy gate
     must sit below it, or calibration could never collect a point."""

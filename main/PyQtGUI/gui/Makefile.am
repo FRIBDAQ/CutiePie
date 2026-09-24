@@ -32,8 +32,11 @@ install-exec-hook:
 
 EXTRA_DIST = Main.py GUI.py view_state.py dialogs.py connectConfigGUI.py MenuAndConfigGUI.py \
 	MenuGate.py MenuSumRegion.py otherOptions.py OutputIntegrate.py OutputGUI.py Functions1DGUI.py Functions2DGUI.py JoystickGUI.py PlotGUI.py\
-	shm_parser.py fit_factory.py fit_skel_creator.py \
+	shm_parser.py fit_factory.py fit_function.py fit_skel_creator.py \
 	fit_gaus_creator.py fit_gp1_creator.py fit_gp2_creator.py fit_p1_creator.py fit_p2_creator.py fit_exp_creator.py \
+	fit_alpha_base.py fit_alpha12_creator.py fit_alpha22_creator.py fit_alpha32_creator.py \
+	fit_alpha_multi_creator.py fit_alpha_multi_sigma_creator.py fit_alpha_linear_creator.py \
+	alpha_filter_dialog.py CsvPlotGUI.py __init__.py \
 	WebWindow.py notebook_process.py logger.py jupyterqtpy_notebook_config.py SpecialFunctionsGUI.py PyREST.py CopyPropertiesGUI.py \
 	services/__init__.py services/spectrum_store.py services/thread_workers.py \
 	services/fit_manager.py services/gate_manager.py services/sum_region_manager.py \
