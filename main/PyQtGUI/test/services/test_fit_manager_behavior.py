@@ -1317,3 +1317,104 @@ def test_choose_calibration_file_has_its_own_title_and_filter(env):
     assert _RecordingFileDialog.calls == [
         ("Calibration file", os.getcwd(), "Text/CSV/JSON (*.txt *.csv *.json);;All files (*)")]
     assert qt_stubs.FakeQSettings.store["AlphaEMGMulti/calibration_file"] == "/cal.json"
+
+
+# --------------------------------------------- "run calibration?" question
+
+class _ScriptedMessageBox:
+    """QMessageBox double for the calibration question: records the buttons
+    it was given, answers with `choice`, and counts how often it was built."""
+    choice = "No"
+    built = 0
+    YesRole, NoRole, RejectRole = 0, 1, 2
+
+    def __init__(self, parent=None):
+        self.buttons = {}
+        self.checkbox = None
+        type(self).built += 1
+
+    def setWindowTitle(self, t): self.title = t
+    def setText(self, t):        self.text = t
+
+    def addButton(self, text, role):
+        token = object()
+        self.buttons[text] = token
+        return token
+
+    def setCheckBox(self, cb):   self.checkbox = cb
+    def exec_(self):             pass
+    def clickedButton(self):     return self.buttons[type(self).choice]
+
+    about = staticmethod(lambda *a, **k: None)
+    warning = staticmethod(lambda *a, **k: None)
+    information = staticmethod(lambda *a, **k: None)
+
+
+class _TickBox:
+    ticked = False
+
+    def __init__(self, *a, **k):
+        pass
+
+    def isChecked(self):
+        return type(self).ticked
+
+
+_ALPHA_PARS = [""] * 20
+
+
+def _question_env(fm_mod, monkeypatch, choice, ticked=False):
+    env = fit_env(fm_mod, monkeypatch)
+    monkeypatch.setattr(env.fm, "prepare_fit_config", lambda f, force_prompt=False: {})
+    _ScriptedMessageBox.choice = choice
+    _ScriptedMessageBox.built = 0
+    _TickBox.ticked = ticked
+    env.patch_widget("QMessageBox", _ScriptedMessageBox)
+    env.patch_widget("QCheckBox", _TickBox)
+    cal_calls = []
+    monkeypatch.setattr(
+        env.fm, "_prompt_energy_calibration",
+        lambda ax, x, y, **kw: (cal_calls.append(dict(kw)) or
+                                dict(a=2.0, b=1.0, R2=0.99, E=[], mu=[])))
+    return env, cal_calls
+
+
+def test_calibration_question_cancel_leaves_the_fit_button_enabled(fm_mod, monkeypatch):
+    env, cal_calls = _question_env(fm_mod, monkeypatch, "Cancel")
+    env.fm.fit(0, "h1", make_ax(), "AlphaEMGMulti", _ALPHA_PARS, "2", "8")
+    assert env.factory.created == [] and cal_calls == []
+    assert env.busy == [(True,), (False,)]          # cancelled inside the busy window
+
+
+def test_calibration_question_no_fits_without_calibrating(fm_mod, monkeypatch):
+    env, cal_calls = _question_env(fm_mod, monkeypatch, "No")
+    env.fm.fit(0, "h1", make_ax(), "AlphaEMGMulti", _ALPHA_PARS, "2", "8")
+    assert cal_calls == []
+    assert env.factory.created == [("AlphaEMGMulti", {})]
+
+
+def test_calibration_question_yes_runs_the_dialog_and_keeps_its_result(fm_mod, monkeypatch):
+    env, cal_calls = _question_env(fm_mod, monkeypatch, "Yes")
+    env.fm.fit(0, "h1", make_ax(), "AlphaEMGMulti", _ALPHA_PARS, "2", "8")
+    assert cal_calls == [dict(min_pts=2, max_pts=4, snap_halfwin=150)]
+    _, config = env.factory.created[0]
+    assert (config["calib_a"], config["calib_b"]) == (2.0, 1.0)
+    store = qt_stubs.FakeQSettings.store
+    assert (store["calibration/a"], store["calibration/b"], store["calibration/R2"]) \
+        == (2.0, 1.0, 0.99)
+
+
+def test_calibration_question_dont_ask_is_written_to_settings(fm_mod, monkeypatch):
+    env, _ = _question_env(fm_mod, monkeypatch, "No", ticked=True)
+    env.fm.fit(0, "h1", make_ax(), "AlphaEMGMulti", _ALPHA_PARS, "2", "8")
+    assert qt_stubs.FakeQSettings.store["calibration/ask"] is False
+
+
+def test_calibration_question_is_still_asked_after_dont_ask(fm_mod, monkeypatch):
+    """fit() pins force_prompt to True, so the stored preference is read and
+    then overridden. This pins the current behavior; changing it is a
+    behavior change, not part of the dialog move."""
+    env, _ = _question_env(fm_mod, monkeypatch, "No")
+    qt_stubs.FakeQSettings.store["calibration/ask"] = False   # after Env, which clears the store
+    env.fm.fit(0, "h1", make_ax(), "AlphaEMGMulti", _ALPHA_PARS, "2", "8")
+    assert _ScriptedMessageBox.built == 1

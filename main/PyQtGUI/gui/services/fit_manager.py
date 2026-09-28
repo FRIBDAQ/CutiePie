@@ -1053,23 +1053,13 @@ class FitManager(QObject):
                         pass
 
                     if fit_funct in {"AlphaEMGMulti", "AlphaEMGMultiSigma"} and (force_prompt or ask_pref):
-                        msg = QMessageBox(self._parent_widget)
-                        msg.setWindowTitle("Energy calibration")
-                        msg.setText("Run energy calibration before fitting?")
-                        btn_yes    = msg.addButton("Yes",    QMessageBox.YesRole)
-                        btn_no     = msg.addButton("No",     QMessageBox.NoRole)
-                        btn_cancel = msg.addButton("Cancel", QMessageBox.RejectRole)
-                        dont_ask = QCheckBox("Don't ask me again")
-                        msg.setCheckBox(dont_ask)
-
-                        msg.exec_()
-                        clicked = msg.clickedButton()
-                        if clicked is btn_cancel:
+                        choice, dont_ask = self.dialogs.ask_run_calibration()
+                        if choice == "cancel":
                             return
-                        run_cal = (clicked is btn_yes)
+                        run_cal = (choice == "yes")
 
                         try:
-                            if dont_ask.isChecked():
+                            if dont_ask:
                                 s.setValue("calibration/ask", False)
                         except Exception:
                             pass
