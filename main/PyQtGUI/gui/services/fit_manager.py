@@ -845,90 +845,10 @@ class FitManager(QObject):
         self._loadedFitPanel = None
 
     def _open_loaded_fit_panel(self, ax, structure, group):
-        """Modeless panel bound to a loaded fit `group`: a chain → isotope sum →
-        peaks tree whose checkboxes add/remove that component on the pad live.
-        Stays open until closed; a new Load Fit or a new fit closes it."""
-        from PyQt5.QtWidgets import QScrollArea, QWidget  # live-only widgets
+        """Open the live component panel for a loaded fit; a new panel
+        replaces any open one."""
         self._close_loaded_fit_panel()
-        dlg = QDialog(self._parent_widget)
-        dlg.setWindowTitle("Loaded fit components")
-        dlg.setWindowModality(Qt.NonModal)
-        v = QVBoxLayout(dlg)
-        v.addWidget(QLabel("Tick to add a component, untick to remove it:"))
-
-        inner = QWidget()
-        iv = QVBoxLayout(inner)
-        checks = {}
-
-        def _redraw():
-            try:
-                ax.figure.canvas.draw_idle()
-            except Exception:
-                self.logger.debug('loaded-fit panel - could not draw', exc_info=True)
-
-        def _add(name, label, indent):
-            cb = QCheckBox(label)
-            cb.setChecked(True)                 # group is already fully drawn
-            if indent:
-                cb.setStyleSheet(f"margin-left: {indent}px;")
-            # connect AFTER the initial setChecked so it doesn't fire on build
-            cb.toggled.connect(lambda on, nm=name: (group.set(nm, on), _redraw()))
-            checks[name] = cb
-            iv.addWidget(cb)
-
-        for d in structure:
-            if d["kind"] == "total":
-                _add(d["name"], "fit total", 0)
-
-        chains = {}
-        for d in structure:
-            if d["kind"] in ("isotope", "peak", "component"):
-                chains.setdefault(d["chain"] or "Unchained", []).append(d)
-        for ch in sorted(chains):
-            iv.addWidget(QLabel(f"<b>{ch}</b>"))
-            for d in chains[ch]:
-                if d["kind"] == "peak":
-                    e = d["E"]
-                    label = f"{d['isotope']} · {e:.0f} keV" if e is not None else d["name"]
-                    _add(d["name"], label, 40)
-                else:                              # isotope sum (or bare component)
-                    _add(d["name"], f"{d['isotope']} (sum)", 16)
-        iv.addStretch(1)
-
-        # An isotope-sum checkbox is a parent: toggling it toggles all its peaks.
-        for d in structure:
-            if d["kind"] != "isotope":
-                continue
-            sum_cb = checks.get(d["name"])
-            kids = [checks[p["name"]] for p in structure
-                    if p["kind"] == "peak"
-                    and p["chain"] == d["chain"] and p["isotope"] == d["isotope"]
-                    and p["name"] in checks]
-            if sum_cb is not None and kids:
-                sum_cb.toggled.connect(
-                    lambda on, kids=kids: [k.setChecked(on) for k in kids])
-
-        area = QScrollArea()
-        area.setWidget(inner)
-        area.setWidgetResizable(True)
-        v.addWidget(area)
-
-        hb = QHBoxLayout()
-        btn_all = QPushButton("All")
-        btn_none = QPushButton("None")
-        btn_all.clicked.connect(lambda: [c.setChecked(True) for c in checks.values()])
-        btn_none.clicked.connect(lambda: [c.setChecked(False) for c in checks.values()])
-        btn_close = QPushButton("Close")
-        btn_close.clicked.connect(dlg.close)
-        hb.addWidget(btn_all)
-        hb.addWidget(btn_none)
-        hb.addStretch(1)
-        hb.addWidget(btn_close)
-        v.addLayout(hb)
-
-        dlg.show()
-        dlg.raise_()
-        dlg.activateWindow()
+        dlg = self.dialogs.open_loaded_fit_panel(ax, structure, group, self.logger)
         self._loadedFitPanel = dlg
         return dlg
 

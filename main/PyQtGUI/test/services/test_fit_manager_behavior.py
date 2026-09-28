@@ -1418,3 +1418,126 @@ def test_calibration_question_is_still_asked_after_dont_ask(fm_mod, monkeypatch)
     qt_stubs.FakeQSettings.store["calibration/ask"] = False   # after Env, which clears the store
     env.fm.fit(0, "h1", make_ax(), "AlphaEMGMulti", _ALPHA_PARS, "2", "8")
     assert _ScriptedMessageBox.built == 1
+
+
+# ------------------------------------------------- Load-Fit component panel
+
+class _PanelWidget:
+    """Registry double for the panel: every widget built is recorded with
+    its label; checkboxes emit toggled on change, as Qt does."""
+    made = []
+
+    def __init__(self, *a, **k):
+        self.label = a[0] if a and isinstance(a[0], str) else None
+        self.checked = False
+        self.toggled = qt_stubs.BoundStubSignal()
+        self.clicked = qt_stubs.BoundStubSignal()
+        self.closed = 0
+        _PanelWidget.made.append(self)
+
+    def setChecked(self, on):
+        on = bool(on)
+        if on != self.checked:
+            self.checked = on
+            self.toggled.emit(on)
+
+    def isChecked(self): return self.checked
+    def close(self):     self.closed += 1
+    def __getattr__(self, name):
+        return lambda *a, **k: None
+
+
+class _PanelBox(_PanelWidget):
+    pass
+
+
+class _PanelButton(_PanelWidget):
+    pass
+
+
+class _FakeGroup:
+    def __init__(self):
+        self.calls = []
+
+    def set(self, name, on):
+        self.calls.append((name, on))
+        return True
+
+
+_STRUCTURE = [
+    {"kind": "total",     "name": "total",      "chain": None,    "isotope": None,    "E": None},
+    {"kind": "isotope",   "name": "Bi211",      "chain": "Ac227", "isotope": "Bi211", "E": None},
+    {"kind": "peak",      "name": "Bi211/6623", "chain": "Ac227", "isotope": "Bi211", "E": 6623.0},
+    {"kind": "peak",      "name": "Bi211/6278", "chain": "Ac227", "isotope": "Bi211", "E": 6278.0},
+    {"kind": "component", "name": "bg",         "chain": None,    "isotope": "bg",    "E": None},
+]
+
+
+def _panel_env(env):
+    _PanelWidget.made = []
+    for name in ("QDialog", "QLabel", "QWidget", "QScrollArea", "QHBoxLayout", "QVBoxLayout"):
+        env.patch_widget(name, _PanelWidget)
+    env.patch_widget("QCheckBox", _PanelBox)
+    env.patch_widget("QPushButton", _PanelButton)
+
+
+def _panel_boxes():
+    return [w for w in _PanelWidget.made if isinstance(w, _PanelBox)]
+
+
+def _panel_button(text):
+    return next(w for w in _PanelWidget.made
+                if isinstance(w, _PanelButton) and w.label == text)
+
+
+def test_panel_lists_total_then_each_chain_with_its_peaks(env):
+    _panel_env(env)
+    group = _FakeGroup()
+    dlg = env.fm._open_loaded_fit_panel(make_ax(), _STRUCTURE, group)
+    assert [b.label for b in _panel_boxes()] == [
+        "fit total", "Bi211 (sum)", "Bi211 · 6623 keV", "Bi211 · 6278 keV", "bg (sum)"]
+    assert all(b.checked for b in _panel_boxes())
+    assert group.calls == []                  # building the panel redraws nothing
+    assert env.fm._loadedFitPanel is dlg
+
+
+def test_panel_checkbox_drives_group_set(env):
+    _panel_env(env)
+    group = _FakeGroup()
+    env.fm._open_loaded_fit_panel(make_ax(), _STRUCTURE, group)
+    _panel_boxes()[2].setChecked(False)
+    assert group.calls == [("Bi211/6623", False)]
+
+
+def test_panel_isotope_sum_toggles_its_peaks(env):
+    _panel_env(env)
+    group = _FakeGroup()
+    env.fm._open_loaded_fit_panel(make_ax(), _STRUCTURE, group)
+    _panel_boxes()[1].setChecked(False)
+    assert group.calls == [("Bi211", False), ("Bi211/6623", False), ("Bi211/6278", False)]
+
+
+def test_panel_all_and_none_buttons_sweep_every_box(env):
+    _panel_env(env)
+    group = _FakeGroup()
+    env.fm._open_loaded_fit_panel(make_ax(), _STRUCTURE, group)
+    _panel_button("None").clicked.emit()
+    assert [on for _, on in group.calls] == [False] * 5
+    group.calls.clear()
+    _panel_button("All").clicked.emit()
+    assert [on for _, on in group.calls] == [True] * 5
+
+
+def test_panel_second_open_replaces_the_first(env):
+    _panel_env(env)
+    first = env.fm._open_loaded_fit_panel(make_ax(), _STRUCTURE, _FakeGroup())
+    second = env.fm._open_loaded_fit_panel(make_ax(), _STRUCTURE, _FakeGroup())
+    assert first.closed == 1 and second.closed == 0
+    assert env.fm._loadedFitPanel is second
+
+
+def test_panel_close_forgets_it(env):
+    _panel_env(env)
+    dlg = env.fm._open_loaded_fit_panel(make_ax(), _STRUCTURE, _FakeGroup())
+    env.fm._close_loaded_fit_panel()
+    assert dlg.closed == 1 and env.fm._loadedFitPanel is None
