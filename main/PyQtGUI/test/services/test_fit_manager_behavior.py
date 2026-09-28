@@ -1273,3 +1273,47 @@ def test_shape_flags_unticking_global_in_the_dialog_drops_iso(env):
 def test_shape_flags_cancel_returns_none(env):
     _shape_env(env, verdict=0)
     assert env.shape_flags() is None
+
+
+# ------------------------------------------------------------ file choosers
+
+class _RecordingFileDialog:
+    """QFileDialog double: records (title, start dir, filter), answers `answer`."""
+    calls = []
+    answer = ""
+
+    @classmethod
+    def getOpenFileName(cls, parent, title, start, filt):
+        cls.calls.append((title, start, filt))
+        return cls.answer, ""
+
+
+def _file_env(env, answer):
+    _RecordingFileDialog.calls = []
+    _RecordingFileDialog.answer = answer
+    env.patch_widget("QFileDialog", _RecordingFileDialog)
+
+
+def test_choose_shape_file_starts_where_it_last_picked_and_remembers(env):
+    qt_stubs.FakeQSettings.store["AlphaEMGMulti/shape_file"] = "/prev/shape.txt"
+    _file_env(env, "/new/shape.txt")
+    assert env.fm._choose_shape_file("AlphaEMGMulti/shape_file") == "/new/shape.txt"
+    assert _RecordingFileDialog.calls == [
+        ("Choose shape file", "/prev/shape.txt", "Text/CSV files (*.txt *.csv);;All files (*)")]
+    assert qt_stubs.FakeQSettings.store["AlphaEMGMulti/shape_file"] == "/new/shape.txt"
+
+
+def test_choose_shape_file_falls_back_to_cwd_and_cancel_keeps_settings(env):
+    qt_stubs.FakeQSettings.store["AlphaEMGMulti/shape_file"] = ""
+    _file_env(env, "")
+    assert env.fm._choose_shape_file("AlphaEMGMulti/shape_file") == ""
+    assert _RecordingFileDialog.calls[0][1] == os.getcwd()
+    assert qt_stubs.FakeQSettings.store["AlphaEMGMulti/shape_file"] == ""
+
+
+def test_choose_calibration_file_has_its_own_title_and_filter(env):
+    _file_env(env, "/cal.json")
+    assert env.fm._choose_calibration_file("AlphaEMGMulti/calibration_file") == "/cal.json"
+    assert _RecordingFileDialog.calls == [
+        ("Calibration file", os.getcwd(), "Text/CSV/JSON (*.txt *.csv *.json);;All files (*)")]
+    assert qt_stubs.FakeQSettings.store["AlphaEMGMulti/calibration_file"] == "/cal.json"

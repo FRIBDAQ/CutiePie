@@ -1393,24 +1393,18 @@ class FitManager(QObject):
     def _choose_shape_file(self, settings_key: str) -> str:
         s = QSettings("YourLab", "AlphaGUI")
         last = s.value(settings_key, "", type=str) or os.getcwd()
-        path, _ = QFileDialog.getOpenFileName(
-            self._parent_widget, "Choose shape file", last,
-            "Text/CSV files (*.txt *.csv);;All files (*)"
-        )
+        path = self.dialogs.choose_shape_file(last)
         if path:
             s.setValue(settings_key, path)
-        return path or ""
+        return path
 
     def _choose_calibration_file(self, settings_key: str) -> str:
         s = QSettings("YourLab", "AlphaGUI")
         last = s.value(settings_key, "", type=str) or os.getcwd()
-        path, _ = QFileDialog.getOpenFileName(
-            self._parent_widget, "Calibration file", last,
-            "Text/CSV/JSON (*.txt *.csv *.json);;All files (*)"
-        )
+        path = self.dialogs.choose_calibration_file(last)
         if path:
             s.setValue(settings_key, path)
-        return path or ""
+        return path
 
     # ------------------------------------------------------------------
     # Calibration file loader
