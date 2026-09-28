@@ -7,13 +7,9 @@ import matplotlib
 import matplotlib.lines
 import matplotlib.pyplot as plt
 import numpy as np
-from types import SimpleNamespace
 
-from PyQt5.QtWidgets import (
-    QApplication, QMessageBox, QFileDialog, QDialog, QLabel, QPushButton,
-    QCheckBox, QHBoxLayout, QVBoxLayout, QInputDialog, QTextEdit,
-)
-from PyQt5.QtCore import Qt, QObject, QSettings, QEventLoop, QTimer, pyqtSignal
+from PyQt5.QtWidgets import QApplication, QMessageBox, QFileDialog, QTextEdit
+from PyQt5.QtCore import QObject, QSettings, pyqtSignal
 
 from services import shape_file
 
