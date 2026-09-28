@@ -109,7 +109,7 @@ class Env:
             dialogs=self.dialogs,
         )
         # handle for the shape-flags dialog; re-pointed when that dialog moves
-        self.shape_flags = self.fm._prompt_shape_flags
+        self.shape_flags = self.dialogs.prompt_shape_flags
         # output signals, recorded from construction on
         self.busy = qt_stubs.record_signal(self.fm.fitBusyChanged)
         self.abort_en = qt_stubs.record_signal(self.fm.abortEnabledChanged)
@@ -1185,3 +1185,91 @@ def test_fit_injects_the_abort_flag_and_the_event_pump(fm_mod, monkeypatch):
     fit = env.factory.fit
     assert callable(fit._should_abort) and fit._should_abort() is False
     assert callable(fit._pump_events)
+
+
+# ------------------------------------------------------ shape-flags dialog
+
+_SHAPE_LABELS = ("Fit global shape (σ, τ₁, τ₂, η)",
+                 "Enable per-isotope scale multipliers (requires global)",
+                 "Normalize intensities within decay chain")
+
+
+class _FlagWidget:
+    """Widget double for the shape-flags dialog: records label, checked and
+    enabled state; checkboxes emit toggled on change, as Qt does."""
+    made = []
+
+    def __init__(self, *a, **k):
+        self.label = a[0] if a and isinstance(a[0], str) else None
+        self.checked = False
+        self.enabled = True
+        self.toggled = qt_stubs.BoundStubSignal()
+        self.clicked = qt_stubs.BoundStubSignal()
+        _FlagWidget.made.append(self)
+
+    def setChecked(self, on):
+        on = bool(on)
+        if on != self.checked:
+            self.checked = on
+            self.toggled.emit(on)
+
+    def isChecked(self):      return self.checked
+    def setEnabled(self, on): self.enabled = bool(on)
+    def __getattr__(self, name):
+        return lambda *a, **k: None
+
+
+def _flag_boxes():
+    return {w.label: w for w in _FlagWidget.made if w.label in _SHAPE_LABELS}
+
+
+def _shape_env(env, verdict=1, script=None):
+    """Patch the dialog's widgets; `script(boxes)` runs inside exec_() to
+    act as the user, `verdict` is what exec_() returns (1 = Accepted)."""
+    _FlagWidget.made = []
+
+    class Dialog(_FlagWidget):
+        Accepted, Rejected = 1, 0
+
+        def exec_(self):
+            if script is not None:
+                script(_flag_boxes())
+            return verdict
+
+    for name in ("QLabel", "QPushButton", "QCheckBox", "QHBoxLayout", "QVBoxLayout"):
+        env.patch_widget(name, _FlagWidget)
+    env.patch_widget("QDialog", Dialog)
+
+
+def test_shape_flags_defaults_land_on_the_boxes_and_come_back(env):
+    _shape_env(env)
+    flags = env.shape_flags(default_global=True, default_iso_scales=True, default_chain=False)
+    g, i, c = (_flag_boxes()[l] for l in _SHAPE_LABELS)
+    assert (g.checked, i.checked, i.enabled, c.checked) == (True, True, True, False)
+    assert flags == {"fit_global_shapes": True, "fit_iso_shape_scales": True,
+                     "normalize_chains": False}
+
+
+def test_shape_flags_iso_scales_require_global(env):
+    _shape_env(env)
+    flags = env.shape_flags(default_global=False, default_iso_scales=True)
+    i = _flag_boxes()[_SHAPE_LABELS[1]]
+    assert (i.checked, i.enabled) == (False, False)
+    assert flags == {"fit_global_shapes": False, "fit_iso_shape_scales": False,
+                     "normalize_chains": True}
+
+
+def test_shape_flags_unticking_global_in_the_dialog_drops_iso(env):
+    def untick_global(boxes):
+        boxes[_SHAPE_LABELS[0]].setChecked(False)
+    _shape_env(env, script=untick_global)
+    flags = env.shape_flags(default_global=True, default_iso_scales=True)
+    i = _flag_boxes()[_SHAPE_LABELS[1]]
+    assert (i.checked, i.enabled) == (False, False)
+    assert flags["fit_global_shapes"] is False
+    assert flags["fit_iso_shape_scales"] is False
+
+
+def test_shape_flags_cancel_returns_none(env):
+    _shape_env(env, verdict=0)
+    assert env.shape_flags() is None
