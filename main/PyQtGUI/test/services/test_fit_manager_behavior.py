@@ -27,7 +27,7 @@ import qt_stubs
 _AFFECTED_MODULES = (
     "PyQt5", "PyQt5.QtCore", "PyQt5.QtWidgets",
     "CPyConverter", "httplib2",
-    "alpha_filter_dialog", "services.fit_manager",
+    "alpha_filter_dialog", "services.fit_manager", "fit_dialogs",
 )
 
 
@@ -36,7 +36,7 @@ def fm_mod():
     saved = {name: sys.modules.get(name) for name in _AFFECTED_MODULES}
     installed = qt_stubs.install_missing_runtime_stubs()
     if installed:
-        for name in ("services.fit_manager", "alpha_filter_dialog"):
+        for name in ("services.fit_manager", "alpha_filter_dialog", "fit_dialogs"):
             sys.modules.pop(name, None)
     module = importlib.import_module("services.fit_manager")
     yield module
@@ -82,6 +82,8 @@ class Env:
     def __init__(self, module, monkeypatch, configs=None, fit=None):
         from services.spectrum_store import SpectrumStore
         self.mod = module
+        self.dlg_mod = importlib.import_module("fit_dialogs")
+        self._monkeypatch = monkeypatch
         self.store = SpectrumStore()
         self.factory = FakeFitFactory(configs=configs, fit=fit)
         self.msgbox = qt_stubs.fresh_message_box()
@@ -96,18 +98,40 @@ class Env:
 
         qt_stubs.FakeQSettings.store = {}
         monkeypatch.setattr(module, "QMessageBox", self.msgbox)
+        monkeypatch.setattr(self.dlg_mod, "QMessageBox", self.msgbox)
         monkeypatch.setattr(module, "QSettings", qt_stubs.FakeQSettings)
         monkeypatch.setattr(module, "QTextEdit", TrackingTextEdit)
+        self.dialogs = self.dlg_mod.FitDialogs(None)
         self.fm = module.FitManager(
             fit_factory=self.factory, spectra=self.store,
             parent_widget=None,
             logger=logging.getLogger("test.fit_manager"),
+            dialogs=self.dialogs,
         )
+        # handle for the shape-flags dialog; re-pointed when that dialog moves
+        self.shape_flags = self.fm._prompt_shape_flags
         # output signals, recorded from construction on
         self.busy = qt_stubs.record_signal(self.fm.fitBusyChanged)
         self.abort_en = qt_stubs.record_signal(self.fm.abortEnabledChanged)
         self.results = qt_stubs.record_signal(self.fm.fitResultsAppended)
         self.labels = qt_stubs.record_signal(self.fm.fitLabelsTextChanged)
+
+    def patch_widget(self, name, double):
+        """Replace a Qt name wherever the fit code binds it: the service
+        module, the dialogs module, and the stub toolkit for names a method
+        imports locally. Fails loudly if nothing binds the name."""
+        targets = (self.mod, self.dlg_mod,
+                   sys.modules.get("PyQt5.QtWidgets"), sys.modules.get("PyQt5.QtCore"))
+        hit = False
+        for target in targets:
+            if target is not None and hasattr(target, name):
+                self._monkeypatch.setattr(target, name, double)
+                hit = True
+        assert hit, f"nothing binds {name}"
+
+    def set_parent(self, parent):
+        self.fm._parent_widget = parent
+        self.dialogs._parent = parent
 
 
 @pytest.fixture
@@ -1049,11 +1073,10 @@ def test_calibration_click_defers_prompt_and_drops_duplicate(env, monkeypatch):
     synchronously: it schedules a zero-delay timer, a second click while one
     is pending is dropped, the prompt is parented to the main window, and a
     prompt that fires after the dialog closed is a no-op."""
-    fm = env.mod
     timer = qt_stubs.RecordingTimer()
     prompts = []
     parent = object()
-    env.fm._parent_widget = parent
+    env.set_parent(parent)
 
     class FakeInputDialog:
         @staticmethod
@@ -1081,10 +1104,10 @@ def test_calibration_click_defers_prompt_and_drops_duplicate(env, monkeypatch):
             cal.dlg.reject()
 
     for name in ("QDialog", "QLabel", "QPushButton", "QHBoxLayout", "QVBoxLayout"):
-        monkeypatch.setattr(fm, name, _CalWidget)
-    monkeypatch.setattr(fm, "QInputDialog", FakeInputDialog)
-    monkeypatch.setattr(fm, "QTimer", timer)
-    monkeypatch.setattr(fm, "QEventLoop", DrivingLoop)
+        env.patch_widget(name, _CalWidget)
+    env.patch_widget("QInputDialog", FakeInputDialog)
+    env.patch_widget("QTimer", timer)
+    env.patch_widget("QEventLoop", DrivingLoop)
 
     ax = make_ax()
     x = np.arange(0.0, 1000.0)

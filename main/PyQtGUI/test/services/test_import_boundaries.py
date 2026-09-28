@@ -31,7 +31,7 @@ PRESENTATION_MODULES = frozenset({
     "OutputGUI", "OutputIntegrate", "SpecialFunctionsGUI",
     "otherOptions", "Functions1DGUI", "Functions2DGUI",
     "JoystickGUI", "WebWindow", "CsvPlotGUI",
-    "dialogs", "alpha_filter_dialog",
+    "dialogs", "alpha_filter_dialog", "fit_dialogs",
 })
 
 PRESENTATION_PACKAGES = frozenset({"controllers", "adapters"})
@@ -106,6 +106,8 @@ def _domain_files():
     """Yield (rel_path, abs_path) for every domain-layer module."""
     for name in sorted(os.listdir(GUI_DIR)):
         if not name.endswith(".py"):
+            continue
+        if name[:-3] in PRESENTATION_MODULES:      # declared presentation, e.g. fit_dialogs
             continue
         if (name.startswith("fit_") or name.startswith("algo_")
                 or name.endswith("_creator.py")):

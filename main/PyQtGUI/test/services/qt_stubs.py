@@ -202,6 +202,8 @@ def _build_stub_pyqt5():
     qtwidgets.QTableWidgetItem = _StubWidget
     qtwidgets.QShortcut = _StubWidget
     qtwidgets.QMenu = StubQMenu
+    qtwidgets.QWidget = _StubWidget
+    qtwidgets.QScrollArea = _StubWidget
 
     qtgui = types.ModuleType("PyQt5.QtGui")
     qtgui.QKeySequence = _StubWidget

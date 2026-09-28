@@ -97,6 +97,7 @@ from controllers.overlay_controller import OverlayController
 from controllers.jupyter_controller import JupyterController
 from controllers.peak_scan_controller import PeakScanController
 from dialogs import QtLogger, TabPopup, cutoffPopup
+from fit_dialogs import FitDialogs
 from view_state import ViewState
 from controllers.peak_fit2_controller import PeakFit2Controller
 from adapters.connection_adapter import ConnectionAdapter
@@ -347,6 +348,7 @@ class MainWindow(QMainWindow):
             spectra=self.spectra,
             parent_widget=self,
             logger=self.logger,
+            dialogs=FitDialogs(self),
         )
 
         self.gate_manager = GateManager(

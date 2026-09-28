@@ -28,6 +28,13 @@ def _make_csv_window(parent):
     return CsvPlotWindow(parent)
 
 
+def _make_fit_dialogs(parent):
+    """Default dialog builder. The import is function-local so the service
+    stays importable without a Qt widget toolkit."""
+    from fit_dialogs import FitDialogs
+    return FitDialogs(parent)
+
+
 class LoadedFitGroup:
     """Live-editable set of drawn lines for one loaded fit on an axis. Components can
     be added or removed one at a time while staying a single deletable group: every
@@ -116,12 +123,14 @@ class FitManager(QObject):
     fitResultsAppended  = pyqtSignal(str)   # one fit_results text-box line
     fitLabelsTextChanged = pyqtSignal(str)  # delete_fitIdx_list contents
 
-    def __init__(self, fit_factory, spectra, parent_widget=None, logger=None):
+    def __init__(self, fit_factory, spectra, parent_widget=None, logger=None,
+                 dialogs=None):
         super().__init__()
         self._parent_widget = parent_widget  # Qt dialog parent only — no domain calls
         self._factory = fit_factory
         self._spectra = spectra
         self.logger   = logger or logging.getLogger(__name__)
+        self._dialogs = dialogs          # the window's dialog builder; built on first use if not injected
         # instance state
         self._abort_fit        = False
         self._fit_busy         = False
@@ -180,6 +189,12 @@ class FitManager(QObject):
         loop so Abort stays clickable, which lets other slots run mid-fit;
         the ones that rebuild or destroy axes ask here and refuse."""
         return self._fit_busy
+
+    @property
+    def dialogs(self):
+        if self._dialogs is None:
+            self._dialogs = _make_fit_dialogs(self._parent_widget)
+        return self._dialogs
 
     def calibration_click(self, xdata, axes):
         """Hand a ctrl+click to the open energy-calibration dialog. True when
