@@ -45,7 +45,9 @@ def test_calibration_prompt_is_deferred_out_of_the_press_handler(monkeypatch):
     from PyQt5.QtCore import QTimer
     from services.fit_manager import FitManager
 
-    QApplication.instance() or QApplication([])
+    # keep a reference: an unreferenced QApplication is collected at once
+    # and PyQt destroys it, so the first widget would abort the process
+    app = QApplication.instance() or QApplication([])   # noqa: F841
     mgr = FitManager(fit_factory=None, spectra=None, parent_widget=None)
     ax = Figure().add_subplot(111)
     x = np.arange(0.0, 1000.0)

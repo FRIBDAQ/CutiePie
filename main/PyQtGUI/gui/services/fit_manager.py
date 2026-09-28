@@ -865,7 +865,9 @@ class FitManager(QObject):
         self._close_loaded_fit_panel()   # a new fit clears loaded artists + its panel
 
         model_name = fit_funct
-        force_prompt = bool(True)
+        # False honours the stored "don't ask again" preference and a config
+        # that already names its shape file; True would re-ask both every fit.
+        force_prompt = False
 
         try:
             config = self.prepare_fit_config(fit_funct, force_prompt=force_prompt)

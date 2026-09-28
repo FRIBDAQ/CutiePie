@@ -1410,14 +1410,26 @@ def test_calibration_question_dont_ask_is_written_to_settings(fm_mod, monkeypatc
     assert qt_stubs.FakeQSettings.store["calibration/ask"] is False
 
 
-def test_calibration_question_is_still_asked_after_dont_ask(fm_mod, monkeypatch):
-    """fit() pins force_prompt to True, so the stored preference is read and
-    then overridden. This pins the current behavior; changing it is a
-    behavior change, not part of the dialog move."""
-    env, _ = _question_env(fm_mod, monkeypatch, "No")
+def test_calibration_question_is_skipped_after_dont_ask(fm_mod, monkeypatch):
+    """Once the user has ticked "Don't ask me again", the stored preference
+    is honoured: no question, no calibration, the fit runs straight away."""
+    env, cal_calls = _question_env(fm_mod, monkeypatch, "Yes")
     qt_stubs.FakeQSettings.store["calibration/ask"] = False   # after Env, which clears the store
     env.fm.fit(0, "h1", make_ax(), "AlphaEMGMulti", _ALPHA_PARS, "2", "8")
-    assert _ScriptedMessageBox.built == 1
+    assert _ScriptedMessageBox.built == 0
+    assert cal_calls == []
+    assert env.factory.created == [("AlphaEMGMulti", {})]
+
+
+def test_fit_does_not_force_the_config_prompts(fm_mod, monkeypatch):
+    """A config that already names a valid shape file and calibration must
+    not be re-asked on every fit; fit() leaves that to prepare_fit_config."""
+    env, _ = _question_env(fm_mod, monkeypatch, "No")
+    seen = []
+    monkeypatch.setattr(env.fm, "prepare_fit_config",
+                        lambda f, force_prompt=False: (seen.append(force_prompt) or {}))
+    env.fm.fit(0, "h1", make_ax(), "AlphaEMGMulti", _ALPHA_PARS, "2", "8")
+    assert seen == [False]
 
 
 # ------------------------------------------------- Load-Fit component panel
