@@ -7,6 +7,7 @@ reading."""
 import ast
 import importlib
 import pathlib
+import subprocess
 import sys
 import warnings
 
@@ -63,13 +64,23 @@ IMPORTABLE = [p.stem for p in CREATORS if importable(p.stem) is not None]
 NEEDS_DATA_FILE = {"fit_alpha_linear_creator"}
 RUNNABLE = [s for s in IMPORTABLE if s not in NEEDS_DATA_FILE]
 
+# The multi-isotope fits require a shape file (FitManager always supplies one),
+# so these builders are handed a minimal single-isotope file.
+NEEDS_SHAPE_FILE = {"fit_alpha_multi_creator", "fit_alpha_multi_sigma_creator"}
+SHAPE_LINE = "Pu239, 24110y, 5156.6, 100, 10, 5, 50, 0.5, *\n"
+
 
 @pytest.mark.parametrize("stem", RUNNABLE)
-def test_builder_returns_a_new_object_each_call(stem):
+def test_builder_returns_a_new_object_each_call(stem, tmp_path):
     mod = importlib.import_module(stem)
     cls = next(getattr(mod, n) for n in dir(mod) if n.endswith("Builder"))
+    cfg = {}
+    if stem in NEEDS_SHAPE_FILE:
+        shape = tmp_path / "shapes.txt"
+        shape.write_text(SHAPE_LINE)
+        cfg["shape_file"] = str(shape)
     build = cls()
-    first, second = build(), build()
+    first, second = build(**cfg), build(**cfg)
     assert first is not second
 
 
@@ -84,10 +95,15 @@ def test_builder_honours_config_given_on_a_later_call():
 
 
 def test_importing_fit_function_leaves_numpy_alone():
-    """`np.seterr(invalid='ignore')` at import muted every numpy op in the GUI."""
-    np.seterr(invalid="warn")
-    importlib.reload(importlib.import_module("fit_function"))
-    assert np.geterr()["invalid"] == "warn"
+    """`np.seterr(invalid='ignore')` at import muted every numpy op in the GUI.
+
+    Checked in a fresh interpreter: reloading fit_function here would replace
+    FitFunction and break issubclass checks in every test that runs after."""
+    probe = ("import numpy as np; np.seterr(invalid='warn'); import fit_function; "
+             "print(np.geterr()['invalid'])")
+    out = subprocess.run([sys.executable, "-c", probe], cwd=GUI,
+                         capture_output=True, text=True, check=True).stdout
+    assert out.strip() == "warn"
 
 
 def test_start_suppresses_invalid_only_for_the_duration_of_the_fit():

@@ -26,9 +26,10 @@ class BoundStubSignal:
 
     def emit(self, *args):
         for slot in list(self._slots):
-            # A slot may itself be a signal (signal-to-signal chaining).
-            # Real pyqtBoundSignal objects are not callable — use .emit.
-            target = slot if callable(slot) else getattr(slot, "emit", None)
+            # A slot may itself be a signal (signal-to-signal chaining). Check
+            # for .emit first: a real pyqtBoundSignal passes callable() but
+            # raises when called.
+            target = getattr(slot, "emit", None) or (slot if callable(slot) else None)
             if target is None:
                 raise TypeError(f"unsupported slot: {slot!r}")
             target(*args)
