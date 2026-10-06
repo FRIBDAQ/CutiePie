@@ -30,7 +30,6 @@
 #include <sys/types.h>
 #ifndef _WIN64
 #include <unistd.h>
-#include <bits/stdc++.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #endif

@@ -56,9 +56,39 @@ PKG_CHECK_MODULES(PYTHON, [python3-embed], [PYTHON_CXXFLAGS=`pkg-config --cflags
 AC_SUBST(PYTHON_CXXFLAGS)
 AC_SUBST(PYTHON_LDFLAGS)
 
+#  Libraries loaded into a running interpreter must not link libpython on
+#  macOS: python executables often embed it statically, and a second copy
+#  would be loaded.  Leave the symbols for the interpreter to provide.
+#  Programs that embed Python do link it, and macOS needs an rpath to find
+#  libpython (its install name is @rpath-relative).
+
+case $host_os in
+  *darwin* )
+	PYTHON_EXT_LDFLAGS="-Wl,-undefined,dynamic_lookup"
+	PYTHON_LIBDIR=`pkg-config --variable=libdir python3-embed 2>/dev/null`
+	AS_IF([test -n "${PYTHON_LIBDIR}"],
+		[PYTHON_LDFLAGS="${PYTHON_LDFLAGS} -Wl,-rpath,${PYTHON_LIBDIR}"])
+	;;
+  * )   PYTHON_EXT_LDFLAGS="${PYTHON_LDFLAGS}" ;;
+esac
+AC_SUBST(PYTHON_EXT_LDFLAGS)
+
+#  NumPy headers live inside the numpy package unless a distro also installs
+#  them system-wide, so ask the interpreter.  Empty if numpy isn't importable.
+
+AC_MSG_CHECKING([for the NumPy include directory])
+NUMPY_INCLUDE=`${PYTHON3:-python3} -c "import numpy; print(numpy.get_include())" 2>/dev/null`
+AS_IF([test -n "${NUMPY_INCLUDE}"],
+	[NUMPY_CFLAGS="-I${NUMPY_INCLUDE}"; AC_MSG_RESULT([${NUMPY_INCLUDE}])],
+	[NUMPY_CFLAGS=""; AC_MSG_RESULT([not found, relying on the system include path])])
+AC_SUBST(NUMPY_CFLAGS)
+
 # Tcl compilations/linking:
 
-PKG_CHECK_MODULES(TCL, [tcl8.6], [TCL_CPPFLAGS=`pkg-config --cflags tcl8.6`; TCL_LDFLAGS=`pkg-config --libs tcl8.6`])
+#  Debian names the module tcl8.6; Homebrew's tcl-tk@8 only ships tcl.pc.
+
+PKG_CHECK_MODULES(TCL, [tcl8.6], [TCL_CPPFLAGS=`pkg-config --cflags tcl8.6`; TCL_LDFLAGS=`pkg-config --libs tcl8.6`],
+	[PKG_CHECK_MODULES(TCL, [tcl >= 8.6 tcl < 9])])
 
 # Checks for header files.
 
@@ -100,7 +130,18 @@ AC_CHECK_FILE([${srcdir}/libtclplus/configure.ac],
 	[AC_MSG_NOTICE([Using previously incorporated tcl++ from the source tree at ${srcdir}/libtclplus])],
 	[AC_MSG_NOTICE([Need to build local tagged copy of tcl++])
 	${srcdir}/tcl++incorp])
-(cd ${srcdir}/libtclplus; ./configure --prefix=${prefix}; make clean ; make -j ${incorp_cores} ; make install)
+
+#  tcl++ only searches the usual Linux places for tclConfig.sh/tkConfig.sh;
+#  elsewhere (e.g. Homebrew's tcl-tk@8) pass its own flags through, e.g.
+#  --with-tclplus-args="--with-tclconfig=DIR --with-tkconfig=DIR LIBS='-LDIR -ltcl8.6'".
+#  The arguments are eval'd so quoted values containing spaces survive.
+
+AC_ARG_WITH([tclplus-args],
+	AS_HELP_STRING([--with-tclplus-args=ARGS], [Extra arguments for the incorporated tcl++ configure]),
+	[tclplus_args=$withval],
+	[tclplus_args=""])
+
+(cd ${srcdir}/libtclplus; eval "./configure --prefix=\"\${prefix}\" ${tclplus_args}"; make clean ; make -j ${incorp_cores} ; make install)
 result=$?
 AS_VAR_IF([result], [0], [], AC_MSG_ERROR([Failed to build and install tcl++ with result: ${result}]))
 AC_SUBST(TCLPLUS_CFLAGS, [-I${prefix}/include])
@@ -291,12 +332,15 @@ AC_ARG_WITH([restclient-cpp],
 
 #  Make sure we can find this beast:
 
-AC_CHECK_FILE([${restclient_topdir}/lib/librestclient-cpp.so], [libfound="yes"], [libfound="no"])
+#  macOS builds shared libraries as .dylib rather than .so.
+
+AC_CHECK_FILE([${restclient_topdir}/lib/librestclient-cpp.so], [libfound="yes"],
+	[AC_CHECK_FILE([${restclient_topdir}/lib/librestclient-cpp.dylib], [libfound="yes"], [libfound="no"])])
 AC_CHECK_FILE([${restclient_topdir}/include/restclient-cpp/restclient.h], [hdrfound="yes"], [hdrfound="no"])
 
 if test "${libfound}" = "no"
 then
-   AC_MSG_FAILURE([Unable to find ${restclient_topdir}/lib/librestclient-cpp.so.  Use correct --with-restclient-cpp value.  If necessary, download/build from https://github.com/mrtazz/restclient-cpp])
+   AC_MSG_FAILURE([Unable to find librestclient-cpp.so or librestclient-cpp.dylib in ${restclient_topdir}/lib.  Use correct --with-restclient-cpp value.  If necessary, download/build from https://github.com/mrtazz/restclient-cpp])
 fi
 
 if test "${hdrfound}" = "no"
@@ -304,7 +348,7 @@ then
    AC_MSG_FAILURE([Unable to find ${restclient_topdir}/include/restclient-cpp/restclient.h.  Use correct --with-restclient-cpp value. If necessary, download/build from https://github.com/mrtazz/restclient-cpp])
 fi
 
-RESTCLIENT_LDFLAGS="-L${restclient_topdir}/lib -lrestclient-cpp -Wl,-rpath=${restclient_topdir}/lib"
+RESTCLIENT_LDFLAGS="-L${restclient_topdir}/lib -lrestclient-cpp -Wl,-rpath,${restclient_topdir}/lib"
 RESTCLIENT_CPPFLAGS="-I${restclient_topdir}/include"
 
 AC_SUBST(RESTCLIENT_LDFLAGS)

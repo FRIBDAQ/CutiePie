@@ -389,7 +389,8 @@ CSocket::Bind(const string& service)
   Peer.sin_family = AF_INET;
   Peer.sin_addr.s_addr = htonl(INADDR_ANY);
 
-  if(bind(m_Fd, (sockaddr*)&Peer, sizeof(sockaddr_in)) < 0) {
+  // Qualified so libc++ cannot resolve it to std::bind via 'using namespace std'.
+  if(::bind(m_Fd, (sockaddr*)&Peer, sizeof(sockaddr_in)) < 0) {
     throw CErrnoException("Error from bind(2) in CSocket::Bind()");
   }
   m_State = Bound;

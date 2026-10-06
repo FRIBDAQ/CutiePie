@@ -1,0 +1,22 @@
+#  sip-v6 build of the CPyConverter Python module for Linux and macOS.
+#  The @...@ placeholders are filled in by Makefile.am at install time, so the
+#  paths point at this build's sources and installed libraries.
+#  (Windows uses pyproject.toml, which build-windows.bat runs directly.)
+
+[build-system]
+requires = ["sip >=6, <7"]
+build-backend = "sipbuild.api"
+
+[project]
+name = "CPyConverter"
+version = "1.0"
+
+[tool.sip.project]
+sip-files-dir = "@SIPDIR@"
+
+[tool.sip.bindings.CPyConverter]
+headers = ["CPyConverter.h"]
+include-dirs = ["@SIPDIR@", "@TOPSRCDIR@/mirrorclient", "@TOPSRCDIR@/PyQtGUI/src"]
+libraries = ["CPyConverter", "MirrorClient"]
+library-dirs = ["@LIBDIR@"]
+extra-link-args = ["-Wl,-rpath,@LIBDIR@"]

@@ -418,23 +418,17 @@ CPortManager::GetNetworkAddress(sockaddr_in& result) const
 
 
 
-	struct hostent entry;
-	struct hostent *pEntry;
-	char           otherData[1024];
-	int            herrno;
-	if(!gethostbyname_r(m_sHost.c_str(),
-			    &entry,
-			    otherData, sizeof(otherData),
-			    &pEntry, &herrno)) {
-
-	
-	  if(entry.h_addrtype != AF_INET) {
-	    throw CPortManagerException(m_sHost,
-					CPortManagerException::ConnectionFailed,
-			                            " Host is not AF_INET ");
-	  }
-	  
-	  memcpy(&(result.sin_addr.s_addr), entry.h_addr_list[0], entry.h_length);
+	// getaddrinfo is thread-safe everywhere; gethostbyname_r is glibc-only.
+	struct addrinfo  hints;
+	struct addrinfo* pInfo(nullptr);
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family   = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+	if(getaddrinfo(m_sHost.c_str(), nullptr, &hints, &pInfo) == 0) {
+	  const sockaddr_in* pAddr =
+	    reinterpret_cast<const sockaddr_in*>(pInfo->ai_addr);
+	  result.sin_addr = pAddr->sin_addr;
+	  freeaddrinfo(pInfo);
 	  return;
 	}
 	else {
