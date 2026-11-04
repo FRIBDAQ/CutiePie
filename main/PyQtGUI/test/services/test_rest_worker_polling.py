@@ -244,3 +244,25 @@ def test_poll_traces_sends_the_token(rest):
     rest.sendRequest = lambda url: sent.append(url)
     rest.pollTraces(99)
     assert "token=99" in sent[0]
+
+
+# ---------------------------------------------------------- gate traces
+
+def test_gate_traces_are_forwarded(workers_mod):
+    """SpecTcl reports gate add/delete/changed on the trace feed; the worker
+    must pass them on so a gate erased in treegui reaches the GUI."""
+    _, _, events = drive(workers_mod, [
+        {"binding": [], "gate": ["delete G1", "add {my gate}"]},
+        dict(EMPTY_DETAIL)])
+    assert ("traces", {"binding": [], "gate": ["delete G1", "add {my gate}"]}) in events
+
+
+def test_gate_traces_ride_with_binding_removes(workers_mod):
+    good = {"binding": ["remove old 3"], "gate": ["changed G1"]}
+    _, _, events = drive(workers_mod, [good, dict(EMPTY_DETAIL)])
+    assert ("traces", {"binding": ["remove old 3"], "gate": ["changed G1"]}) in events
+
+
+def test_a_poll_without_gate_key_still_works(workers_mod):
+    _, _, events = drive(workers_mod, [{"binding": ["remove old 3"]}, dict(EMPTY_DETAIL)])
+    assert ("traces", {"binding": ["remove old 3"], "gate": []}) in events

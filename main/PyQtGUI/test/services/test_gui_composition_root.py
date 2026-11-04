@@ -126,3 +126,12 @@ def test_view_state_is_built_before_every_service_that_takes_it():
         assert assigned_at < first_use, (
             f"view_state is used at line {first_use} but only assigned at "
             f"{assigned_at} — this is the stage-9 startup crash")
+
+
+def test_gate_trace_invalidates_the_gate_cache():
+    """A gate deleted in treegui reaches the pad through this one wire."""
+    gui = gui_stubs.import_gui()
+    with open(gui.__file__.replace(".pyc", ".py"), encoding="utf-8") as fh:
+        source = fh.read()
+    assert ("self.connection_manager.gatesChanged.connect("
+            "self.gate_manager.invalidateGateCache)") in source

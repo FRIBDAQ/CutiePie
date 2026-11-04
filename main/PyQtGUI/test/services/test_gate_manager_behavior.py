@@ -570,3 +570,86 @@ def test_gate_name_list_changed_gated_by_edit_mode(rig):
     rig.gm._editing_gate = False
     rig.gm.gateNameListChanged()
     assert rig.name_selected == [] and rig.gtype_added == []   # guard blocked all
+
+
+# --------------------------------------------------------------- gates deleted on the SpecTcl side
+
+def test_draw_gate_removes_lines_of_a_gate_spectcl_no_longer_lists(rig):
+    """A gate erased from treegui must leave the pad on the next refreshed
+    draw: its two 1-D lines and its annotation go, a surviving gate stays."""
+    rig.add_1d("h1", type_="1", params=("p1",))
+    ax = _ax()
+    rig.info[0]["axis"] = ax
+    rig.annot_cb.setChecked(True)
+    rig.rest = FakeGateRest([
+        {"name": "G1", "type": "s", "parameters": ["p1"], "low": 2.0, "high": 8.0},
+        {"name": "G2", "type": "s", "parameters": ["p1"], "low": 3.0, "high": 4.0}])
+    rig.gm.drawGate(0)
+    assert sorted(l.get_label() for l in ax.lines if l.get_label().startswith("gate_-_")) == [
+        "gate_-_G1_-_0", "gate_-_G1_-_1", "gate_-_G2_-_0", "gate_-_G2_-_1"]
+
+    del rig.rest._gates[0]                 # SpecTcl deleted G1
+    rig.gm._gate_cache_ts = 0.0
+    rig.gm.drawGate(0)
+    labels = [l.get_label() for l in ax.lines if l.get_label().startswith("gate_-_")]
+    assert sorted(labels) == ["gate_-_G2_-_0", "gate_-_G2_-_1"]
+    gids = [a.get_gid() for a in ax.get_children()
+            if isinstance(a, matplotlib.text.Annotation)]
+    assert "G1_low" not in gids and "G1_high" not in gids
+    assert "G2_low" in gids
+
+
+def test_draw_gate_removes_2d_line_of_a_deleted_gate(rig):
+    rig.store.set("h2", dim=2, binx=10, minx=0.0, maxx=10.0, biny=10, miny=0.0, maxy=10.0,
+                  data=[], parameters=["p1", "p2"], type="2")
+    rig.info[0] = {"name": "h2", "axis": _ax()}
+    ax = rig.info[0]["axis"]
+    rig.rest = FakeGateRest([
+        {"name": "C1", "type": "c", "parameters": ["p1", "p2"],
+         "points": [{"x": 1, "y": 1}, {"x": 2, "y": 1}, {"x": 2, "y": 2}]}])
+    rig.gm.drawGate(0)
+    assert any(l.get_label() == "gate_-_C1_-_" for l in ax.lines)
+    rig.rest._gates.clear()
+    rig.gm._gate_cache_ts = 0.0
+    rig.gm.drawGate(0)
+    assert not any(l.get_label().startswith("gate_-_") for l in ax.lines)
+
+
+def test_draw_gate_keeps_non_gate_lines_when_pruning(rig):
+    """The spectrum trace and a gate being drawn carry no gate label; pruning
+    stale gates must not touch them."""
+    rig.add_1d("h1")
+    ax = _ax()
+    rig.info[0]["axis"] = ax
+    spectrum_line = ax.plot([0, 1], [0, 1])[0]
+    draft = mlines.Line2D([5, 5], [0, 100])    # creation-mode provisional line
+    ax.add_line(draft)
+    ax.add_line(mlines.Line2D([4.0, 4.0], [0, 100], label="gate_-_OLD_-_0"))
+    rig.rest = FakeGateRest([])
+    rig.gm.drawGate(0)
+    assert spectrum_line in ax.lines and draft in ax.lines
+    assert not any(l.get_label() == "gate_-_OLD_-_0" for l in ax.lines)
+
+
+def test_invalidate_gate_cache_refetches_and_redraws(rig):
+    rig.add_1d("h1")
+    rig.info[0]["axis"] = _ax()
+    rig.rest = FakeGateRest([])
+    rig.gm.drawGate(0)
+    assert rig.gm._gate_cache_ts > 0.0
+    rig.gm.invalidateGateCache()
+    assert rig.gm._gate_cache_ts == 0.0
+    assert len(rig.replot) == 1
+
+
+def test_invalidate_gate_cache_does_not_redraw_mid_edit(rig):
+    """While the user is drawing or editing a gate the provisional artists are
+    on the pad; the refresh waits for the flow to end, which redraws anyway."""
+    rig.gm._creating_gate = True
+    rig.gm.invalidateGateCache()
+    assert rig.gm._gate_cache_ts == 0.0
+    assert rig.replot == []
+    rig.gm._creating_gate = False
+    rig.gm._editing_gate = True
+    rig.gm.invalidateGateCache()
+    assert rig.replot == []

@@ -154,6 +154,12 @@ class GateManager(QObject):
             linesByLabel.setdefault(gl.get_label(), []).append(gl)
         hideGates = self._get_hide()
 
+        # A gate deleted on the SpecTcl side is simply absent from the list,
+        # so drop the artists of any gate this pad still shows but SpecTcl
+        # no longer reports; nothing else ever removes them.
+        self._pruneStaleGateArtists(ax, linesByLabel,
+                                    {g["name"] for g in gateList})
+
         def _updateGateLine(lineLabel, xData, yData):
             existing = linesByLabel.get(lineLabel, [])
             if len(existing) == 1 and not hideGates:
@@ -219,6 +225,38 @@ class GateManager(QObject):
                 line = mlines.Line2D(xlim, ylim, picker=True, color='blue', label=lineLabel)
                 line.set_pickradius(5)
                 ax.add_line(line)
+
+    def _pruneStaleGateArtists(self, ax, linesByLabel, liveNames):
+        stale = [label for label in linesByLabel
+                 if label.startswith("gate_-_")
+                 and len(label.split("_-_")) == 3
+                 and label.split("_-_")[1] not in liveNames]
+        if not stale:
+            return
+        staleNames = {label.split("_-_")[1] for label in stale}
+        for label in stale:
+            for ln in linesByLabel.pop(label):
+                ln.remove()
+        for an in [a for a in ax.get_children()
+                   if type(a) == matplotlib.text.Annotation]:
+            if (an.get_text() in staleNames
+                    or an.get_gid() in {n + "_low" for n in staleNames}
+                    or an.get_gid() in {n + "_high" for n in staleNames}):
+                an.remove()
+        if ax.get_legend() and not any(
+                ln.get_label().startswith("gate_-_") for ln in ax.lines):
+            ax.get_legend().remove()
+        self.logger.info('drawGate - dropped gates no longer in SpecTcl: %s',
+                         sorted(staleNames))
+
+    def invalidateGateCache(self):
+        """SpecTcl reported a gate add/delete/change: refetch the list on the
+        next draw and redraw now, unless a gate flow is in progress (its end
+        redraws anyway, and a redraw now would land under provisional lines)."""
+        self._gate_cache_ts = 0.0
+        if self._creating_gate or self._editing_gate:
+            return
+        self.updatePlotRequested.emit()
 
     # ------------------------------------------------------------------
     # Gate annotation

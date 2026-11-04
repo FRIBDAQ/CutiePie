@@ -41,7 +41,7 @@ class RestWorker(QObject):
 
     connected     = pyqtSignal()
     disconnected  = pyqtSignal()
-    tracesReady   = pyqtSignal(dict)       # "remove" binding events only
+    tracesReady   = pyqtSignal(dict)       # "binding": remove events only; "gate": every gate event
     spectrumAdded = pyqtSignal(str, dict)  # name, raw REST spectrum info dict
 
     # How many polls in a row must fail before the connection is called dead.
@@ -117,8 +117,10 @@ class RestWorker(QObject):
                         else:
                             logger.warning('RestWorker - no REST spectrum info for %r', name)
 
-                if remove_bindings:
-                    self.tracesReady.emit({"binding": remove_bindings})
+                gate_events = list(traces.get("gate") or [])
+                if remove_bindings or gate_events:
+                    self.tracesReady.emit({"binding": remove_bindings,
+                                           "gate": gate_events})
                 for name, spec_info in add_infos:
                     self.spectrumAdded.emit(name, spec_info)
         except Exception:

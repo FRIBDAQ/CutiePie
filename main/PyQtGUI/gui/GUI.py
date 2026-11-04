@@ -552,6 +552,7 @@ class MainWindow(QMainWindow):
         self.connectConfig.cancel.clicked.connect(self.closeConnect)
         self.connection_manager.connectionEstablished.connect(self.setCanvasLayout)
         self.connection_manager.spectrumListChanged.connect(self.sum_region_manager.refreshSpectrumSumRegionDict)
+        self.connection_manager.gatesChanged.connect(self.gate_manager.invalidateGateCache)
         self.connection_manager.updatePlotRequested.connect(self._updatePlotOnGui)
         self._connection_adapter = ConnectionAdapter(
             self.connection_manager, self.wTab, self.wConf.connectButton,

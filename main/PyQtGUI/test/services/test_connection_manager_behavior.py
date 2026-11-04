@@ -678,3 +678,19 @@ def test_both_arrival_paths_agree_on_a_1d_record(env):
 
     for key in ("biny", "miny", "maxy"):
         assert at_connect[key] == on_trace[key], key
+
+
+# ------------------------------------------------------------- gate traces
+
+def test_gate_trace_emits_gates_changed_once_per_poll(env):
+    changed = record_signal(env.cm.gatesChanged)
+    env.cm.updateFromTraces({"binding": [], "gate": ["delete G1", "changed G2"]})
+    assert len(changed) == 1
+
+
+def test_no_gate_trace_no_gates_changed(env):
+    changed = record_signal(env.cm.gatesChanged)
+    env.cm.updateFromTraces({"binding": []})
+    env.cm.updateFromTraces({"gate": []})
+    env.cm.updateFromTraces({"gate": None})
+    assert changed == []

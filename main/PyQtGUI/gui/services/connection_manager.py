@@ -15,6 +15,9 @@ class ConnectionManager(QtCore.QObject):
     connectionEstablished = pyqtSignal()
     spectrumRemoved       = pyqtSignal(str)
     spectrumListChanged   = pyqtSignal()
+    # SpecTcl reported at least one gate added, deleted or changed since the
+    # last trace poll; the gate drawer refetches its list on this.
+    gatesChanged          = pyqtSignal()
     updatePlotRequested   = pyqtSignal()
     # a re-connect finished a fresh mirror transfer — the GUI must drop every
     # matplotlib artist / cached axis still bound to arrays from the previous
@@ -289,6 +292,8 @@ class ConnectionManager(QtCore.QObject):
                 self.spectrumRemoved.emit(name)
                 self.updateSpectrumList()
                 self.spectrumListChanged.emit()
+        if tracesDetails.get("gate"):
+            self.gatesChanged.emit()
 
     @pyqtSlot(str, dict)
     def _on_spectrum_added(self, name, spec_info):
