@@ -121,23 +121,32 @@ SETTING_EXECUTABLE = "exec"
 DEBUG = False
 
 
-# Fallback for an installed tree, where configure.ac is not shipped. Keep this
-# in sync with AC_INIT in configure.ac, which stays the source of truth.
-_VERSION_FALLBACK = "v1.6-004"
+# Last resort when neither configure.ac nor the install-time VERSION stamp can
+# be found. Keep it equal to AC_INIT in configure.ac; the test suite checks.
+_VERSION_FALLBACK = "v1.6-006"
 
 
-def cutiepie_version():
-    """CutiePie version for the window title. In a source checkout, read it
-    live from configure.ac's AC_INIT line (configure.ac sits two levels up
-    from this gui/ folder) so it always tracks the source of truth."""
+def cutiepie_version(gui_dir=None):
+    """CutiePie version for the window title. A source checkout reads it live
+    from configure.ac's AC_INIT line, two levels above this gui/ folder. An
+    installed tree has no configure.ac, so `make install` stamps the configured
+    version into a VERSION file next to this module and that is read instead."""
+    if gui_dir is None:
+        gui_dir = os.path.dirname(os.path.abspath(__file__))
     try:
-        cfg = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           "..", "..", "configure.ac")
+        cfg = os.path.join(gui_dir, "..", "..", "configure.ac")
         with open(cfg, encoding="utf-8") as f:
             m = re.search(r"AC_INIT\(\s*\[?\s*CutiePie\s*\]?\s*,\s*\[?\s*([^,\]\)\s]+)",
                           f.read())
         if m:
             return m.group(1)
+    except Exception:
+        pass
+    try:
+        with open(os.path.join(gui_dir, "VERSION"), encoding="utf-8") as f:
+            stamped = f.read().strip()
+        if stamped:
+            return stamped
     except Exception:
         pass
     return _VERSION_FALLBACK

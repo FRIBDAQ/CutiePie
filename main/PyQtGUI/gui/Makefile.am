@@ -12,6 +12,7 @@ install-exec-hook:
 	$(mkinstalldirs) @prefix@/Script
 	$(INSTALL_PROGRAM) _CutiePie @prefix@/bin
 	$(INSTALL_DATA) @srcdir@/*.py @prefix@/Script
+	echo "$(PACKAGE_VERSION)" > @prefix@/Script/VERSION
 	$(mkinstalldirs) @prefix@/Script/services
 	$(INSTALL_DATA) @srcdir@/services/*.py @prefix@/Script/services
 	$(mkinstalldirs) @prefix@/Script/adapters
