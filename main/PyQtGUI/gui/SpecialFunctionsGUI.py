@@ -258,6 +258,17 @@ class SpecialFunctions(QWidget):
         deflayout.addWidget(self.fit_p19_label, 9, 2)
         deflayout.addWidget(self.fit_p19, 9, 3)
 
+        # Two equal halves (label | field || label | field). Without this the
+        # wmode combo, sized for its longest item, widened only the left field
+        # column and squeezed the right one to a sliver. The fixed minimums
+        # also make the window open wide enough for both halves.
+        label_w = self.fontMetrics().horizontalAdvance("offset correction <=") + 8  # longest label
+        field_w = self.wmode_combo.sizeHint().width()
+        for col, width, stretch in ((0, label_w, 0), (1, field_w, 1),
+                                    (2, label_w, 0), (3, field_w, 1)):
+            deflayout.setColumnMinimumWidth(col, width)
+            deflayout.setColumnStretch(col, stretch)
+
         v2 = QVBoxLayout()
         v2.addWidget(self.fit_label)
         v2.addWidget(self.fit_list)

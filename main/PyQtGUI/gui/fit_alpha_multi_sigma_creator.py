@@ -22,6 +22,7 @@ if _here not in sys.path:
 import numpy as np
 from lmfit import Model, Parameters, fit_report
 from scipy.special import erfcx, erfc
+from scipy.optimize import nnls
 
 import matplotlib.pyplot as plt
 
@@ -36,6 +37,12 @@ from fit_alpha_base import (
 )
 
 USE_GL3 = True  # True for speed, switch to False for GL7 accuracy
+
+# Stopping tolerance (ftol = xtol = gtol) for least_squares. lmfit's default of
+# 1e-8 made the fit creep for 20-35k evaluations along directions the data
+# barely constrains, for a chi-square change well below 0.1 %.
+FIT_TOL = 1e-6
+FIT_KWS = dict(loss='linear', ftol=FIT_TOL, xtol=FIT_TOL, gtol=FIT_TOL)
 
 IRLS_MAX_ITERS = 6
 IRLS_IMPROVE   = 1e-3
@@ -406,7 +413,13 @@ def _effective_subpeak(params, iso_name, iso_stem, q,
     d0 = _get(params, "d0", 0.0)
     dg = _get(params, "dg", 0.0)
 
-    mu = (1.0 + dg) * float(q["mu0"]) + d0 + dm
+    # Gain acts about a pivot inside the fit window, so d0 is the shift AT the
+    # pivot. With the pivot at 0, d0 and dg are almost interchangeable over a
+    # narrow window (d0=115 with dg=-0.0137 for a net +12 keV), which slows the
+    # fit badly and makes both unreadable. pivot=0 reproduces the old formula.
+    pivot = _get(params, "pivot", 0.0)
+    mu0 = float(q["mu0"])
+    mu = mu0 + dg * (mu0 - pivot) + d0 + dm
     A  = A_top * float(q["ratio"])
 
     # per-isotope scales (default 1)
@@ -431,6 +444,61 @@ def _effective_subpeak(params, iso_name, iso_stem, q,
         A=A, mu=mu, sigma=sigma, tau1=t1, tau2=t2, eta=eta,
         E=q["E"],
     )
+
+def _isotope_counts_nnls(x, y, bw, isotopes, pulses, pars, use_global):
+    """Counts per isotope from a Poisson-weighted NNLS of unit-area isotope
+    templates (lines at their current dm, initial shapes) plus a flat background.
+    Fitting all isotopes jointly lets an isotope's other lines decide who owns a
+    shared peak."""
+    cols = []
+    for k, iso in enumerate(isotopes):
+        qs = [q for q in pulses if q['iso_idx'] == k]
+        rsum = sum(q['ratio'] for q in qs) or 1.0
+        dm = _get(pars, f"dm_{iso['safe']}", 0.0)
+        col = np.zeros_like(x, dtype=float)
+        for q in qs:
+            if use_global:
+                s, t1, t2, eta = (_get(pars, 'sigma'), _get(pars, 'tau1'),
+                                  _get(pars, 'tau2'), _get(pars, 'eta'))
+            else:
+                s, t1, t2, eta = q['sigma'], q['tau1'], q['tau2'], q['eta']
+            col += (q['ratio'] / rsum) * _peak_binned(x, 1.0, q['mu0'] + dm, s, t1, t2, eta, bw)
+        cols.append(col)
+    cols.append(np.ones_like(x, dtype=float))
+    D = np.array(cols).T
+    w = _weights_from(y)
+    try:
+        coef, _ = nnls(D * w[:, None], np.asarray(y, float) * w)
+    except Exception:
+        return np.zeros(len(isotopes))
+    return coef[:-1]
+
+def _fitted_isotope_counts(params, isotopes, pulses, allow_shift, use_global, use_chain_amp):
+    """Total fitted counts per isotope (sum of its sub-peak amplitudes)."""
+    counts = np.zeros(len(isotopes))
+    for k, iso in enumerate(isotopes):
+        for q in pulses:
+            if q['iso_idx'] != k:
+                continue
+            sp = _effective_subpeak(params, iso['name'], iso['safe'], q,
+                                    allow_shift, use_global, use_chain_amp)
+            if sp is not None:
+                counts[k] += sp['A']
+    return counts
+
+def _isotope_components(params, x, bw, isotopes, pulses, allow_shift, use_global, use_chain_amp):
+    """Binned model contribution of each isotope: array [n_isotopes, len(x)]."""
+    comps = np.zeros((len(isotopes), len(x)), dtype=float)
+    for k, iso in enumerate(isotopes):
+        for q in pulses:
+            if q['iso_idx'] != k:
+                continue
+            sp = _effective_subpeak(params, iso['name'], iso['safe'], q,
+                                    allow_shift, use_global, use_chain_amp)
+            if sp is not None:
+                comps[k] += _peak_binned(x, sp['A'], sp['mu'], sp['sigma'],
+                                         sp['tau1'], sp['tau2'], sp['eta'], bw)
+    return comps
 
 # ---- The fitter -----------------------------------------------------------------
 class AlphaMultiEMGSigmaFit(FitFunction):
@@ -578,6 +646,9 @@ class AlphaMultiEMGSigmaFit(FitFunction):
                  min=-d0_abs, max=+d0_abs)
         pars.add('dg', value=0.0, vary=(dg_abs > 0.0),
                  min=-dg_abs, max=+dg_abs)
+        # Gain pivot: centre of the fit window (see _effective_subpeak)
+        pivot = float(round(0.5 * (float(x.min()) + float(x.max()))))
+        pars.add('pivot', value=pivot, vary=False)
 
         # ---- iso → chain map and chain → [iso indices] groups ----
         n_iso = len(self._isotopes)
@@ -638,6 +709,31 @@ class AlphaMultiEMGSigmaFit(FitFunction):
                          max=self.iso_scale_bounds["s_tau2"][1],
                          vary=True)
 
+        # ---- Reference isotope: break exact degeneracies ----
+        # sigma_eff = sigma * s_sigma_<iso> (likewise tau1/tau2) and
+        # mu = (1+dg)*mu0 + d0 + dm_<iso>. A global parameter plus a free
+        # per-isotope copy for EVERY isotope leaves a direction the data cannot
+        # constrain, so the covariance is singular (errors of 1e8 %, |corr| > 1).
+        # Pin the best-supported isotope as the reference: its scales stay 1 and
+        # its dm stays 0, so the globals describe it and the others are relative.
+        # "Best-supported" comes from a joint NNLS of all isotopes, not from the
+        # windowed seeds: an empty isotope whose line sits on another isotope's
+        # peak (212At 7669 under 219Ra 7678) gets a big windowed seed, and an
+        # empty reference re-opens the very degeneracy it is meant to close.
+        self._ref_iso = None
+        pin_scales = self.fit_iso_shape_scales
+        pin_dm = self.allow_shift and bool(pars['d0'].vary)
+        if (pin_scales or pin_dm) and n_iso > 0:
+            k_ref = int(np.argmax(_isotope_counts_nnls(
+                x, y, bw, self._isotopes, self._pulses, pars, self.fit_global_shapes)))
+            ref = self._isotopes[k_ref]['safe']
+            self._ref_iso = self._isotopes[k_ref]['name']
+            if pin_scales:
+                for pfx in ("s_sigma_", "s_tau1_", "s_tau2_"):
+                    pars[pfx + ref].set(value=1.0, vary=False)
+            if pin_dm:
+                pars[f"dm_{ref}"].set(value=0.0, vary=False)
+
         # ---- Top-level amplitudes: per-chain or per-isotope ----
         if self.normalize_chains:
             # one A per chain
@@ -682,13 +778,103 @@ class AlphaMultiEMGSigmaFit(FitFunction):
         stride = 1
         xf, yf = x[::stride], y[::stride]
 
+        # ---- Seed amplitudes in counts ----
+        # The trapz seeds above are counts*keV, summed over overlapping ±400 keV
+        # windows, while the binned model's A is in counts. The initial model was
+        # therefore tens of times too large, and the fit settled into a
+        # narrow-spike + ~1000-keV-tail minimum. Rescale every top-level
+        # amplitude so the initial model's total counts match the data's.
+        y_init = model.eval(pars, x=xf)
+        tot_model = float(np.sum(y_init))
+        tot_data = float(np.sum(np.clip(yf, 0, None)))
+        if np.isfinite(tot_model) and tot_model > 0.0 and tot_data > 0.0:
+            k_amp = tot_data / tot_model
+            for pname, par in pars.items():
+                if pname.startswith(("Achain_", "A_")):
+                    par.set(value=par.value * k_amp)
+
+        # Budget: lmfit counts every residual call, including the finite-difference
+        # Jacobian (one call per varying parameter), so a fixed 2000 allowed only
+        # ~27 iterations at 74 parameters and stopped before convergence.
+        n_vary = sum(1 for par in pars.values() if par.vary)
+        max_nfev = max(2000, 500 * (n_vary + 1))
+
         # Initial weights
         w_fit = None if wmode == 0 else _weights_from(yf)
 
-        # First fit
+        # Two-stage fit when per-isotope shape scales are on. From the generic
+        # start, ~70 parameters with a finite-difference Jacobian take minutes and
+        # can run out of budget. Stage 1 holds the scales at 1 (~25 parameters,
+        # seconds) to settle positions, amplitudes and global shapes; stage 2
+        # frees the scales from that solution and needs only a few iterations.
+        scale_names = [n for n, par in pars.items()
+                       if n.startswith(("s_sigma_", "s_tau1_", "s_tau2_")) and par.vary]
+        stage1_note = ""
+        if scale_names:
+            p1 = pars.copy()
+            for n in scale_names:
+                p1[n].set(value=1.0, vary=False)
+            res1 = model.fit(yf, params=p1, x=xf, method='least_squares',
+                             weights=w_fit, fit_kws=dict(FIT_KWS),
+                             max_nfev=max_nfev, iter_cb=self._iter_cb)
+            if self._iter_cb():
+                return None
+            pars = res1.params.copy()
+            for n in scale_names:
+                pars[n].set(value=1.0, vary=True)
+
+            # Re-choose the reference from the stage-1 solution: the isotope with
+            # the most counts NOT shared with other isotopes (sum of m_k^2 / total
+            # per bin). The pre-fit NNLS guess can land on a weak line buried in
+            # a multiplet (219Fr inside 223Th), which leaves the global sigma and
+            # shift poorly determined; a clean isolated peak anchors them.
+            if self._ref_iso is not None:
+                comps = _isotope_components(res1.params, xf, bw, self._isotopes, self._pulses,
+                                            allow_shift, use_global, self.normalize_chains)
+                total = np.maximum(np.sum(comps, axis=0), 1e-9)
+                k_new = int(np.argmax([float(np.sum(c * c / total)) for c in comps]))
+                old_ref = next(i['safe'] for i in self._isotopes if i['name'] == self._ref_iso)
+                new_ref = self._isotopes[k_new]['safe']
+                if new_ref != old_ref:
+                    if pin_scales:
+                        for pfx in ("s_sigma_", "s_tau1_", "s_tau2_"):
+                            pars[pfx + old_ref].set(value=1.0, vary=True)
+                            pars[pfx + new_ref].set(value=1.0, vary=False)
+                    if pin_dm:
+                        # same model, re-expressed: move the new reference's
+                        # offset into d0 and make every other dm relative to it
+                        delta = float(pars[f"dm_{new_ref}"].value)
+                        pars['d0'].set(value=float(np.clip(pars['d0'].value + delta,
+                                                           pars['d0'].min, pars['d0'].max)))
+                        for i in self._isotopes:
+                            dmp = pars[f"dm_{i['safe']}"]
+                            dmp.set(value=float(np.clip(dmp.value - delta, dmp.min, dmp.max)),
+                                    vary=True)
+                        pars[f"dm_{new_ref}"].set(value=0.0, vary=False)
+                    self._ref_iso = self._isotopes[k_new]['name']
+
+            # Isotopes the data does not populate cannot determine their own
+            # shape scales or offset; leaving them free only adds flat
+            # directions that wreck the covariance. Hold them at stage-1 values.
+            counts1 = _fitted_isotope_counts(res1.params, self._isotopes, self._pulses,
+                                             allow_shift, use_global, self.normalize_chains)
+            weak_cut = max(20.0, 0.01 * float(np.sum(counts1)))
+            weak = [iso['name'] for k, iso in enumerate(self._isotopes) if counts1[k] < weak_cut]
+            for k, iso in enumerate(self._isotopes):
+                if counts1[k] >= weak_cut:
+                    continue
+                for pfx in ("s_sigma_", "s_tau1_", "s_tau2_", "dm_"):
+                    if pfx + iso['safe'] in pars:
+                        pars[pfx + iso['safe']].set(vary=False)
+            stage1_note = (f"two-stage fit: stage 1 (per-isotope scales fixed at 1) "
+                           f"{res1.nfev} evals, reduced chi-square={res1.redchi:.3f}")
+            if weak:
+                stage1_note += (f"; held at stage-1 values (< {weak_cut:.0f} fitted counts): "
+                                f"{', '.join(weak)}")
+
         res = model.fit(yf, params=pars, x=xf, method='least_squares',
-                        weights=w_fit, fit_kws=dict(loss='linear'),
-                        max_nfev=2000, iter_cb=self._iter_cb)
+                        weights=w_fit, fit_kws=dict(FIT_KWS),
+                        max_nfev=max_nfev, iter_cb=self._iter_cb)
 
         # IRLS if requested
         if wmode == 2:
@@ -699,7 +885,7 @@ class AlphaMultiEMGSigmaFit(FitFunction):
                     w_fit = _weights_from(yhat)
                     new = model.fit(yf, params=last.params.copy(), x=xf,
                                     method='least_squares', weights=w_fit,
-                                    fit_kws=dict(loss='linear'), max_nfev=1500,
+                                    fit_kws=dict(FIT_KWS), max_nfev=max_nfev,
                                     iter_cb=self._iter_cb)
                     if self._iter_cb():
                         fit_results.append("[abort] Stopped during IRLS.")
@@ -766,9 +952,14 @@ class AlphaMultiEMGSigmaFit(FitFunction):
 
         header = (shape_head +
                   f"\nNotes: bandwidth = {bw_str} ; weighting = {wtxt}\n"
-                  f"Global shift d0 = {d0_str} ; Global gain dg = {dg_str}\n"
+                  f"Global shift d0 = {d0_str} (at pivot {pivot:g}) ; "
+                  f"Global gain dg = {dg_str} (about the pivot)\n"
                   f"Bounds: |d0|≤{d0_abs:g}, |dg|≤{dg_abs:g}, |dm_*|≤{dm_abs:g}\n"
                   f"Chain normalization: {chain_mode}")
+        if self._ref_iso is not None:
+            pinned = [w for w, on in (("scales=1", pin_scales), ("dm=0", pin_dm)) if on]
+            header += (f"\nReference isotope: {self._ref_iso} ({', '.join(pinned)} fixed; "
+                       "other isotopes' scales/dm are relative to it)")
 
 
         if self.fit_global_shapes:
@@ -778,6 +969,11 @@ class AlphaMultiEMGSigmaFit(FitFunction):
 
         stats = (f"[stats] chi-square={res.chisqr:.3f} ; reduced chi-square={res.redchi:.3f} ; "
                  f"dof={res.nfree} (N={res.ndata}, k={res.nvarys}) ; R^2 (plain)={R2_plain:.4f}")
+        if stage1_note:
+            stats += f"\n[{stage1_note}]"
+        if getattr(res, "aborted", False) or not getattr(res, "success", True):
+            stats += (f"\n[warning] fit did not converge ({getattr(res, 'message', '')}); "
+                      "parameters and uncertainties are not reliable")
 
         # Per-isotope block summary
         # Per-isotope / per-chain block summary
@@ -1098,7 +1294,7 @@ class AlphaMultiEMGSigmaFit(FitFunction):
             bump = 0
             for kk in range(iso['start_idx'], iso['end_idx'] + 1):
                 q = self._pulses[kk]
-                mu = (1.0 + dg) * float(q['mu0']) + d0 + dm_val
+                mu = float(q['mu0']) + dg * (float(q['mu0']) - pivot) + d0 + dm_val
                 if xx[0] <= mu <= xx[-1]:
                     y_at = float(np.interp(mu, xx, ytot))
                     '''

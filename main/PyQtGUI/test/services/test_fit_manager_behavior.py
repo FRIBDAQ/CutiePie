@@ -1421,15 +1421,16 @@ def test_calibration_question_is_skipped_after_dont_ask(fm_mod, monkeypatch):
     assert env.factory.created == [("AlphaEMGMulti", {})]
 
 
-def test_fit_does_not_force_the_config_prompts(fm_mod, monkeypatch):
-    """A config that already names a valid shape file and calibration must
-    not be re-asked on every fit; fit() leaves that to prepare_fit_config."""
+def test_fit_forces_the_config_file_prompts(fm_mod, monkeypatch):
+    """fit() asks for the shape file and the calibration file on every fit:
+    with the remembered calibration file silently reused there was no way to
+    pick another one from the GUI."""
     env, _ = _question_env(fm_mod, monkeypatch, "No")
     seen = []
     monkeypatch.setattr(env.fm, "prepare_fit_config",
                         lambda f, force_prompt=False: (seen.append(force_prompt) or {}))
     env.fm.fit(0, "h1", make_ax(), "AlphaEMGMulti", _ALPHA_PARS, "2", "8")
-    assert seen == [False]
+    assert seen == [True]
 
 
 # ------------------------------------------------- Load-Fit component panel

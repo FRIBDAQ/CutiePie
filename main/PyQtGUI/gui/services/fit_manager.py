@@ -865,9 +865,12 @@ class FitManager(QObject):
         self._close_loaded_fit_panel()   # a new fit clears loaded artists + its panel
 
         model_name = fit_funct
-        # False honours the stored "don't ask again" preference and a config
-        # that already names its shape file; True would re-ask both every fit.
-        force_prompt = False
+        # True asks for the shape file and the calibration file on every fit,
+        # so either can be changed from the GUI. False would silently reuse
+        # the remembered calibration file and the session's shape file. The
+        # "run energy calibration?" question is separate: it follows the
+        # stored "don't ask again" preference only.
+        force_prompt = True
 
         try:
             config = self.prepare_fit_config(fit_funct, force_prompt=force_prompt)
@@ -970,7 +973,7 @@ class FitManager(QObject):
                     except Exception:
                         pass
 
-                    if fit_funct in {"AlphaEMGMulti", "AlphaEMGMultiSigma"} and (force_prompt or ask_pref):
+                    if fit_funct in {"AlphaEMGMulti", "AlphaEMGMultiSigma"} and ask_pref:
                         choice, dont_ask = self.dialogs.ask_run_calibration()
                         if choice == "cancel":
                             return
