@@ -653,3 +653,98 @@ def test_invalidate_gate_cache_does_not_redraw_mid_edit(rig):
     rig.gm._editing_gate = True
     rig.gm.invalidateGateCache()
     assert rig.replot == []
+
+
+# --------------------------------------------------------------- gates without enlarging
+
+class _Click:
+    xdata = 4.0; ydata = 0.0
+
+
+def _two_pads(rig):
+    """Two 1D spectra on pads 0 and 1 of a not-enlarged canvas."""
+    axes = {}
+    for i in (0, 1):
+        rig.add_1d(f"h{i}", index=i, type_="1")
+        axes[i] = _ax()
+        rig.info[i]["dim"] = 1
+        rig.info[i]["spectrum"] = type("S", (), {"axes": axes[i]})()
+    rig.geo = {0: "h0", 1: "h1"}
+    rig.enlarged = False
+    return axes
+
+
+def test_single_click_not_enlarged_adds_the_point_on_the_gate_pad(rig):
+    # MUTATION CHECK: restore the "not enlarged -> return" guard and this fails.
+    axes = _two_pads(rig)
+    rig.gm.createGate(1)
+    rig.gm.on_singleclick_gate(_Click(), 1)
+    assert len(rig.popup.listRegionLine) == 1
+    assert len(axes[1].lines) == 1 and len(axes[0].lines) == 0
+    assert rig.readout[-1] == ("0: X= 4.000",)
+
+
+def test_clicks_on_another_pad_are_ignored_when_not_enlarged(rig):
+    """With several pads shown, only the pad the gate was started on takes
+    points: a point on another spectrum would be pushed with this one's
+    parameters."""
+    axes = _two_pads(rig)
+    rig.gm.createGate(1)
+    rig.gm.on_singleclick_gate(_Click(), 0)
+    rig.gm.on_singleclick_gate_right(0)
+    assert rig.popup.listRegionLine == []
+    assert len(axes[0].lines) == 0 and len(axes[1].lines) == 0
+    assert rig.gm._active_gate_index == 1
+
+
+def test_gate_type_change_keeps_the_gate_on_its_pad(rig):
+    # Was reset to pad 0, harmless only while enlarged (the index is ignored there).
+    _two_pads(rig)
+    rig.gm.createGate(1)
+    rig.gm.gateTypeListChanged()
+    assert rig.gm._active_gate_index == 1
+
+
+def test_create_gate_without_index_waits_for_a_click_when_spectra_exist(rig):
+    """Gate pressed before any pad was selected: no warning, the popup opens
+    and creation is on, with the pad still to be picked."""
+    _two_pads(rig)
+    rig.gm.createGate(None)
+    assert rig.msgbox.calls == []
+    assert rig.gm._creating_gate is True and rig.gm._active_gate_index is None
+    assert rig.created == [(-1,)]
+    assert rig.show_req == [()]
+    assert rig.gtype_added == []                     # types come with the pad
+
+
+def test_first_click_picks_the_pad_and_places_the_first_point(rig):
+    axes = _two_pads(rig)
+    rig.gm.createGate(None)
+    rig.gm.on_singleclick_gate(_Click(), 1)
+    assert rig.gm._active_gate_index == 1
+    assert rig.gtype_added == [("s",)]               # the picked pad's gate types
+    assert rig.created[-1] == (1,)
+    assert len(rig.popup.listRegionLine) == 1
+    assert len(axes[1].lines) == 1 and len(axes[0].lines) == 0
+    # the pad is now fixed: a click elsewhere no longer moves the gate
+    rig.gm.on_singleclick_gate(_Click(), 0)
+    assert rig.gm._active_gate_index == 1 and len(axes[0].lines) == 0
+
+
+def test_first_click_on_an_empty_pad_keeps_waiting(rig):
+    axes = _two_pads(rig)
+    rig.gm.createGate(None)
+    rig.gm.on_singleclick_gate(_Click(), 5)          # no spectrum on pad 5
+    assert rig.gm._creating_gate is True and rig.gm._active_gate_index is None
+    assert rig.popup.listRegionLine == []
+    rig.gm.on_singleclick_gate(_Click(), 0)          # a real pad still works after
+    assert rig.gm._active_gate_index == 0 and len(axes[0].lines) == 1
+
+
+def test_ok_before_a_pad_is_picked_pushes_nothing_and_closes(rig):
+    _two_pads(rig)
+    rig.gm.createGate(None)
+    rig.gm.okGate("G1")
+    assert rig.rest.created == []
+    assert len(rig.close_req) == 1
+    assert rig.gm._creating_gate is False

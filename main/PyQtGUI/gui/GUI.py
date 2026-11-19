@@ -659,7 +659,6 @@ class MainWindow(QMainWindow):
 
         self.wConf.createGate.clicked.connect(
             lambda: self.gate_manager.createGate(self.currentPlot.selected_plot_index))
-        self.wConf.createGate.setEnabled(False)
         self.gatePopup.ok.clicked.connect(
             lambda: self.gate_manager.okGate(self.gatePopup.gateNameList.currentText()))
         # Same clicked(bool)->doClose quirk as the sum-region Cancel:
@@ -1214,8 +1213,6 @@ class MainWindow(QMainWindow):
                 self.wConf.histo_geo_apply_btn.setEnabled(False)
                 self.wConf.geometryButton.setEnabled(False)
 
-                # enabling gate creation
-                self.wConf.createGate.setEnabled(True)
                 # plot corresponding histogram
                 self.wTab.setSelectedPad(self.wTab.currentIndex(), deepcopy(idx))
                 self.logger.debug('on_dblclick - selectedPad: %s', self.wTab.selectedPad(self.wTab.currentIndex()))
@@ -1286,10 +1283,6 @@ class MainWindow(QMainWindow):
                 self.wConf.histo_geo_col.setEnabled(True)
                 self.wConf.histo_geo_apply_btn.setEnabled(True)
                 self.wConf.geometryButton.setEnabled(True)
-
-
-                # disabling gate creation
-                self.wConf.createGate.setEnabled(False)
 
                 #important that zoomInfo is set only while in zoom mode (None only here)
                 #tempIdxEnlargedSpectrum is used to draw back the dashed red rectangle, which pad was enlarged
@@ -1528,7 +1521,6 @@ class MainWindow(QMainWindow):
         self.wConf.histo_geo_add.setEnabled(not self.currentPlot.isEnlarged)
         self.wConf.histo_geo_row.setEnabled(not self.currentPlot.isEnlarged)
         self.wConf.histo_geo_col.setEnabled(not self.currentPlot.isEnlarged)
-        self.wConf.createGate.setEnabled(self.currentPlot.isEnlarged)
 
 
     def movedTab(self, indexFrom, indexTo):

@@ -387,6 +387,10 @@ class GateManager(QObject):
             self.logger.warning('pushGateToREST - REST client not available')
             return
 
+        if self._active_gate_index is None:
+            self.logger.debug('pushGateToREST - no pad picked yet')
+            return
+
         dim          = self.view_state.getSpectrumViewInfo("dim", index=self._active_gate_index)
         name         = self.view_state.nameFromIndex(self._active_gate_index)
         parameters   = self._spectra.get(name, "parameters")
@@ -649,7 +653,19 @@ class GateManager(QObject):
         self.gateNameSelected.emit("gate-001")
 
         if index is None:
-            return QMessageBox.about(self._parent_widget, "Warning!", "Please add at least one spectrum")
+            if not any(self._spectra.get(name, "type") is not None
+                       for name in self.view_state.getGeo().values()):
+                return QMessageBox.about(self._parent_widget, "Warning!", "Please add at least one spectrum")
+            # No pad selected yet: open the popup and wait. The first click on
+            # a pad picks it and places the first point (on_singleclick_gate).
+            self.gateClearInfoRequested.emit()
+            self.disconnectGateSignals()
+            self._creating_gate = True
+            self._editing_gate  = False
+            self._active_gate_index = None
+            self.gateCreationStarted.emit(-1)   # no pad yet; listeners ignore the value
+            self.gatePopupShowRequested.emit()
+            return
 
         gateTypesDict = {
             "b":  ["NotDefinedYet"],
@@ -834,7 +850,6 @@ class GateManager(QObject):
         self._popup.listRegionLine.clear()
         self._popup.prevPoint.clear()
         self._set_gate_readout("")
-        self._active_gate_index  = 0
         self._gate_edit_option     = None
 
     def gateNameListChanged(self):
@@ -876,7 +891,13 @@ class GateManager(QObject):
 
     def on_singleclick_gate(self, event, index):
         self.logger.info('on_singleclick_gate - index: %s', index)
-        if not self._get_is_enlarged():
+        if self._active_gate_index is None:
+            # Gate was pressed with no pad selected: this click picks the pad
+            self.createGate(index)
+            if self._active_gate_index is None:   # empty pad, or no gate type for it
+                return
+        # with several pads shown, only the pad the gate was started on takes points
+        if not self._get_is_enlarged() and index != self._active_gate_index:
             return
         dim      = self._spectra.get(self.view_state.nameFromIndex(index), "dim")
         gateType = self._get_gate_type()
@@ -927,7 +948,8 @@ class GateManager(QObject):
 
     def on_singleclick_gate_right(self, index):
         self.logger.info('on_singleclick_gate_right - index: %s', index)
-        if not self._get_is_enlarged():
+        # with several pads shown, only the pad the gate was started on takes points
+        if not self._get_is_enlarged() and index != self._active_gate_index:
             return
         dim          = self._spectra.get(self.view_state.nameFromIndex(index), "dim")
         gateType     = self._get_gate_type()

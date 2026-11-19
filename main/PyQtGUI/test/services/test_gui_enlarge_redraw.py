@@ -271,3 +271,19 @@ def test_the_guard_does_not_block_an_ordinary_redraw(win):
     leave_enlarged(win, 0)
     win.peakFit2RedrawAll()
     assert drawn_on(win, 0) == 4
+
+
+def test_the_gate_button_is_never_tied_to_enlarged_mode():
+    """Gates can be made on any pad without enlarging it, so nothing in
+    MainWindow may disable the Gate button. Nothing headless drives the
+    methods that used to (on_dblclick, tabGeoWidgetAndFlags), so this is
+    checked by reading the source."""
+    import ast
+    gui = gui_stubs.import_gui()
+    with open(gui.__file__.replace(".pyc", ".py"), encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    toggles = [n.lineno for n in ast.walk(tree) if isinstance(n, ast.Call)
+               and isinstance(n.func, ast.Attribute) and n.func.attr == "setEnabled"
+               and isinstance(n.func.value, ast.Attribute)
+               and n.func.value.attr == "createGate"]
+    assert toggles == [], f"createGate.setEnabled at GUI.py lines {toggles}"
