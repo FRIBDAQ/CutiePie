@@ -1,15 +1,30 @@
+== v1.6-008 ==
+* Gates
+  * Gates can be created in any view; the spectrum no longer has to be enlarged first.
+  * With no spectrum selected, pressing Gate and then clicking a spectrum starts the gate on it.
+  * After leaving the enlarged view, gates are drawn on every spectrum and the plots are refreshed as the Update button does.
+  * The default gate name is numbered over all SpecTcl gates, not only those of the selected spectrum.
+  * In gate edit mode, changing the selected gate restores the previous gate's color.
+* Peak Finder
+  * Fitted peaks are also drawn in the enlarged view.
+  * The label under the fitted-peaks table lists every Gaussian of a fit.
+  * New "Peaks" menu (Auto, 1-5) sets the number of Gaussians in a fit by hand.
+* The mouse wheel moves the x axis of a zoomed-in spectrum under the cursor (wheel down toward higher x).
+== v1.6-008 ==
+
 == v1.5-019 ==
 * Support for vector spectra and gates (Issue #94).
+== v1.5-019 ==
 
 == v1.5-017 ==
 * Validate on windows.
+== v1.5-017 ==
 
 == v1.5-016 ==
 * Adds decay-chain–aware normalization and per-chain amplitudes to AlphaEMGMultiSigma, including:
   * New GUI options for shape treatment and chain normalization
   * Per-chain A_chain parameters with intra-chain fixed ratios
   * Extended fit report and CSV output with chain IDs, normalization mode, and shift/gain info
-
 == v1.5-016 ==
 
 == v1.5-014 ==
