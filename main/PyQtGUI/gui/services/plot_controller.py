@@ -661,6 +661,37 @@ class PlotController(QObject):
         except Exception:
             self.logger.debug('updatePlotLimits - exception', exc_info=True)
 
+    # fraction of the visible x-range one wheel notch moves the view
+    SCROLL_X_FRACTION = 0.1
+
+    def scrollXAxis(self, index, step):
+        """Mouse wheel over a pad: slide its x-range sideways when it is
+        zoomed in on x. `step` is matplotlib's scroll step (negative = wheel
+        down); wheel down moves the view toward higher x, wheel up toward
+        lower x. The view keeps its width and stops at the spectrum's ends.
+        Returns True when the view moved."""
+        ax   = self.view_state.getSpectrumViewInfo("axis", index=index)
+        name = self.view_state.nameFromIndex(index)
+        full_lo = self._spectra.get(name, "minx")
+        full_hi = self._spectra.get(name, "maxx")
+        if ax is None or full_lo is None or full_hi is None or not step:
+            return False
+        full_lo, full_hi = float(full_lo), float(full_hi)
+        lo, hi = ax.get_xlim()
+        width = hi - lo
+        if width <= 0 or width >= (full_hi - full_lo):
+            return False                      # not magnified: nothing to slide
+        shift = -float(step) * self.SCROLL_X_FRACTION * width
+        new_lo = min(max(lo + shift, full_lo), full_hi - width)
+        if new_lo == lo:
+            return False                      # already at that end
+        ax.set_xlim(new_lo, new_lo + width)
+        # the slot holds the current view range; update ticks re-apply it
+        self.view_state.setSpectrumViewInfo(minx=new_lo, index=index)
+        self.view_state.setSpectrumViewInfo(maxx=new_lo + width, index=index)
+        self._get_current_plot().canvas.draw_idle()
+        return True
+
     # ------------------------------------------------------------------
     # Colorbar / canvas helpers
     # ------------------------------------------------------------------

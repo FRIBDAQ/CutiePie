@@ -578,3 +578,34 @@ def test_a_consumed_calibration_click_is_not_routed_anywhere_else(win, monkeypat
     ev.guiEvent = types.SimpleNamespace(modifiers=lambda: 0x04000000)
     win.on_press(ev)
     assert win.gate_manager.calls == []
+
+
+# ------------------------------------------------------------ on_scroll
+
+def _scroll_event(ax, step=-1.0, inaxes=True):
+    ev = fake_event(ax, inaxes=inaxes)
+    ev.step = step
+    return ev
+
+
+def test_scroll_goes_to_the_pad_under_the_cursor(win):
+    add_pad(win, "h0", 0)
+    ax = add_pad(win, "h1", 1)
+    win.on_scroll(_scroll_event(ax, step=-1.0))
+    assert win.plot_controller.calls == [("scrollXAxis", (1, -1.0))]
+
+
+def test_scroll_while_enlarged_uses_the_selected_pad(win):
+    ax = add_pad(win, "h1", 1)
+    win.currentPlot.isEnlarged = True
+    win.wTab.selected[0] = 7
+    win.on_scroll(_scroll_event(ax))
+    assert win.plot_controller.calls == [("scrollXAxis", (7, -1.0))]
+
+
+def test_scroll_outside_the_axes_or_during_a_fit_is_ignored(win):
+    ax = add_pad(win, "h1", 1)
+    win.on_scroll(_scroll_event(None, inaxes=False))
+    win.fit_manager.is_busy = lambda: True
+    win.on_scroll(_scroll_event(ax))
+    assert win.plot_controller.calls == []

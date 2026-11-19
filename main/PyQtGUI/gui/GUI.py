@@ -851,6 +851,7 @@ class MainWindow(QMainWindow):
         self.wTab.plot(self.wTab.currentIndex()).canvas.mpl_connect("button_release_event", self.on_release)
 
         self.wTab.plot(self.wTab.currentIndex()).canvas.mpl_connect("motion_notify_event", self.histoHover)
+        self.wTab.plot(self.wTab.currentIndex()).canvas.mpl_connect("scroll_event", self.on_scroll)
 
         self.wTab.setClickBound(self.wTab.currentIndex(), True)
 
@@ -1064,6 +1065,18 @@ class MainWindow(QMainWindow):
             self.logger.warning('%s ignored: a fit is running', action)
             return True
         return False
+
+    #callback for scroll_event: the wheel slides the x-range of the pad under
+    #the cursor when it is zoomed in (wheel down = toward higher x)
+    def on_scroll(self, event):
+        if not event.inaxes or "colorbar_" in event.inaxes.get_label():
+            return
+        if self.fit_manager.is_busy():
+            return
+        index = list(self.currentPlot.figure.axes).index(event.inaxes)
+        if self.currentPlot.isEnlarged:
+            index = self.wTab.selectedPad(self.wTab.currentIndex())
+        self.plot_controller.scrollXAxis(index, event.step)
 
     #callback for button_press_event
     def on_press(self, event):

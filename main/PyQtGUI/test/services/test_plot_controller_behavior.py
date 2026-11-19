@@ -717,3 +717,46 @@ def test_home_zeroes_the_y_bottom_for_a_1d_pad(pc_mod, monkeypatch):
 
     assert ax.get_ylim()[0] == 0             # pre-fix: 5.0 (set_ylim(None, ...))
     assert r.get_info("miny", index=0) == 0  # and the display tier agrees
+
+
+# ---------------------------------------------------------------- wheel scroll on x
+
+def _zoomed(rig, lo=40.0, hi=60.0):
+    ax = rig.add_1d(binx=100, minx=0.0, maxx=100.0)
+    ax.set_xlim(lo, hi)
+    return ax
+
+
+def test_wheel_down_slides_the_view_toward_higher_x(rig):
+    ax = _zoomed(rig)
+    assert rig.pc.scrollXAxis(0, -1) is True          # step -1 = one notch down
+    assert ax.get_xlim() == pytest.approx((42.0, 62.0))   # 10% of the 20-wide view
+    assert (rig.info[0]["minx"], rig.info[0]["maxx"]) == pytest.approx((42.0, 62.0))
+
+
+def test_wheel_up_slides_the_view_toward_lower_x(rig):
+    ax = _zoomed(rig)
+    assert rig.pc.scrollXAxis(0, 1) is True
+    assert ax.get_xlim() == pytest.approx((38.0, 58.0))
+
+
+def test_wheel_scroll_stops_at_the_ends_and_keeps_the_width(rig):
+    ax = _zoomed(rig, 85.0, 99.0)
+    rig.pc.scrollXAxis(0, -3)                         # would overshoot the top
+    assert ax.get_xlim() == pytest.approx((86.0, 100.0))
+    assert rig.pc.scrollXAxis(0, -1) is False         # already there
+    ax.set_xlim(1.0, 15.0)
+    rig.pc.scrollXAxis(0, 3)
+    assert ax.get_xlim() == pytest.approx((0.0, 14.0))
+
+
+def test_wheel_scroll_does_nothing_when_not_magnified(rig):
+    ax = rig.add_1d(binx=100, minx=0.0, maxx=100.0)
+    ax.set_xlim(0.0, 100.0)
+    assert rig.pc.scrollXAxis(0, -1) is False
+    assert ax.get_xlim() == pytest.approx((0.0, 100.0))
+    assert "minx" not in rig.info[0]
+
+
+def test_wheel_scroll_on_a_pad_without_a_spectrum_is_ignored(rig):
+    assert rig.pc.scrollXAxis(0, -1) is False
