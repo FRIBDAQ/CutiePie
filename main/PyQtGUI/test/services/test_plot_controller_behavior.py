@@ -730,14 +730,25 @@ def _zoomed(rig, lo=40.0, hi=60.0):
 def test_wheel_down_slides_the_view_toward_higher_x(rig):
     ax = _zoomed(rig)
     assert rig.pc.scrollXAxis(0, -1) is True          # step -1 = one notch down
-    assert ax.get_xlim() == pytest.approx((42.0, 62.0))   # 10% of the 20-wide view
-    assert (rig.info[0]["minx"], rig.info[0]["maxx"]) == pytest.approx((42.0, 62.0))
+    assert ax.get_xlim() == pytest.approx((44.0, 64.0))   # a fifth of the 20-wide view
+    assert (rig.info[0]["minx"], rig.info[0]["maxx"]) == pytest.approx((44.0, 64.0))
 
 
 def test_wheel_up_slides_the_view_toward_lower_x(rig):
     ax = _zoomed(rig)
     assert rig.pc.scrollXAxis(0, 1) is True
-    assert ax.get_xlim() == pytest.approx((38.0, 58.0))
+    assert ax.get_xlim() == pytest.approx((36.0, 56.0))
+
+
+def test_one_wheel_event_moves_a_fifth_whatever_its_step_size(rig):
+    """Seen live: one scroll threw the view to the end. Some platforms report
+    the step in pixels (tens or hundreds per event), not notches, so only the
+    direction is used."""
+    ax = _zoomed(rig)
+    rig.pc.scrollXAxis(0, -120.0)
+    assert ax.get_xlim() == pytest.approx((44.0, 64.0))
+    rig.pc.scrollXAxis(0, 0.25)
+    assert ax.get_xlim() == pytest.approx((40.0, 60.0))
 
 
 def test_wheel_scroll_stops_at_the_ends_and_keeps_the_width(rig):

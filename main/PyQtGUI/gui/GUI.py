@@ -1268,6 +1268,10 @@ class MainWindow(QMainWindow):
                 if dim == 1:
                     if not autoscale_status and hasattr(self.currentPlot, "_saved_ylims") and idx in self.currentPlot._saved_ylims:
                         ax.set_ylim(*self.currentPlot._saved_ylims[idx])   # <-- restore y only
+                        # the gates were drawn by updatePlot above, before this
+                        # y-range existed, so their lines span the empty axes'
+                        # range and cannot be seen: draw them again at full height
+                        self.gate_manager.drawGate(idx)
                 # self.updatePlot()
                 # t2 = time.time()
                 # print("on_dblclick: time={:.2f}".format(t2-t1))

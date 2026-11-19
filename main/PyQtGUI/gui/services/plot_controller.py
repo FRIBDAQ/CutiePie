@@ -661,14 +661,18 @@ class PlotController(QObject):
         except Exception:
             self.logger.debug('updatePlotLimits - exception', exc_info=True)
 
-    # fraction of the visible x-range one wheel notch moves the view
-    SCROLL_X_FRACTION = 0.1
+    # fraction of the visible x-range one wheel event moves the view
+    SCROLL_X_FRACTION = 0.2
 
     def scrollXAxis(self, index, step):
         """Mouse wheel over a pad: slide its x-range sideways when it is
         zoomed in on x. `step` is matplotlib's scroll step (negative = wheel
         down); wheel down moves the view toward higher x, wheel up toward
-        lower x. The view keeps its width and stops at the spectrum's ends.
+        lower x. Only its sign is used: every wheel event moves the view by
+        the same fifth of the visible range. The step's size is not a notch
+        count everywhere (some platforms report pixels there, in the tens or
+        hundreds), and scaling by it threw the view straight to the end.
+        The view keeps its width and stops at the spectrum's ends.
         Returns True when the view moved."""
         ax   = self.view_state.getSpectrumViewInfo("axis", index=index)
         name = self.view_state.nameFromIndex(index)
@@ -681,7 +685,7 @@ class PlotController(QObject):
         width = hi - lo
         if width <= 0 or width >= (full_hi - full_lo):
             return False                      # not magnified: nothing to slide
-        shift = -float(step) * self.SCROLL_X_FRACTION * width
+        shift = (1.0 if step < 0 else -1.0) * self.SCROLL_X_FRACTION * width
         new_lo = min(max(lo + shift, full_lo), full_hi - width)
         if new_lo == lo:
             return False                      # already at that end

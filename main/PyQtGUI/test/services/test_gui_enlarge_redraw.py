@@ -275,6 +275,27 @@ def test_the_enlarge_branch_draws_the_fits_on_the_enlarged_axes():
     assert adds and calls[0].lineno > max(adds)
 
 
+def test_the_enlarge_branch_redraws_the_gates_after_restoring_the_y_range():
+    """Seen live: with autoscale off, a gate shown on the small pad vanished in
+    the enlarged view until Update. 1D gate lines take their height from the
+    y-range at draw time, and the enlarged axes only gets its y-range (the
+    saved one) after updatePlot has already drawn the gates on the empty axes.
+    So the gates are drawn again right after that y-range is set."""
+    ast, fn = _on_dblclick_ast()
+    enter, _ = _branches(ast, fn)
+    restores = [n for n in ast.walk(enter) if isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Attribute) and n.func.attr == "set_ylim"]
+    gates = [n for n in ast.walk(enter) if isinstance(n, ast.Call)
+             and isinstance(n.func, ast.Attribute) and n.func.attr == "drawGate"]
+    assert len(restores) == 1 and len(gates) == 1
+    assert gates[0].lineno > restores[0].lineno
+    # same block as the restore: it only matters when the y-range was restored
+    block = next(n for n in ast.walk(enter) if isinstance(n, ast.If)
+                 and any(restores[0] in ast.walk(st) for st in n.body)
+                 and "autoscale_status" in ast.dump(n.test))
+    assert any(gates[0] in ast.walk(st) for st in block.body)
+
+
 def test_the_un_enlarge_branch_draws_the_gates_on_every_pad():
     """A gate made while enlarged also belongs on the other pads showing its
     parameters. The gate draw must run for every pad of the loop, not only
