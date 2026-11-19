@@ -923,6 +923,32 @@ class PeakFit2Controller:
                 art.set_gid("peakfit2")
         return (curve, bgline, fill, handles, *comps)
 
+    def peakFit2RedrawEnlarged(self):
+        """Entering enlarged mode: move the enlarged spectrum's fits onto the
+        enlarged axis, which is a new axes and starts without them. Fits of
+        other spectra are left alone on their hidden pads; leaving enlarged
+        mode puts everything back through peakFit2RedrawAll."""
+        enlarged = self.view_state.getEnlargedSpectrum()
+        if not enlarged:
+            return
+        index, name = enlarged[0], enlarged[1]
+        ax = self.view_state.getSpectrumViewInfo("axis", index=index)
+        if ax is None:
+            return
+        for rec in self.peak2_fits:
+            if rec.get("name") != name:
+                continue
+            for art in rec.get("artists") or ():
+                try:
+                    art.remove()
+                except Exception:
+                    self.logger.debug('peakFit2RedrawEnlarged - stale artist', exc_info=True)
+            rec["artists"] = self._peak2_draw(ax, rec["result"])
+        try:
+            ax.figure.canvas.draw_idle()
+        except Exception:
+            self.logger.debug('peakFit2RedrawEnlarged - redraw failed', exc_info=True)
+
     def peakFit2RedrawAll(self):
         """Redraw every recorded fit from its stored curves onto its pad's
         current axis (recovers from axis rebuilds, e.g. enlarge/un-enlarge)."""

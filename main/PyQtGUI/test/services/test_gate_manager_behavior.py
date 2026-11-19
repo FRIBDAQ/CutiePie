@@ -748,3 +748,94 @@ def test_ok_before_a_pad_is_picked_pushes_nothing_and_closes(rig):
     assert rig.rest.created == []
     assert len(rig.close_req) == 1
     assert rig.gm._creating_gate is False
+
+
+# --------------------------------------------------------------- default gate name
+
+def _gates_on_other_pads(rig):
+    """SpecTcl holds gate-001 and gate-002 on a parameter this pad does not show."""
+    rig.rest = FakeGateRest([
+        {"name": "gate-001", "type": "s", "parameters": ["other"], "low": 1, "high": 2},
+        {"name": "gate-002", "type": "s", "parameters": ["other"], "low": 3, "high": 4},
+        {"name": "mycut",    "type": "s", "parameters": ["other"], "low": 5, "high": 6},
+    ])
+
+
+def test_default_gate_name_counts_gates_of_every_pad(rig):
+    """The popup lists only the selected pad's gates, but the default name is
+    numbered over all of SpecTcl's: numbering from the pad's own list offered
+    gate-001 again on a second pad."""
+    _two_pads(rig)
+    _gates_on_other_pads(rig)
+    rig.gm.createGate(1)
+    assert rig.names_prepared[-1] == ([], "gate-003")   # list: this pad's; name: global
+
+
+def test_default_gate_name_is_global_when_no_pad_is_selected(rig):
+    _two_pads(rig)
+    _gates_on_other_pads(rig)
+    rig.gm.createGate(None)
+    assert rig.name_selected[-1] == ("gate-003",)
+    rig.gm.on_singleclick_gate(_Click(), 0)             # the pad is picked by the click
+    assert rig.names_prepared[-1] == ([], "gate-003")
+
+
+def test_default_gate_name_without_a_rest_client_is_001(rig):
+    _two_pads(rig)
+    rig.rest = None
+    rig.gm.createGate(1)
+    assert rig.names_prepared[-1] == ([], "gate-001")
+
+
+# --------------------------------------------------------------- edit-mode highlight
+
+def _edit_two_gates(rig):
+    """Edit mode on a 1D pad that shows gates A and B (two lines each)."""
+    rig.add_1d("h1", index=0)
+    ax = _ax()
+    for name, lo, hi in (("A", 2.0, 3.0), ("B", 6.0, 7.0)):
+        for i, x in enumerate((lo, hi)):
+            ax.add_line(mlines.Line2D([x, x], [0, 100], color="red",
+                                      label=f"gate_-_{name}_-_{i}"))
+    rig.info[0]["axis"] = ax
+    rig.gm._active_gate_index = 0
+    rig.gm._gate_names = ["A", "B"]
+    rig.popup.gateNameList = FakeCombo(["A", "B"])
+    rig.rest = FakeGateRest([{"name": "A", "type": "s"}, {"name": "B", "type": "s"}])
+    rig.gm._editing_gate = True
+    return ax
+
+
+def _look(ax, name):
+    return sorted((l.get_color(), l.get_marker()) for l in ax.lines
+                  if l.get_label().startswith(f"gate_-_{name}_-_"))
+
+
+def test_selecting_a_gate_to_edit_highlights_it(rig):
+    ax = _edit_two_gates(rig)
+    rig.popup.gateNameList.setCurrentText("A")
+    rig.gm.gateNameListChanged()
+    assert _look(ax, "A") == [("green", "o")] * 2
+    assert _look(ax, "B") == [("red", "None")] * 2
+
+
+def test_changing_the_selection_reverts_the_previous_gate(rig):
+    # MUTATION CHECK: drop the un-highlight and A stays green with markers.
+    ax = _edit_two_gates(rig)
+    rig.popup.gateNameList.setCurrentText("A")
+    rig.gm.gateNameListChanged()
+    rig.popup.gateNameList.setCurrentText("B")
+    rig.gm.gateNameListChanged()
+    assert _look(ax, "A") == [("red", "None")] * 2
+    assert _look(ax, "B") == [("green", "o")] * 2
+
+
+def test_a_name_that_is_no_gate_reverts_the_highlight_and_redraws(rig):
+    ax = _edit_two_gates(rig)
+    rig.popup.gateNameList.setCurrentText("A")
+    rig.gm.gateNameListChanged()
+    draws = len(rig.draw)
+    rig.popup.gateNameList.setCurrentText("-- select a gate --")
+    rig.gm.gateNameListChanged()
+    assert _look(ax, "A") == [("red", "None")] * 2
+    assert len(rig.draw) == draws + 1

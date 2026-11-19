@@ -99,6 +99,8 @@ def enter_enlarged(win, idx):
     enlarged = win.figure.add_subplot(111)
     win.currentPlot.isEnlarged = True
     win.axes_by_index = {i: enlarged for i in range(4)}
+    win.view_state.getEnlargedSpectrum = lambda: [idx, win.names[idx]]
+    win.peak_fit2_controller.peakFit2RedrawEnlarged()
     return enlarged
 
 
@@ -111,6 +113,7 @@ def leave_enlarged(win, idx):
         ax.set_visible(True)
     win.currentPlot._saved_axes = None
     win.currentPlot.isEnlarged = False
+    win.view_state.getEnlargedSpectrum = lambda: None
     win.axes_by_index = {i: ax for i, ax in enumerate(win.pads)}
     win.pads[idx].clear()          # plot_controller.add(index) -> a.clear()
 
@@ -120,12 +123,42 @@ def test_a_fit_is_on_its_pad_to_begin_with(win):
     assert drawn_on(win, 0) == 4
 
 
-def test_entering_enlarged_takes_the_fits_off_screen(win):
-    """Expected under the restore-only fix: they go, and come back on the way
-    out. Nothing redraws them onto the enlarged axes."""
+def test_entering_enlarged_takes_the_fits_off_the_pad(win):
+    """The pad is hidden while enlarged, so nothing of it is on screen."""
     add_fit(win, 0)
     enter_enlarged(win, 0)
     assert drawn_on(win, 0) == 0
+
+
+def _fits_on(ax):
+    return sum(1 for a in list(ax.lines) + list(ax.collections)
+               if getattr(a, "get_gid", lambda: None)() == "peakfit2")
+
+
+def test_entering_enlarged_draws_the_fits_on_the_enlarged_axes(win):
+    """The enlarged view is a new axes; the spectrum's fits are moved onto it,
+    and the record holds the artists that are on screen."""
+    rec = add_fit(win, 0)
+    enlarged = enter_enlarged(win, 0)
+    assert _fits_on(enlarged) == 4
+    assert rec["artists"][0].axes is enlarged
+
+
+def test_entering_enlarged_leaves_other_spectra_fits_alone(win):
+    """Only the enlarged spectrum's fits move: the others stay on their hidden
+    pads, so they are back the moment the pads are."""
+    add_fit(win, 0, number=1)
+    other = add_fit(win, 2, number=2)
+    enlarged = enter_enlarged(win, 0)
+    assert _fits_on(enlarged) == 4                   # pad 0's fit only
+    assert other["artists"][0].axes is win.pads[2]
+
+
+def test_the_enlarged_redraw_does_nothing_outside_enlarged_mode(win):
+    rec = add_fit(win, 0)
+    win.view_state.getEnlargedSpectrum = lambda: None
+    win.peak_fit2_controller.peakFit2RedrawEnlarged()
+    assert rec["artists"][0].axes is win.pads[0] and drawn_on(win, 0) == 4
 
 
 def test_the_round_trip_destroys_the_artists_without_a_redraw(win):
@@ -218,6 +251,59 @@ def test_the_un_enlarge_branch_calls_the_redraw():
         "the redraw belongs in the un-enlarge branch only: on enter it would "
         "strip the artists off the saved axes and make this call mandatory "
         "rather than sufficient")
+
+
+def _branches(ast, fn):
+    branch = next(n for n in ast.walk(fn) if isinstance(n, ast.If)
+                  and "isEnlarged" in ast.dump(n.test))
+    return (ast.Module(body=branch.body, type_ignores=[]),
+            ast.Module(body=branch.orelse, type_ignores=[]))
+
+
+def test_the_enlarge_branch_draws_the_fits_on_the_enlarged_axes():
+    """Wiring of the above: one call, in the entering branch, after the
+    enlarged axes was built by the add."""
+    ast, fn = _on_dblclick_ast()
+    enter, leave = _branches(ast, fn)
+    calls = [n for n in ast.walk(fn) if isinstance(n, ast.Call)
+             and isinstance(n.func, ast.Attribute)
+             and n.func.attr == "peakFit2RedrawEnlarged"]
+    assert len(calls) == 1
+    assert calls[0] in ast.walk(enter) and calls[0] not in ast.walk(leave)
+    adds = [n.lineno for n in ast.walk(enter) if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Attribute) and n.func.attr == "add"]
+    assert adds and calls[0].lineno > max(adds)
+
+
+def test_the_un_enlarge_branch_draws_the_gates_on_every_pad():
+    """A gate made while enlarged also belongs on the other pads showing its
+    parameters. The gate draw must run for every pad of the loop, not only
+    inside the `index == idx` re-add of the pad that was enlarged."""
+    ast, fn = _on_dblclick_ast()
+    _, leave = _branches(ast, fn)
+    loop = next(n for n in ast.walk(leave) if isinstance(n, ast.For)
+                and "getGeo" in ast.dump(n.iter))
+    direct = [st for st in loop.body if isinstance(st, ast.Expr)
+              and isinstance(st.value, ast.Call)
+              and isinstance(st.value.func, ast.Attribute)
+              and st.value.func.attr == "drawGate"]
+    assert len(direct) == 1, "drawGate must be a direct statement of the pad loop"
+
+
+def test_the_un_enlarge_branch_schedules_the_update_refresh():
+    """Seen live: a gate made while enlarged was sometimes missing after
+    shrinking until Update was pressed. Leaving enlarged mode therefore queues
+    the Update button's own refresh (plot_controller.updatePlot) to run once
+    the double-click has been handled."""
+    ast, fn = _on_dblclick_ast()
+    enter, leave = _branches(ast, fn)
+
+    def queued(tree):
+        return [n for n in ast.walk(tree) if isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Attribute) and n.func.attr == "singleShot"
+                and any(isinstance(a, ast.Attribute) and a.attr == "updatePlot"
+                        for a in n.args)]
+    assert len(queued(leave)) == 1 and queued(enter) == []
 
 
 def test_the_redraw_runs_after_the_pad_is_re_added():

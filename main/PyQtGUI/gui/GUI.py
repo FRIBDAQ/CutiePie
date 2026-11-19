@@ -1274,6 +1274,9 @@ class MainWindow(QMainWindow):
                             self.currentPlot.canvas.draw_idle()
                 #############################################################################################
 
+                # the enlarged view is a new axes: bring this spectrum's peak fits onto it
+                self.peak_fit2_controller.peakFit2RedrawEnlarged()
+
             else:
                 self.logger.debug('on_dblclick - isEnlarged FALSE')
                 # enabling adding histograms
@@ -1335,7 +1338,10 @@ class MainWindow(QMainWindow):
                             self.view_state.setSpectrumViewInfo(cmap=self.plot_controller.old_cmap, index=idx)
                             # if autoscale_status:
                             self.plot_controller.setAxisScale(ax, index, "x", "y", "z")
-                        self.gate_manager.drawGate(index)
+                    # every pad, not only the one that was enlarged: a gate made
+                    # while enlarged also belongs on the other pads showing its
+                    # parameters, and nothing else draws it there until an update
+                    self.gate_manager.drawGate(index)
                 #drawing back the dashed red rectangle on the unenlarged spectrum
                 self.plot_controller.removeRectangle()
                 self.currentPlot.recDashed = self.plot_controller.createDashedRectangle(self.currentPlot.figure.axes[tempIdxEnlargedSpectrum])
@@ -1346,6 +1352,10 @@ class MainWindow(QMainWindow):
                 # self.currentPlot.figure.tight_layout()
                 # self.drawAllGates()
                 self.currentPlot.canvas.draw_idle()
+                # A gate made while enlarged was sometimes missing on the pads
+                # until Update was pressed, so run that same refresh once this
+                # click has been handled.
+                QTimer.singleShot(0, self.plot_controller.updatePlot)
 
         finally:   
             self.skipAutoUpdateThread.clear()

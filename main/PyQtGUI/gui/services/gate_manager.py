@@ -664,6 +664,7 @@ class GateManager(QObject):
             self._editing_gate  = False
             self._active_gate_index = None
             self.gateCreationStarted.emit(-1)   # no pad yet; listeners ignore the value
+            self.gateNameSelected.emit(self._nextGlobalGateName())
             self.gatePopupShowRequested.emit()
             return
 
@@ -710,7 +711,7 @@ class GateManager(QObject):
         self._active_gate_index = index
 
         names = self._populateGateNameListFromAxis(index)
-        self.gateNamesPrepared.emit(names, self._nextGateName(names))
+        self.gateNamesPrepared.emit(names, self._nextGlobalGateName())
 
         self.gatePopupShowRequested.emit()
 
@@ -739,6 +740,14 @@ class GateManager(QObject):
                         names.append(parts[1]); seen.add(parts[1])
         self._gate_names = names
         return names
+
+    def _nextGlobalGateName(self):
+        """Default name for a new gate: the next gate-NNN over every gate
+        SpecTcl has, not only the ones drawn on the selected pad (the popup's
+        list shows just those, so numbering from it restarted on each pad)."""
+        rest = self._get_rest()
+        allNames = [g.get("name", "") for g in rest.listGate()] if rest is not None else []
+        return self._nextGateName(allNames)
 
     def _nextGateName(self, names):
         rx = re.compile(r"^gate-(\d+)$")
@@ -860,11 +869,19 @@ class GateManager(QObject):
         if ax is None:
             self.logger.debug('gateNameListChanged - ax is None')
             return
+        # un-highlight the gate selected before: its green and markers were
+        # only ever reset by a full redraw
+        for child in ax.lines:
+            if child.get_label().startswith("gate_-_"):
+                child.set_marker('None')
+        self.setGateAnnotation(self._active_gate_index,
+                               self._get_annotate() and not self._get_hide())
         gateName       = self._get_gate_name()
         if gateName not in self._gate_names:      # was gateNameList.findText() == -1
             self._set_gate_readout("")
             self.gateTypeCleared.emit()
             self.logger.debug('gateNameListChanged - gate not in list')
+            self.canvasDrawRequested.emit()
             return
         gateIdentifier = "gate_-_" + gateName + "_-_"
         lines = [child for child in ax.lines if gateIdentifier in child.get_label()]
