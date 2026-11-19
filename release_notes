@@ -5,11 +5,12 @@
   * After leaving the enlarged view, gates are drawn on every spectrum and the plots are refreshed as the Update button does.
   * The default gate name is numbered over all SpecTcl gates, not only those of the selected spectrum.
   * In gate edit mode, changing the selected gate restores the previous gate's color.
+  * Gates stay visible when entering the enlarged view with autoscale off (they used to appear only after Update).
 * Peak Finder
   * Fitted peaks are also drawn in the enlarged view.
   * The label under the fitted-peaks table lists every Gaussian of a fit.
   * New "Peaks" menu (Auto, 1-5) sets the number of Gaussians in a fit by hand.
-* The mouse wheel moves the x axis of a zoomed-in spectrum under the cursor (wheel down toward higher x).
+* The mouse wheel moves the x axis of a zoomed-in spectrum under the cursor by one fifth of the visible range per scroll (wheel down toward higher x).
 == v1.6-008 ==
 
 == v1.5-019 ==
