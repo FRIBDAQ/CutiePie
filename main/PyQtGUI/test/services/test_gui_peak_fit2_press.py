@@ -48,6 +48,7 @@ class FakePeakTab:
         self.peak2_signal = FakeCombo("Gaussian")
         self.peak2_bg = FakeCombo("Linear")
         self.peak2_cb_tail = FakeCombo("left")
+        self.peak2_ncomp = FakeCombo("Auto")
 
 
 class FakeExtraPopup:
@@ -664,12 +665,21 @@ def test_a_successful_release_reports_the_new_mu(win):
     assert "window edited" in status(win) and "μ" in status(win)
 
 
-def test_a_multi_component_release_says_how_many(win):
+def test_a_multi_component_release_prints_every_component(win):
+    """The table row shows only the strongest component, so a window edit
+    that ends with several prints all of them under the table."""
     rec = drawn_fit(win)
-    win.fits["refit"] = fit_result(ncomp=3)
+    r = fit_result(ncomp=3)
+    for i, c in enumerate(r["components"]):
+        c.update(mu=46.0 + 4 * i, dmu=0.01, fwhm=4.71, dfwhm=0.05, darea=1.0)
+    r.update(win_lo=40.0, win_hi=60.0, redchi=1.0,
+             spec={"signal": "gaussian", "background": "poly1", "n_components": 3})
+    win.fits["refit"] = r
     start_drag(win, rec)
     win._peak2_on_drag_release(Event(inaxes=win.ax, xdata=44.0))
-    assert "3 components" in status(win)
+    text = status(win)
+    assert "gaussian x3" in text
+    assert all(f"#{i}: μ = {46 + 4 * (i - 1)}" in text for i in (1, 2, 3))
 
 
 def test_a_failed_release_keeps_the_previous_fit(win):
@@ -786,3 +796,32 @@ def test_the_guard_does_not_block_a_right_click_edit(win, monkeypatch):
     clock[0] += 0.10
     win.onPeakFit2Press(fill_event(win))
     assert win.edits_opened
+
+
+# ------------------------------------------------- Peaks menu (count set by hand)
+
+def test_a_new_fit_records_whether_its_count_was_set_by_hand(win):
+    win.extraPopup.peak.peak2_ncomp.value = "2"
+    win._peak2_fit_at_press(Event(inaxes=win.ax, xdata=50.0))
+    win.fits["auto"] = fit_result(mu=70.0)
+    win.extraPopup.peak.peak2_ncomp.value = "Auto"
+    win._peak2_fit_at_press(Event(inaxes=win.ax, xdata=70.0))
+    assert [rec["n_fixed"] for rec in win.peak2_fits] == [True, False]
+
+
+def test_a_window_drag_keeps_a_hand_set_count(win):
+    """Automatic fits add or drop peaks to match the dragged window; a count
+    set by hand is refitted as it is."""
+    rec = drawn_fit(win)
+    rec["n_fixed"] = True
+    rec["result"]["components"][0]["A"] = 10.0     # a real fit result carries it
+    start_drag(win, rec)
+    win._peak2_on_drag_release(Event(inaxes=win.ax, xdata=44.0))
+    assert [c[0] for c in win.calls] == ["composite"]
+
+
+def test_a_window_drag_on_an_automatic_fit_still_adjusts_the_count(win):
+    rec = drawn_fit(win)
+    start_drag(win, rec)
+    win._peak2_on_drag_release(Event(inaxes=win.ax, xdata=44.0))
+    assert [c[0] for c in win.calls] == ["refit"]

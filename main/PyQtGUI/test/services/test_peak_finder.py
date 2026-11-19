@@ -1503,3 +1503,20 @@ def test_fallback_is_named_in_the_output_and_the_row():
     plain = format_composite_fit_row(2, fit_composite(x, y, lo, hi, spec))
     assert "†" not in plain["cells"][0][0]
     assert "fell back" not in plain["tooltip"]
+
+
+def test_auto_fit_with_two_peaks_requested_covers_both():
+    """Click-to-fit with a hand-set count of two: the refined window spans both
+    peaks (the single-peak rule would shrink it around the first one) and each
+    component stays on its own peak."""
+    x = np.arange(0.5, 200.5, 1.0)
+    truth = (800.0 * np.exp(-0.5 * ((x - 90.0) / 3.0) ** 2)
+             + 500.0 * np.exp(-0.5 * ((x - 104.0) / 3.0) ** 2) + 20.0)
+    y = np.random.default_rng(5).poisson(truth).astype(float)
+    spec = {"signal": "gaussian", "n_components": 2, "background": "poly1"}
+    r = fit_composite_auto(x, y, 90.0, spec)
+    assert r["ok"] and len(r["components"]) == 2
+    mus = sorted(c["mu"] for c in r["components"])
+    assert mus[0] == pytest.approx(90.0, abs=0.5)
+    assert mus[1] == pytest.approx(104.0, abs=0.5)
+    assert r["win_lo"] < 90.0 - 9.0 and r["win_hi"] > 104.0 + 9.0

@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (QDialog, QFormLayout, QHBoxLayout, QInputDialog,
 from services.peak_finder import (autocomponent_refit, fallback_note,
                                   find_duplicate_mu, fit_composite,
                                   fit_composite_auto, fix_peak_window,
+                                  format_composite_fit_output,
                                   format_composite_fit_row, fwhm_to_sigma,
                                   nearest_component_index, nearest_window_edge,
                                   primary_component, requested_spec,
@@ -280,6 +281,18 @@ class PeakFit2Controller:
             # the menus show what was asked for; a fallen-back result's own
             # spec names the anchor that was actually fitted
             self._peak2_sync_menus_to_spec(requested_spec(sel_rec["result"]))
+            ncomp = self._peak.peak2_ncomp
+            ncomp.blockSignals(True)
+            ncomp.setCurrentText(str(len(sel_rec["result"]["components"]))
+                                 if sel_rec.get("n_fixed") else "Auto")
+            ncomp.blockSignals(False)
+        # the row shows only the strongest component; print the whole fit
+        # (every component) in the label under the table
+        if sel is not None:
+            t = self._peak.peak2_table
+            item = t.item(t.currentRow(), 0)
+            if item is not None and item.toolTip():
+                self._peak2_status(item.toolTip())
         for c in canvases:
             try:
                 c.draw_idle()
@@ -398,6 +411,65 @@ class PeakFit2Controller:
         if rec is not None:
             self._peak2_refit_selected(rec)
 
+    def _peak2_manual_ncomp(self):
+        """The peak count set by hand in the Peaks menu, or None on Auto."""
+        text = self._peak.peak2_ncomp.currentText()
+        return int(text) if text.isdigit() else None
+
+    def _peak2_ncomp_changed(self, *_):
+        """The Peaks menu changed. With no row selected it only sets the count
+        for the next new fit. With a row selected: a number re-fits THAT fit
+        over its window with exactly that many peaks and holds the count
+        through later window drags; Auto hands the count back to the
+        automatic add/drop on the next drag (no refit now)."""
+        num = self._peak2_selected_number()
+        rec = next((rc for rc in self.peak2_fits if rc.get("number") == num), None)
+        if rec is None:
+            return
+        n = self._peak2_manual_ncomp()
+        if n is None:
+            rec["n_fixed"] = False
+            self._peak2_status(f"Peak {rec['number']}: peak count back to automatic.")
+            return
+        prev = rec["result"]
+        xx = prev["xx"]
+        ax = self._peak2_live_axes(rec)
+        arrays = self._peak2_spectrum_arrays(rec["name"])
+        if ax is None or arrays is None:
+            self._peak2_status(f"[peaks] Peak {rec['number']}: spectrum unavailable.")
+            return
+        r = self._peak2_fit_fixed_count(arrays, float(xx[0]), float(xx[-1]), prev, n)
+        if not r["ok"]:
+            self._peak2_status(f"[peaks] Peak {rec['number']}: "
+                               f"{r.get('error', 'refit failed')} — unchanged.")
+            return
+        for art in rec.get("artists") or ():
+            try:
+                art.remove()
+            except Exception:
+                pass
+        rec["result"] = r
+        rec["n_fixed"] = True
+        rec["artists"] = self._peak2_draw(ax, r)
+        self._peak2_update_row(rec["number"], r, tag="edited")
+        self._peak2_status_refit(
+            rec["number"], r,
+            f"Peak {rec['number']} (1 peak): μ = {self._peak2_result_mu(r):.6g}")
+        ax.figure.canvas.draw_idle()
+
+    @staticmethod
+    def _peak2_fit_fixed_count(arrays, lo, hi, prev, n):
+        """Fit `prev`'s model over [lo, hi] with exactly `n` peaks, seeded from
+        the previous components that still lie in the window."""
+        xc, y = arrays
+        spec = requested_spec(prev)
+        spec["n_components"] = n
+        kept = [c for c in prev["components"] if lo <= c["mu"] <= hi][:n]
+        seeds = {}
+        for i, c in enumerate(kept, 1):
+            seeds[f"mu{i}"], seeds[f"sigma{i}"], seeds[f"A{i}"] = c["mu"], c["sigma"], c["A"]
+        return fit_composite(xc, y, lo, hi, spec, seeds=seeds)
+
     def _peak2_refit_selected(self, rec):
         """Re-fit `rec` in place over its stored window with the current menu
         model (keeping the fit's own component count; μ seeded from the fit so
@@ -428,9 +500,10 @@ class PeakFit2Controller:
         rec["result"] = r
         rec["artists"] = self._peak2_draw(ax, r)
         self._peak2_update_row(rec["number"], r, tag="edited")
-        self._peak2_status(self._peak2_with_note(
+        self._peak2_status_refit(
+            rec["number"], r,
             f"Peak {rec['number']} → {r['spec']['signal']}/"
-            f"{r['spec']['background']}: μ = {self._peak2_result_mu(r):.6g}", r))
+            f"{r['spec']['background']}: μ = {self._peak2_result_mu(r):.6g}")
         ax.figure.canvas.draw_idle()
 
     def _peak2_open_edit(self, rec, click_x):
@@ -549,8 +622,9 @@ class PeakFit2Controller:
         rec["result"] = r
         rec["artists"] = self._peak2_draw(ax, r)
         self._peak2_update_row(rec["number"], r, tag="edited")
-        self._peak2_status(self._peak2_with_note(
-            f"Peak {rec['number']} (edited): μ = {self._peak2_result_mu(r):.6g}", r))
+        self._peak2_status_refit(
+            rec["number"], r,
+            f"Peak {rec['number']} (edited): μ = {self._peak2_result_mu(r):.6g}")
         ax.figure.canvas.draw_idle()
 
     # ------------------------------------------------------------------
@@ -643,7 +717,12 @@ class PeakFit2Controller:
         xc, y = arrays
         # auto-components: the new window may now cover extra peaks (add) or
         # have dropped some (shrink) — refit the component set to match it
-        r = autocomponent_refit(xc, y, lo, hi, prev)
+        if rec.get("n_fixed"):
+            # the count was set by hand: keep it, whatever the window covers
+            r = self._peak2_fit_fixed_count((xc, y), lo, hi, prev,
+                                            len(prev["components"]))
+        else:
+            r = autocomponent_refit(xc, y, lo, hi, prev)
         if not r["ok"]:
             self._peak2_status(f"[failed] window edit (Peak {rec['number']}): "
                                f"{r.get('error', 'fit failed')}")
@@ -657,11 +736,10 @@ class PeakFit2Controller:
         rec["result"] = r
         rec["artists"] = self._peak2_draw(ax, r)
         self._peak2_update_row(rec["number"], r, tag="edited")
-        ncomp = len(r["components"])
-        extra = f" ({ncomp} components)" if ncomp > 1 else ""
-        self._peak2_status(self._peak2_with_note(
-            f"Peak {rec['number']} (window edited){extra}: "
-            f"μ = {self._peak2_result_mu(r):.6g}", r))
+        self._peak2_status_refit(
+            rec["number"], r,
+            f"Peak {rec['number']} (window edited): "
+            f"μ = {self._peak2_result_mu(r):.6g}")
         canvas.draw_idle()
 
     def _peak2_try_edit(self, event):
@@ -792,7 +870,8 @@ class PeakFit2Controller:
             # full record (data included) so the fit can be redrawn or refit
             # later without depending on artist survival
             self.peak2_fits.append(dict(number=self.peak2_count, index=index,
-                                        name=name, result=r, artists=artists))
+                                        name=name, result=r, artists=artists,
+                                        n_fixed=self._peak2_manual_ncomp() is not None))
             # keep the handler alive on this canvas even after Stop, so future
             # drag/edit interactions on existing fits keep working
             self._peak2_connect(event.inaxes.figure.canvas)
@@ -851,19 +930,29 @@ class PeakFit2Controller:
         note = fallback_note(r)
         return f"{msg} — {note}" if note else msg
 
+    def _peak2_status_refit(self, number, r, short):
+        """Status after a refit. A fit with several components prints every
+        one of them, since the table row shows only the strongest; a single
+        component keeps its short line."""
+        if len(r["components"]) > 1:
+            self._peak2_status(format_composite_fit_output(number, r, tag="edited"))
+        else:
+            self._peak2_status(self._peak2_with_note(short, r))
+
     def _peak2_status(self, msg):
         """Show the latest Peak Finder 2 status/feedback line (armed/config/
         skip/failed/error)."""
         self._peak.peak2_status.setText(msg)
 
     def _peak2_current_spec(self):
-        """The fit spec selected in the shape menus. Single component here; a
-        multi-component fit only arises from the auto-add-on-drag."""
+        """The fit spec selected in the menus. One component unless the Peaks
+        menu sets a count by hand; on Auto a multi-component fit only arises
+        from the auto-add-on-drag."""
         p = self._peak
         return {
             "signal": self._PEAK2_SIGNAL_BY_LABEL.get(p.peak2_signal.currentText(),
                                                       "gaussian"),
-            "n_components": 1,
+            "n_components": self._peak2_manual_ncomp() or 1,
             "background": self._PEAK2_BG_BY_LABEL.get(p.peak2_bg.currentText(),
                                                       "poly1"),
             "tail_side": p.peak2_cb_tail.currentText(),

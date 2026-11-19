@@ -593,9 +593,23 @@ def fit_composite_auto(x_axis, y_data, center, spec, max_half_window=None):
     if not r1["ok"]:
         return r1
 
-    c0 = r1["components"][0]
-    hw2 = _cap(max(4.0 * c0["sigma"], 8.0 * bw))
-    r2 = fit_composite(x_axis, y_data, c0["mu"] - hw2, c0["mu"] + hw2, spec)
+    comps = r1["components"]
+    if len(comps) == 1:
+        c0 = comps[0]
+        hw2 = _cap(max(4.0 * c0["sigma"], 8.0 * bw))
+        r2 = fit_composite(x_axis, y_data, c0["mu"] - hw2, c0["mu"] + hw2, spec)
+        return r2 if r2["ok"] else r1
+    # several peaks asked for: the refined window spans all of them, and the
+    # second pass starts from the first so each stays on its own peak
+    smax = max(c["sigma"] for c in comps)
+    lo2 = min(c["mu"] for c in comps) - 4.0 * smax
+    hi2 = max(c["mu"] for c in comps) + 4.0 * smax
+    centre = 0.5 * (lo2 + hi2)
+    hw2 = _cap(max(0.5 * (hi2 - lo2), 8.0 * bw))
+    seeds = {}
+    for i, c in enumerate(comps, 1):
+        seeds[f"mu{i}"], seeds[f"sigma{i}"], seeds[f"A{i}"] = c["mu"], c["sigma"], c["A"]
+    r2 = fit_composite(x_axis, y_data, centre - hw2, centre + hw2, spec, seeds=seeds)
     return r2 if r2["ok"] else r1
 
 

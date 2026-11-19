@@ -123,6 +123,15 @@ class Fncts1D(QDialog):
         self.peak2_cb_tail.addItems(["low", "high"])
         self.peak2_cb_tail.setToolTip(
             "Crystal Ball tail side (ignored for a Gaussian signal)")
+        # how many peaks one fit holds: Auto (one per click, added or dropped
+        # when the window is dragged) or a fixed number set by hand
+        self.peak2_ncomp = QComboBox(self)
+        self.peak2_ncomp.addItems(["Auto", "1", "2", "3", "4", "5"])
+        self.peak2_ncomp.setToolTip(
+            "Number of peaks in one fit. Auto: one per click, adjusted when "
+            "the window is dragged. A number: new fits use exactly that many; "
+            "with a row selected, that fit is refitted with that many and "
+            "keeps the count when its window is dragged")
 
         # one row per fitted peak; sortable by header; hover a row for the full
         # σ/A/background/window detail. Selecting a row highlights its curve on
@@ -155,6 +164,8 @@ class Fncts1D(QDialog):
         lays.addWidget(self.peak2_bg)
         lays.addWidget(QLabel("CB tail"))
         lays.addWidget(self.peak2_cb_tail)
+        lays.addWidget(QLabel("Peaks"))
+        lays.addWidget(self.peak2_ncomp)
 
         layout = QVBoxLayout()
         layout.addLayout(layb)

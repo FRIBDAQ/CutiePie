@@ -48,6 +48,7 @@ class FakePeakTab:
         self.peak2_signal = FakeCombo("Gaussian")
         self.peak2_bg = FakeCombo("Linear")
         self.peak2_cb_tail = FakeCombo("left")
+        self.peak2_ncomp = FakeCombo("Auto")
 
 
 class FakeExtraPopup:

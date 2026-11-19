@@ -46,6 +46,9 @@ class FakeItem:
     def setToolTip(self, t):
         self.tooltip = t
 
+    def toolTip(self):
+        return self.tooltip
+
 
 class FakeTable:
     """QTableWidget stand-in: rows of FakeItem, a current row, sorting flag."""
@@ -120,6 +123,7 @@ class FakePeakTab:
         self.peak2_signal = FakeCombo("Gaussian")
         self.peak2_bg = FakeCombo("Linear")
         self.peak2_cb_tail = FakeCombo("low")
+        self.peak2_ncomp = FakeCombo("Auto")
 
 
 class FakeExtraPopup:
@@ -835,3 +839,101 @@ def test_an_edit_refit_re_requests_the_fallen_back_background(win):
     win.dialog_script = {"mu": 51.0, "accept": True}
     win._peak2_open_edit(rec, 50.0)
     assert win.refits and win.refits[0]["spec"]["background"] == "poly3"
+
+
+
+# ------------------------------------------------- detail under the table
+
+def test_selecting_a_row_prints_every_component_under_the_table(win):
+    """The row shows only the strongest component of a multi-gaussian fit, so
+    selecting it prints all of them in the label below the table."""
+    add_fit(win, number=1, mus=(48.0, 53.0))
+    select_row(win, 0)
+    win._peak2_row_selected()
+    text = status(win)
+    assert "#1:" in text and "#2:" in text
+    assert "48" in text and "53" in text
+
+
+def test_selecting_a_single_gaussian_row_prints_its_detail(win):
+    add_fit(win, number=1)
+    select_row(win, 0)
+    win._peak2_row_selected()
+    assert status(win).startswith("Peak 1") and "FWHM" in status(win)
+
+
+def test_no_selected_row_leaves_the_status_alone(win):
+    add_fit(win, number=1)
+    win._peak2_status("[armed] click a peak")
+    select_row(win, -1)
+    win._peak2_row_selected()
+    assert status(win) == "[armed] click a peak"
+
+
+# ------------------------------------------------- Peaks menu (count set by hand)
+
+def _ncomp(win):
+    return win.extraPopup.peak.peak2_ncomp
+
+
+def test_a_hand_set_count_refits_the_selected_fit_over_its_window(win):
+    rec = add_fit(win, number=1)
+    select_row(win, 0)
+    _ncomp(win).value = "2"
+    win.refit_result = fit_result(mus=(48.0, 53.0))
+    win._peak2_ncomp_changed()
+    call = win.refits[-1]
+    assert call["spec"]["n_components"] == 2
+    assert (call["lo"], call["hi"]) == (40.0, 60.0)          # the fit's own window
+    assert call["seeds"]["mu1"] == 50.0                        # stays on its peak
+    assert rec["n_fixed"] is True
+    assert table(win).rows[0][0].text().startswith("1×2")
+    assert "#1:" in status(win) and "#2:" in status(win)
+
+
+def test_auto_hands_the_count_back_without_refitting(win):
+    rec = add_fit(win, number=1, mus=(48.0, 53.0))
+    rec["n_fixed"] = True
+    select_row(win, 0)
+    _ncomp(win).value = "Auto"
+    win._peak2_ncomp_changed()
+    assert rec["n_fixed"] is False
+    assert win.refits == []
+    assert "automatic" in status(win)
+
+
+def test_the_count_menu_with_no_row_selected_only_sets_the_default(win):
+    add_fit(win, number=1)
+    select_row(win, -1)
+    _ncomp(win).value = "3"
+    win._peak2_ncomp_changed()
+    assert win.refits == []
+    assert win.peak_fit2_controller._peak2_current_spec()["n_components"] == 3
+    _ncomp(win).value = "Auto"
+    assert win.peak_fit2_controller._peak2_current_spec()["n_components"] == 1
+
+
+def test_a_failed_count_refit_keeps_the_fit(win):
+    rec = add_fit(win, number=1)
+    old = rec["result"]
+    select_row(win, 0)
+    _ncomp(win).value = "4"
+    win.refit_result = fit_result(ok=False, error="fit did not converge")
+    win._peak2_ncomp_changed()
+    assert rec["result"] is old and not rec.get("n_fixed")
+    assert "[peaks]" in status(win) and "unchanged" in status(win)
+
+
+def test_selecting_a_row_shows_its_own_count_setting(win):
+    """A fit whose count was set by hand shows that number; an automatic one
+    shows Auto. Signals are blocked, so showing it never re-fits."""
+    fixed = add_fit(win, number=1, mus=(48.0, 53.0))
+    fixed["n_fixed"] = True
+    add_fit(win, number=2)
+    select_row(win, 0)
+    win._peak2_row_selected()
+    assert _ncomp(win).currentText() == "2"
+    select_row(win, 1)
+    win._peak2_row_selected()
+    assert _ncomp(win).currentText() == "Auto"
+    assert _ncomp(win).sets_while_unblocked == 0 and win.refits == []

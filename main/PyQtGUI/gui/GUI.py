@@ -760,6 +760,7 @@ class MainWindow(QMainWindow):
         self.extraPopup.peak.peak2_signal.currentIndexChanged.connect(self._peak2_shape_changed)
         self.extraPopup.peak.peak2_bg.currentIndexChanged.connect(self._peak2_shape_changed)
         self.extraPopup.peak.peak2_cb_tail.currentIndexChanged.connect(self._peak2_shape_changed)
+        self.extraPopup.peak.peak2_ncomp.currentIndexChanged.connect(self._peak2_ncomp_changed)
         # peak-selection list: wired ONCE here (the old per-scan
         # stateChanged.connect on the fixed checkbox grid stacked a duplicate
         # connection on every Scan); lambdas shield from clicked(bool)'s
@@ -2096,6 +2097,9 @@ class MainWindow(QMainWindow):
 
     def _peak2_shape_changed(self, *args):
         self.peak_fit2_controller._peak2_shape_changed(*args)
+
+    def _peak2_ncomp_changed(self, *args):
+        self.peak_fit2_controller._peak2_ncomp_changed(*args)
 
 
 
