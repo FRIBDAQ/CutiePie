@@ -1,6 +1,8 @@
 import matplotlib
 matplotlib.use("Qt5Agg")
 
+from PyQt5.QtCore import QRectF, Qt, QTimer
+from PyQt5.QtGui import QColor, QPainter, QPen
 from PyQt5.QtWidgets import (
     QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QTextEdit, QVBoxLayout, QWidget,
@@ -8,6 +10,54 @@ from PyQt5.QtWidgets import (
 from Functions1DGUI import Fncts1D  # popup peak finder window
 from Functions2DGUI import Fncts2D  # popup clustering and overlaying an image window
 from otherOptions import options     # popup clustering and overlaying an image window
+
+
+class BusySpinner(QWidget):
+    """A small turning ring shown while a fit runs. It draws itself from its
+    own timer, so it turns the same under every desktop style (the styles'
+    own busy bar stands still under some of them). A fit holds the GUI thread
+    and pumps events once per iteration; the ring moves on those."""
+
+    def __init__(self, parent=None, size=16):
+        super().__init__(parent)
+        self.setFixedSize(size, size)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self._angle = 0
+        self._timer = QTimer(self)
+        self._timer.setInterval(80)
+        self._timer.timeout.connect(self._step)
+        self.hide()
+
+    def start(self):
+        self._angle = 0
+        self.show()
+        self._timer.start()
+        self.repaint()      # at once: the fit may not pump events for a while
+
+    def stop(self):
+        self._timer.stop()
+        self.hide()
+
+    def isSpinning(self):
+        return self._timer.isActive()
+
+    def _step(self):
+        self._angle = (self._angle + 30) % 360
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        side = min(self.width(), self.height())
+        pen = QPen(QColor("#1f3b1f"))
+        pen.setWidthF(side / 7.0)
+        pen.setCapStyle(Qt.RoundCap)
+        painter.setPen(pen)
+        m = pen.widthF()
+        # three quarters of a ring, turning clockwise
+        painter.drawArc(QRectF(m, m, side - 2 * m, side - 2 * m),
+                        int(-self._angle * 16), 270 * 16)
+        painter.end()
 
 
 class SpecialFunctions(QWidget):
@@ -102,6 +152,14 @@ class SpecialFunctions(QWidget):
         ############################################################
         self.fit_button = QPushButton("Fit", self)
         self.fit_button.setStyleSheet("background-color:#bcee68;")
+
+        # busy indicator at the right end of the Fit button, inside it, so
+        # nothing in the window moves when a fit starts or ends
+        self.fit_spinner = BusySpinner(self.fit_button)
+        spinner_row = QHBoxLayout(self.fit_button)
+        spinner_row.setContentsMargins(0, 0, 8, 0)
+        spinner_row.addStretch(1)
+        spinner_row.addWidget(self.fit_spinner)
 
         self.plot_csv_button = QPushButton("Plot CSV", self)
         self.plot_csv_button.setStyleSheet("background-color:#f0a500;")

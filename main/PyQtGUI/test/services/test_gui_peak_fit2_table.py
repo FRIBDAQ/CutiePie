@@ -82,6 +82,9 @@ class FakeTable:
     def currentRow(self):
         return self.current
 
+    def selectRow(self, ri):
+        self.current = ri
+
     def setSortingEnabled(self, on):
         self.sorting = bool(on)
         self.sorting_calls.append(bool(on))
@@ -891,26 +894,92 @@ def test_a_hand_set_count_refits_the_selected_fit_over_its_window(win):
     assert "#1:" in status(win) and "#2:" in status(win)
 
 
-def test_auto_hands_the_count_back_without_refitting(win):
+def _record_auto_refit(win, monkeypatch, result):
+    from controllers import peak_fit2_controller as pfc
+    calls = []
+
+    def fake_auto(xc, y, lo, hi, prev):
+        calls.append({"lo": lo, "hi": hi, "prev": prev})
+        return result
+    monkeypatch.setattr(pfc, "autocomponent_refit", fake_auto)
+    return calls
+
+
+def test_auto_refits_the_selected_fit_with_the_automatic_count(win, monkeypatch):
+    """Seen live: a fit set to two peaks by hand stayed as it was when the menu
+    went back to Auto. Auto now re-fits it over its own window, starting from
+    its main peak so the automatic logic decides how many peaks there are."""
     rec = add_fit(win, number=1, mus=(48.0, 53.0))
     rec["n_fixed"] = True
+    old = rec["result"]
+    main = max(old["components"], key=lambda c: c["area"])
+    calls = _record_auto_refit(win, monkeypatch, fit_result(mus=(50.0,)))
     select_row(win, 0)
     _ncomp(win).value = "Auto"
     win._peak2_ncomp_changed()
+    assert len(calls) == 1 and win.refits == []           # the automatic path, not a fixed count
+    assert (calls[0]["lo"], calls[0]["hi"]) == (40.0, 60.0)   # the fit's own window
+    assert calls[0]["prev"]["components"] == [main]       # starts again from the main peak
+    assert calls[0]["prev"]["spec"] == old["spec"]        # same model
+    assert len(old["components"]) == 2                    # the old result is not edited
+    assert rec["result"] is not old and len(rec["result"]["components"]) == 1
     assert rec["n_fixed"] is False
-    assert win.refits == []
-    assert "automatic" in status(win)
+    assert not table(win).rows[0][0].text().startswith("1×")
 
 
-def test_the_count_menu_with_no_row_selected_only_sets_the_default(win):
+def test_a_failed_auto_refit_keeps_the_fit_but_frees_the_count(win, monkeypatch):
+    rec = add_fit(win, number=1, mus=(48.0, 53.0))
+    rec["n_fixed"] = True
+    old = rec["result"]
+    _record_auto_refit(win, monkeypatch, fit_result(ok=False, error="no convergence"))
+    select_row(win, 0)
+    _ncomp(win).value = "Auto"
+    win._peak2_ncomp_changed()
+    assert rec["result"] is old
+    assert rec["n_fixed"] is False                        # later drags adjust it again
+    assert "no convergence" in status(win) and "unchanged" in status(win)
+
+
+def test_the_count_menu_with_no_row_selected_does_nothing(win):
+    """A new fit always starts on Auto, so with no row selected a number in
+    the menu neither re-fits anything nor sets the next fit's count."""
     add_fit(win, number=1)
     select_row(win, -1)
     _ncomp(win).value = "3"
     win._peak2_ncomp_changed()
     assert win.refits == []
-    assert win.peak_fit2_controller._peak2_current_spec()["n_components"] == 3
-    _ncomp(win).value = "Auto"
     assert win.peak_fit2_controller._peak2_current_spec()["n_components"] == 1
+
+
+def test_select_row_finds_the_fit_by_number_not_by_position(win):
+    """A new peak is selected in the table. Sorting moves rows, so the row is
+    found by the fit number it carries."""
+    add_fit(win, number=1)
+    add_fit(win, number=2, mus=(70.0,))
+    rows = table(win).rows
+    rows[0], rows[1] = rows[1], rows[0]                  # as a sort would
+    assert win.peak_fit2_controller._peak2_select_row(2) is True
+    assert table(win).current == 0
+    assert win.peak_fit2_controller._peak2_selected_number() == 2
+    assert win.peak_fit2_controller._peak2_select_row(9) is False
+    assert table(win).current == 0                       # an unknown number changes nothing
+
+
+def test_cancelling_the_selection_puts_the_count_menu_back_on_auto(win):
+    """A click on the table's empty area leaves no row selected; the menu
+    then shows Auto again, without acting on any fit, and no curve stays
+    highlighted."""
+    fixed = add_fit(win, number=1, mus=(48.0, 53.0))
+    fixed["n_fixed"] = True
+    select_row(win, 0)
+    win._peak2_row_selected()
+    assert _ncomp(win).currentText() == "2"
+    select_row(win, -1)
+    win._peak2_row_selected()
+    assert _ncomp(win).currentText() == "Auto"
+    assert _ncomp(win).sets_while_unblocked == 0 and win.refits == []
+    assert fixed["n_fixed"] is True                      # the fit keeps its count
+    assert fixed["artists"][0].get_color() == "tab:red"  # highlight gone
 
 
 def test_a_failed_count_refit_keeps_the_fit(win):

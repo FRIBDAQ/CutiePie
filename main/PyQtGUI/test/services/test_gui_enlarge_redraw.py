@@ -327,6 +327,37 @@ def test_the_un_enlarge_branch_schedules_the_update_refresh():
     assert len(queued(leave)) == 1 and queued(enter) == []
 
 
+def test_both_branches_carry_the_extra_tab_fit_drawings_across():
+    """Seen live: the AlphaEMGMultiSigma fit lines vanished on enlarging and
+    did not come back on shrinking. Those drawings exist only as artists on the
+    axes, so each transition moves them: onto the enlarged axes after it is
+    built, and back onto the pad after the re-add that clears it."""
+    ast, fn = _on_dblclick_ast()
+    enter, leave = _branches(ast, fn)
+
+    def moves(tree):
+        return [n for n in ast.walk(tree) if isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "moveFitArtists"]
+
+    def adds(tree):
+        return [n.lineno for n in ast.walk(tree) if isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Attribute) and n.func.attr == "add"]
+
+    assert len(moves(enter)) == 1 and len(moves(leave)) == 1
+    assert moves(enter)[0].lineno > max(adds(enter))
+    assert moves(leave)[0].lineno > max(adds(leave))
+
+    # leaving: the source is the enlarged axes, taken before it is deleted
+    src = moves(leave)[0].args[0]
+    assert isinstance(src, ast.Name)
+    taken = next(n for n in ast.walk(leave) if isinstance(n, ast.Assign)
+                 and any(isinstance(t, ast.Name) and t.id == src.id for t in n.targets))
+    deleted = next(n for n in ast.walk(leave) if isinstance(n, ast.Call)
+                   and isinstance(n.func, ast.Attribute) and n.func.attr == "delaxes")
+    assert taken.lineno < deleted.lineno
+
+
 def test_the_redraw_runs_after_the_pad_is_re_added():
     """Order matters: the re-add clears the pad, so a redraw before it would be
     wiped by the very thing it is compensating for."""

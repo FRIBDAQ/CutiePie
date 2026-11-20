@@ -1077,7 +1077,16 @@ class MainWindow(QMainWindow):
         index = list(self.currentPlot.figure.axes).index(event.inaxes)
         if self.currentPlot.isEnlarged:
             index = self.wTab.selectedPad(self.wTab.currentIndex())
-        self.plot_controller.scrollXAxis(index, event.step)
+        # wheel alone zooms x around the cursor, shift+wheel slides the x-range,
+        # ctrl+wheel changes the y scale like the +/- buttons (wheel up is +)
+        ge = getattr(event, "guiEvent", None)
+        mods = ge.modifiers() if ge else 0
+        if mods & Qt.ControlModifier:
+            self.plot_controller.zoomInOut("in" if event.step > 0 else "out", index)
+        elif mods & Qt.ShiftModifier:
+            self.plot_controller.scrollXAxis(index, event.step)
+        else:
+            self.plot_controller.scrollZoomX(index, event.step, event.xdata)
 
     #callback for button_press_event
     def on_press(self, event):
@@ -1272,6 +1281,9 @@ class MainWindow(QMainWindow):
                         # y-range existed, so their lines span the empty axes'
                         # range and cannot be seen: draw them again at full height
                         self.gate_manager.drawGate(idx)
+                    # the enlarged view is a new axes: bring the fit drawings
+                    # of this spectrum over from the pad that is now hidden
+                    self.fit_manager.moveFitArtists(ax0, ax)
                 # self.updatePlot()
                 # t2 = time.time()
                 # print("on_dblclick: time={:.2f}".format(t2-t1))
@@ -1319,6 +1331,10 @@ class MainWindow(QMainWindow):
                 #draw back the original canvas
                 # self.currentPlot.InitializeCanvas(canvasLayout[0], canvasLayout[1], False)
 
+                # the fit drawings are on the enlarged axes, which is removed
+                # below: keep it so they can be put back on the pad
+                enlargedAx = self.currentPlot.figure.axes[0] if self.currentPlot.figure.axes else None
+
                 # Clear the temporary enlarged plot
                 for ax in self.currentPlot.figure.axes:
                     self.currentPlot.figure.delaxes(ax)
@@ -1350,6 +1366,9 @@ class MainWindow(QMainWindow):
                             else:
                                 if autoscale_status:
                                     self.plot_controller.setAxisScale(ax, index, "x", "y")
+                            # the re-add above cleared this pad: put the fit
+                            # drawings back from the enlarged axes
+                            self.fit_manager.moveFitArtists(enlargedAx, ax)
 
                         elif dim == 2:
                             self.plot_controller.plotPlot(index, self.plot_controller.old_cmap)
@@ -2193,6 +2212,12 @@ class MainWindow(QMainWindow):
         self.connection_manager._stop_auto_thread()
         self.connection_manager._stop_rest_thread()
         stopnotebook()   # no-op when not running; otherwise avoid an orphan server
+        # the popups, fit result windows and plot windows are separate
+        # top-level windows: left open they outlive the main window and keep
+        # the program running
+        for w in QApplication.topLevelWidgets():
+            if w is not self and w.isVisible():
+                w.close()
         event.accept()
 
 

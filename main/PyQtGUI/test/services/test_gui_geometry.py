@@ -602,3 +602,42 @@ def test_apply_session_falls_back_to_a_positional_tab_name(win):
                         "geo": {0: {"name": "h1", "x": None, "y": None,
                                     "scale": False}}}])
     assert win.wTab.texts[0] == "Tab 1"
+
+
+# ------------------------------------------------------------ closeEvent
+
+class _FakeWindow:
+    def __init__(self, visible=True):
+        self.visible = visible
+        self.closed = 0
+
+    def isVisible(self):
+        return self.visible
+
+    def close(self):
+        self.closed += 1
+
+
+def test_closing_the_main_window_closes_every_other_open_window(win, monkeypatch):
+    """Seen live: the popups and fit result windows stayed open after the main
+    window was closed, and the program kept running. They are separate
+    top-level windows, so the main window closes them itself."""
+    gui = gui_stubs.import_gui()
+    shown, also_shown, hidden = _FakeWindow(), _FakeWindow(), _FakeWindow(visible=False)
+    monkeypatch.setattr(
+        gui, "QApplication",
+        types.SimpleNamespace(topLevelWidgets=lambda: [shown, win, hidden, also_shown]))
+    monkeypatch.setattr(gui, "stopnotebook", lambda: None)
+    monkeypatch.setattr(type(win), "isVisible", lambda self: True, raising=False)
+    closed_self = []
+    monkeypatch.setattr(type(win), "close", lambda self: closed_self.append(1), raising=False)
+    event = types.SimpleNamespace(accepted=False)
+    event.accept = lambda: setattr(event, "accepted", True)
+
+    win.closeEvent(event)
+
+    assert shown.closed == 1 and also_shown.closed == 1
+    assert hidden.closed == 0                    # nothing to close, and no side effects
+    assert closed_self == []                     # not itself: it is already closing
+    assert event.accepted is True
+    assert ("_stop_auto_thread", ()) in win.connection_manager.calls

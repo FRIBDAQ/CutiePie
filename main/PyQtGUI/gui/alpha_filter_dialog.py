@@ -173,6 +173,10 @@ class AlphaChainIsoFilterDialog(QDialog):
 
         try:
             ax.legend(handles, labels, loc="best", frameon=False)
+            # clipped to the pad and out of the figure layout, like the
+            # legend the fit drew
+            from services.fit_manager import set_up_fit_legend
+            set_up_fit_legend(ax)
         except Exception:
             pass
 

@@ -41,9 +41,35 @@ class FakeCombo:
     def currentText(self):
         return self.value
 
+    def setCurrentText(self, v):
+        self.value = v
+
+    def blockSignals(self, on):
+        pass
+
+
+class FakeTable:
+    """Only what a press reads: which row is selected (-1 = none)."""
+
+    def __init__(self):
+        self.current = -1
+        self.number = None
+
+    def currentRow(self):
+        return self.current
+
+    def rowCount(self):
+        return 0            # the press tests record rows instead of adding them
+
+    def item(self, ri, ci):
+        if ri < 0 or self.number is None:
+            return None
+        return types.SimpleNamespace(data=lambda role: float(self.number))
+
 
 class FakePeakTab:
     def __init__(self):
+        self.peak2_table = FakeTable()
         self.peak2_status = FakeLabel()
         self.peak2_signal = FakeCombo("Gaussian")
         self.peak2_bg = FakeCombo("Linear")
@@ -800,13 +826,65 @@ def test_the_guard_does_not_block_a_right_click_edit(win, monkeypatch):
 
 # ------------------------------------------------- Peaks menu (count set by hand)
 
-def test_a_new_fit_records_whether_its_count_was_set_by_hand(win):
+def test_a_new_fit_always_starts_on_auto(win):
+    """Whatever the Peaks menu shows, a new peak is fitted as one peak with
+    the count left automatic; a count set by hand is for an existing fit."""
     win.extraPopup.peak.peak2_ncomp.value = "2"
+    assert win.peak_fit2_controller._peak2_current_spec()["n_components"] == 1
     win._peak2_fit_at_press(Event(inaxes=win.ax, xdata=50.0))
     win.fits["auto"] = fit_result(mu=70.0)
     win.extraPopup.peak.peak2_ncomp.value = "Auto"
     win._peak2_fit_at_press(Event(inaxes=win.ax, xdata=70.0))
-    assert [rec["n_fixed"] for rec in win.peak2_fits] == [True, False]
+    assert [rec["n_fixed"] for rec in win.peak2_fits] == [False, False]
+
+
+def test_a_new_fit_with_no_row_selected_puts_the_menu_back_on_auto(win):
+    win.extraPopup.peak.peak2_ncomp.value = "3"
+    win._peak2_fit_at_press(Event(inaxes=win.ax, xdata=50.0))
+    assert win.extraPopup.peak.peak2_ncomp.currentText() == "Auto"
+
+
+def test_a_new_fit_puts_the_menu_back_on_auto_even_with_a_row_selected(win):
+    """Seen live: with a hand-set row selected, clicking the spectrum for a new
+    peak left the menu on that row's number."""
+    table = win.extraPopup.peak.peak2_table
+    table.current, table.number = 0, 7
+    win.extraPopup.peak.peak2_ncomp.value = "3"
+    win._peak2_fit_at_press(Event(inaxes=win.ax, xdata=50.0))
+    assert win.extraPopup.peak.peak2_ncomp.currentText() == "Auto"
+    assert win.peak2_fits[-1]["n_fixed"] is False
+    assert table.current == 0                              # the row stays selected
+
+
+def _record_selection(win):
+    selected = []
+    win.peak_fit2_controller._peak2_select_row = lambda number: selected.append(number)
+    return selected
+
+
+def test_a_new_peak_is_selected_in_the_table(win):
+    selected = _record_selection(win)
+    win._peak2_fit_at_press(Event(inaxes=win.ax, xdata=50.0))
+    win.fits["auto"] = fit_result(mu=70.0)
+    win._peak2_fit_at_press(Event(inaxes=win.ax, xdata=70.0))
+    assert selected == [1, 2]
+    # selected once its record and curve exist, so the highlight finds them
+    assert [rec["number"] for rec in win.peak2_fits] == [1, 2]
+
+
+def test_a_click_that_makes_no_new_peak_selects_nothing(win):
+    selected = _record_selection(win)
+    win.fits["auto"] = fit_result(ok=False, error="no peak")
+    win._peak2_fit_at_press(Event(inaxes=win.ax, xdata=50.0))
+    assert selected == []
+
+
+def test_a_click_that_makes_no_new_peak_leaves_the_menu_alone(win):
+    win.fits["auto"] = fit_result(ok=False, error="no peak")
+    win.extraPopup.peak.peak2_ncomp.value = "3"
+    win._peak2_fit_at_press(Event(inaxes=win.ax, xdata=50.0))
+    assert win.peak2_fits == []
+    assert win.extraPopup.peak.peak2_ncomp.currentText() == "3"
 
 
 def test_a_window_drag_keeps_a_hand_set_count(win):

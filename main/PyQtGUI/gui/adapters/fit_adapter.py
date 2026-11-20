@@ -25,6 +25,11 @@ class FitAdapter:
     def _on_fit_busy(self, busy):
         self._extra.fit_button.setEnabled(not busy)
         self._extra.abort_button.setEnabled(busy)
+        # the turning ring on the Fit button
+        if busy:
+            self._extra.fit_spinner.start()
+        else:
+            self._extra.fit_spinner.stop()
 
     def _on_abort_enabled(self, enabled):
         self._extra.abort_button.setEnabled(enabled)

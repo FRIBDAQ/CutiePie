@@ -333,11 +333,12 @@ class PlotController(QObject):
     # ------------------------------------------------------------------
 
     # callback for plusButton/minusButton
-    def zoomInOut(self, arg):
+    def zoomInOut(self, arg, index=None):
         self.logger.info('zoomInOut - arg: %s', arg)
         cp = self._get_current_plot()
         cp.histo_autoscale.setChecked(False)
-        index = self._auto_index()
+        if index is None:
+            index = self._auto_index()
         spectrum = self.view_state.getSpectrumViewInfo("spectrum", index=index)
         if spectrum is None:
             return
@@ -693,6 +694,55 @@ class PlotController(QObject):
         # the slot holds the current view range; update ticks re-apply it
         self.view_state.setSpectrumViewInfo(minx=new_lo, index=index)
         self.view_state.setSpectrumViewInfo(maxx=new_lo + width, index=index)
+        self._get_current_plot().canvas.draw_idle()
+        return True
+
+    # part of the visible x-range one wheel event keeps when zooming in;
+    # zooming out widens by the same ratio
+    SCROLL_ZOOM_FACTOR = 0.8
+
+    def scrollZoomX(self, index, step, x):
+        """Mouse wheel over a pad: zoom its x-range around the cursor. `step`
+        is matplotlib's scroll step and only its sign is used (see
+        scrollXAxis): wheel up zooms in, wheel down zooms out. `x` is the data
+        x under the cursor; it stays where it is on screen while the range on
+        both sides of it shrinks or grows. Zooming out stops at the spectrum's
+        ends, zooming in at one bin. On a 1D spectrum either direction also
+        sets the top of the y-range to fit the highest bin in view.
+        Returns True when the view changed."""
+        ax   = self.view_state.getSpectrumViewInfo("axis", index=index)
+        name = self.view_state.nameFromIndex(index)
+        full_lo = self._spectra.get(name, "minx")
+        full_hi = self._spectra.get(name, "maxx")
+        if ax is None or full_lo is None or full_hi is None or not step or x is None:
+            return False
+        full_lo, full_hi = float(full_lo), float(full_hi)
+        lo, hi = ax.get_xlim()
+        if hi <= lo:
+            return False
+        zoom_in = step > 0
+        ratio = self.SCROLL_ZOOM_FACTOR if zoom_in else 1.0 / self.SCROLL_ZOOM_FACTOR
+        new_lo = max(x - (x - lo) * ratio, full_lo)
+        new_hi = min(x + (hi - x) * ratio, full_hi)
+        if zoom_in:
+            binx = self._spectra.get(name, "binx")
+            if binx and (new_hi - new_lo) < (full_hi - full_lo) / float(binx):
+                return False                  # one bin wide: far enough
+        if new_hi <= new_lo or (new_lo == lo and new_hi == hi):
+            return False                      # already showing everything
+        ax.set_xlim(new_lo, new_hi)
+        # the slot holds the current view range; update ticks re-apply it
+        self.view_state.setSpectrumViewInfo(minx=new_lo, index=index)
+        self.view_state.setSpectrumViewInfo(maxx=new_hi, index=index)
+        if self._spectra.get(name, "dim") == 1:
+            ymin = ax.get_ylim()[0]
+            ymax = self.getMinMaxInRange(index, xmin=new_lo, xmax=new_hi)
+            if ymax is not None and ymax > ymin:
+                ax.set_ylim(ymin, ymax)
+                self.view_state.setSpectrumViewInfo(miny=ymin, index=index)
+                self.view_state.setSpectrumViewInfo(maxy=ymax, index=index)
+                # 1D gate lines take their height from the y-range
+                self._draw_gate(index)
         self._get_current_plot().canvas.draw_idle()
         return True
 

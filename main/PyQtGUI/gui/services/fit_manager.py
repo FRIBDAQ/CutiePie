@@ -16,6 +16,22 @@ from services import shape_file
 FIT_PREFIX = "fit-_-"
 
 
+def set_up_fit_legend(ax):
+    """Fit the legend a fit put on `ax` to its pad. The legend can be taller
+    than a small pad, so it is clipped at the pad's edges instead of running
+    over the neighbouring pads, and it is left out of the figure layout, whose
+    pass would otherwise shrink every pad to make room for it. Returns the
+    legend, or None when the axes has none."""
+    leg = ax.get_legend() if ax is not None else None
+    if leg is None:
+        return None
+    leg.set_in_layout(False)
+    for a in leg.findobj():
+        a.set_clip_box(ax.bbox)
+        a.set_clip_on(True)
+    return leg
+
+
 def _make_csv_window(parent):
     """Build the window the CSV plot is drawn in. The import is here rather
     than at module scope so this module stays importable without a Qt widget
@@ -1369,6 +1385,15 @@ class FitManager(QObject):
         for a in getattr(ax, "artists", []): ids.add(id(a))
         return ids
 
+    @staticmethod
+    def _keep_out_of_layout(artist):
+        """Fit drawings must not take part in the figure layout. A fit's
+        legend can be taller than a small pad and its peak labels can stick out
+        of it; the layout pass (window resize, update) would then shrink every
+        pad to make room for them."""
+        if artist is not None and hasattr(artist, "set_in_layout"):
+            artist.set_in_layout(False)
+
     def _tag_new_fit_artists(self, ax, before_ids, fit_idx=None):
         # Group every artist a fit adds under one gid so the whole fit — total
         # line, subpeak curves, labels — deletes as a unit. fit_idx=None keeps
@@ -1381,6 +1406,8 @@ class FitManager(QObject):
             if label.startswith(("gate_-_", "sumReg_-_")):
                 return
             if hasattr(a, "set_gid"): a.set_gid(gid)
+            self._keep_out_of_layout(a)
+        set_up_fit_legend(ax)
         for l in getattr(ax, "lines", []):
             if id(l) not in before_ids: _tag(l)
         for c in getattr(ax, "collections", []):
@@ -1391,6 +1418,62 @@ class FitManager(QObject):
             if id(p) not in before_ids: _tag(p)
         for a in getattr(ax, "artists", []):
             if id(a) not in before_ids: _tag(a)
+
+    def moveFitArtists(self, src, dst):
+        """Carry the drawn fits (total line, component curves, labels, legend)
+        from one axes to another. Entering the enlarged view builds a new axes
+        and leaving it clears the pad, and the fit drawings exist only as
+        artists, so without this they are left behind and then lost. The same
+        artist objects are moved, so a filter popup bound to them keeps working.
+        Returns the number of artists moved."""
+        if src is None or dst is None or src is dst:
+            return 0
+        moved = 0
+        for coll in (src.lines, src.collections, src.texts,
+                     src.patches, src.artists, src.images):
+            for a in list(coll):
+                lab = getattr(a, "get_label", lambda: "")() or ""
+                gid = getattr(a, "get_gid", lambda: None)()
+                is_fit_gid = gid == "fit" or (isinstance(gid, str) and gid.startswith("fit-"))
+                if not (is_fit_gid or (isinstance(lab, str) and lab.startswith(FIT_PREFIX))):
+                    continue
+                try:
+                    in_data_coords = a.get_transform() is src.transData
+                    a.remove()
+                    if in_data_coords:
+                        a.set_transform(dst.transData)
+                    a.set_clip_path(dst.patch)
+                    if isinstance(a, matplotlib.lines.Line2D):
+                        dst.add_line(a)
+                    elif isinstance(a, matplotlib.collections.Collection):
+                        dst.add_collection(a)
+                    elif isinstance(a, matplotlib.patches.Patch):
+                        dst.add_patch(a)
+                    elif isinstance(a, matplotlib.image.AxesImage):
+                        dst.add_image(a)
+                    else:
+                        dst.add_artist(a)
+                    self._keep_out_of_layout(a)
+                    moved += 1
+                except Exception:
+                    self.logger.debug('moveFitArtists - could not move an artist', exc_info=True)
+
+        leg = src.get_legend()
+        if moved and leg is not None:
+            try:
+                handles = getattr(leg, "legend_handles", None)
+                if handles is None:
+                    handles = leg.legendHandles
+                labels = [t.get_text() for t in leg.get_texts()]
+                loc = getattr(leg, "_loc", "best")
+                frameon = leg.get_frame_on()
+                leg.remove()
+                dst.legend(list(handles), labels, loc=loc, frameon=frameon)
+                set_up_fit_legend(dst)
+            except Exception:
+                self.logger.debug('moveFitArtists - could not move the legend', exc_info=True)
+        self.logger.debug('moveFitArtists - moved %d artists', moved)
+        return moved
 
     def _clear_all_fit_artists_in_figure(self, fig):
         total_removed = 0

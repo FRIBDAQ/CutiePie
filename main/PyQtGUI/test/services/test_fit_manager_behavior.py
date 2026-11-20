@@ -322,6 +322,221 @@ def test_tag_and_clear_fit_artists(env):
     assert env.labels[-1] == ("3",)                   # labels snapshot pre-clear
 
 
+# ------------------------------------------- fits follow enlarge / un-enlarge
+
+def two_axes():
+    fig = Figure()
+    FigureCanvasAgg(fig)
+    return fig.add_subplot(121), fig.add_subplot(122)
+
+
+def draw_multi_fit(ax):
+    """What an AlphaEMGMultiSigma fit leaves on an axis: a labelled total, a
+    component curve, a peak label and a legend, all under one gid."""
+    data, = ax.plot([0, 10], [0, 5], drawstyle="steps")
+    gate, = ax.plot([4, 4], [0, 5], label="gate_-_g1_-_0")
+    total, = ax.plot([1, 2, 3], [1, 4, 1], label="fit total")
+    comp, = ax.plot([1, 2, 3], [0.5, 2, 0.5], ls="--", label="224Th")
+    text = ax.text(2, 4.2, "224Th 7170")
+    ax.legend([total, comp], ["fit total", "224Th"], loc="best", frameon=False)
+    total.set_label("fit-_-0")
+    for a in (total, comp, text):
+        a.set_gid("fit-0")
+    return data, gate, total, comp, text
+
+
+def test_move_fit_artists_takes_the_whole_fit_to_the_other_axes(env):
+    src, dst = two_axes()
+    data, gate, total, comp, text = draw_multi_fit(src)
+
+    assert env.fm.moveFitArtists(src, dst) == 3
+    assert total in dst.lines and comp in dst.lines and text in dst.texts
+    assert total not in src.lines and comp not in src.lines and text not in src.texts
+    # the same objects, now belonging to the destination
+    assert total.axes is dst and comp.axes is dst and text.axes is dst
+    assert total.get_transform() is dst.transData
+    assert env.fm.listFitLineLabels(dst) == ["0"]
+    assert env.fm.listFitLineLabels(src) == []
+
+
+def test_move_fit_artists_leaves_the_spectrum_and_gates_behind(env):
+    src, dst = two_axes()
+    data, gate, total, comp, text = draw_multi_fit(src)
+    env.fm.moveFitArtists(src, dst)
+    assert data in src.lines and gate in src.lines
+    assert data not in dst.lines and gate not in dst.lines
+
+
+def test_move_fit_artists_takes_the_legend_along(env):
+    src, dst = two_axes()
+    draw_multi_fit(src)
+    env.fm.moveFitArtists(src, dst)
+    assert src.get_legend() is None
+    leg = dst.get_legend()
+    assert [t.get_text() for t in leg.get_texts()] == ["fit total", "224Th"]
+    assert leg.get_frame_on() is False
+
+
+def test_moved_fit_artists_are_drawn_where_the_destination_puts_them(env):
+    """The move must rebind the artist to the destination's coordinates, not
+    only change which list it sits in."""
+    src, dst = two_axes()
+    data, gate, total, comp, text = draw_multi_fit(src)
+    dst.set_xlim(0, 10)
+    dst.set_ylim(0, 5)
+    env.fm.moveFitArtists(src, dst)
+    dst.figure.canvas.draw()
+    box = dst.get_window_extent()
+    for a in (total, comp, text):
+        ext = a.get_window_extent()
+        assert box.x0 <= ext.x0 and ext.x1 <= box.x1
+
+
+def test_move_fit_artists_keeps_hidden_components_hidden(env):
+    src, dst = two_axes()
+    data, gate, total, comp, text = draw_multi_fit(src)
+    comp.set_visible(False)
+    env.fm.moveFitArtists(src, dst)
+    assert comp.get_visible() is False and total.get_visible() is True
+
+
+def test_move_fit_artists_round_trip_survives_the_pad_being_cleared(env):
+    """Enlarge then un-enlarge: the pad is cleared in between, and the fit
+    still comes back onto it."""
+    pad, enlarged = two_axes()
+    data, gate, total, comp, text = draw_multi_fit(pad)
+    env.fm.moveFitArtists(pad, enlarged)
+    pad.clear()
+    assert env.fm.moveFitArtists(enlarged, pad) == 3
+    assert total in pad.lines and comp in pad.lines and text in pad.texts
+    assert env.fm.listFitLineLabels(pad) == ["0"]
+    assert pad.get_legend() is not None
+
+
+def tight_heights(fig):
+    fig.tight_layout()
+    return [round(a.get_position().height, 3) for a in fig.axes]
+
+
+def stacked_pads():
+    fig = Figure(figsize=(8, 4))
+    FigureCanvasAgg(fig)
+    return fig.add_subplot(211), fig.add_subplot(212)
+
+
+def draw_tall_fit(ax, n=20):
+    """A fit whose legend is far taller than a half-height pad."""
+    lines = [ax.plot([0, 1], [0, i + 1], label=f"iso{i}")[0] for i in range(n)]
+    lines[0].set_label("fit-_-0")
+    for ln in lines:
+        ln.set_gid("fit-0")
+    return ax.legend(lines, [f"iso{i}" for i in range(n)], loc="best", frameon=False)
+
+
+def test_a_fit_legend_left_in_the_layout_squeezes_the_pads(env):
+    """The mechanism behind what was seen live: after enlarge and shrink the
+    pads collapsed to thin strips. The layout pass makes room for whatever the
+    axes hold, and a 20-entry legend is taller than a small pad."""
+    top, bottom = stacked_pads()
+    normal = tight_heights(top.figure)
+    draw_tall_fit(bottom)
+    assert bottom.get_legend().get_in_layout() is True
+    squeezed = tight_heights(top.figure)
+    assert squeezed[0] < 0.5 * normal[0] and squeezed[1] < 0.5 * normal[1]
+
+
+def test_moved_fit_drawings_do_not_squeeze_the_pads(env):
+    top, bottom = stacked_pads()
+    normal = tight_heights(top.figure)
+    other = Figure(); FigureCanvasAgg(other)
+    enlarged = other.add_subplot(111)
+    draw_tall_fit(enlarged)
+    env.fm.moveFitArtists(enlarged, bottom)            # as on leaving the enlarged view
+    assert bottom.get_legend().get_in_layout() is False
+    assert all(not ln.get_in_layout() for ln in bottom.lines)
+    assert tight_heights(top.figure) == pytest.approx(normal, abs=0.01)
+
+
+def test_a_new_fit_is_kept_out_of_the_layout(env):
+    top, bottom = stacked_pads()
+    normal = tight_heights(top.figure)
+    data, = bottom.plot([0, 1], [0, 1])
+    before = env.fm._snap_ax_ids(bottom)
+    legend = draw_tall_fit(bottom)
+    env.fm._tag_new_fit_artists(bottom, before, fit_idx=0)
+    assert legend.get_in_layout() is False
+    assert data.get_in_layout() is True                # the spectrum still counts
+    assert tight_heights(top.figure) == pytest.approx(normal, abs=0.01)
+
+
+def _ink_rows(fig, ax, colour=(255, 0, 255)):
+    """Pixel rows (from the top of the canvas) holding the legend's marker
+    colour, and the axes' own top and bottom rows."""
+    fig.canvas.draw()
+    img = np.asarray(fig.canvas.buffer_rgba())[:, :, :3]
+    rows = np.nonzero((img == np.array(colour)).all(axis=2).any(axis=1))[0]
+    h = img.shape[0]
+    box = ax.get_window_extent()
+    return rows, h - box.y1, h - box.y0
+
+
+def draw_magenta_fit(ax, n=20):
+    lines = [ax.plot([], [], color="#ff00ff", lw=4, label=f"iso{i}")[0] for i in range(n)]
+    lines[0].set_label("fit-_-0")
+    for ln in lines:
+        ln.set_gid("fit-0")
+    ax.legend(lines, [f"iso{i}" for i in range(n)], loc="upper right", frameon=False)
+    return lines
+
+
+def test_an_untreated_tall_legend_runs_over_the_neighbouring_pad(env):
+    top, bottom = stacked_pads()
+    top.figure.tight_layout()
+    draw_magenta_fit(top)                              # hangs down over the bottom pad
+    rows, y_top, y_bottom = _ink_rows(top.figure, top)
+    assert rows.max() > y_bottom + 5
+
+
+def test_a_new_fit_legend_is_clipped_to_its_pad(env):
+    top, bottom = stacked_pads()
+    top.figure.tight_layout()
+    before = env.fm._snap_ax_ids(top)
+    draw_magenta_fit(top)
+    env.fm._tag_new_fit_artists(top, before, fit_idx=0)
+    rows, y_top, y_bottom = _ink_rows(top.figure, top)
+    assert rows.size                                   # the part inside the pad is drawn
+    assert rows.min() >= y_top - 1 and rows.max() <= y_bottom + 1
+
+
+def test_a_moved_fit_legend_is_clipped_to_the_pad_it_lands_on(env):
+    top, bottom = stacked_pads()
+    top.figure.tight_layout()
+    other = Figure(); FigureCanvasAgg(other)
+    enlarged = other.add_subplot(111)
+    draw_magenta_fit(enlarged)
+    env.fm.moveFitArtists(enlarged, top)
+    rows, y_top, y_bottom = _ink_rows(top.figure, top)
+    assert rows.size
+    assert rows.min() >= y_top - 1 and rows.max() <= y_bottom + 1
+
+
+def test_set_up_fit_legend_without_a_legend_is_a_no_op(fm_mod):
+    ax = make_ax()
+    assert fm_mod.set_up_fit_legend(ax) is None
+    assert fm_mod.set_up_fit_legend(None) is None
+
+
+def test_move_fit_artists_with_nothing_to_move(env):
+    src, dst = two_axes()
+    src.plot([0, 1], [0, 1])
+    src.legend(["data"])
+    assert env.fm.moveFitArtists(src, dst) == 0
+    assert src.get_legend() is not None and dst.get_legend() is None
+    assert env.fm.moveFitArtists(None, dst) == 0
+    assert env.fm.moveFitArtists(src, None) == 0
+    assert env.fm.moveFitArtists(src, src) == 0
+
+
 # ------------------------------------------------------------------- fit()
 
 def fit_env(fm_mod, monkeypatch, **fit_kwargs):

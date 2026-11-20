@@ -10,6 +10,18 @@ from PyQt5.QtWidgets import (
 
 from services.peak_finder import PEAK_ALGORITHMS, PEAK2_TABLE_COLUMNS
 
+class PeakTable(QTableWidget):
+    """The fitted-peaks table. A click on its empty area (below the rows)
+    cancels the row selection, which a plain QTableWidget keeps."""
+
+    def mousePressEvent(self, event):
+        if not self.indexAt(event.pos()).isValid():
+            # current row first: the selection-changed handlers read it
+            self.selectionModel().clearCurrentIndex()
+            self.clearSelection()
+        super().mousePressEvent(event)
+
+
 class Fncts1D(QDialog):
 
     def __init__(self, parent=None):
@@ -129,15 +141,15 @@ class Fncts1D(QDialog):
         self.peak2_ncomp.addItems(["Auto", "1", "2", "3", "4", "5"])
         self.peak2_ncomp.setToolTip(
             "Number of peaks in one fit. Auto: one per click, adjusted when "
-            "the window is dragged. A number: new fits use exactly that many; "
-            "with a row selected, that fit is refitted with that many and "
-            "keeps the count when its window is dragged")
+            "the window is dragged. A number: with a row selected, that fit "
+            "is refitted with that many and keeps the count when its window "
+            "is dragged. New fits always start on Auto")
 
         # one row per fitted peak; sortable by header; hover a row for the full
         # σ/A/background/window detail. Selecting a row highlights its curve on
         # the pad (wired in GUI.py).
         self.peak2_results_label = QLabel("Fitted peaks")
-        self.peak2_table = QTableWidget(0, len(PEAK2_TABLE_COLUMNS))
+        self.peak2_table = PeakTable(0, len(PEAK2_TABLE_COLUMNS))
         self.peak2_table.setHorizontalHeaderLabels(list(PEAK2_TABLE_COLUMNS))
         self.peak2_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.peak2_table.setSelectionBehavior(QAbstractItemView.SelectRows)

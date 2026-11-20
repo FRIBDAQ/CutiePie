@@ -582,30 +582,59 @@ def test_a_consumed_calibration_click_is_not_routed_anywhere_else(win, monkeypat
 
 # ------------------------------------------------------------ on_scroll
 
-def _scroll_event(ax, step=-1.0, inaxes=True):
-    ev = fake_event(ax, inaxes=inaxes)
+SHIFT, CTRL = 0x02000000, 0x04000000
+
+
+def _scroll_event(ax, step=-1.0, inaxes=True, mods=None, x=0.0):
+    ev = fake_event(ax, x=x, inaxes=inaxes)
     ev.step = step
+    if mods is not None:
+        ev.guiEvent = types.SimpleNamespace(modifiers=lambda: mods)
     return ev
 
 
-def test_scroll_goes_to_the_pad_under_the_cursor(win):
+def test_plain_scroll_zooms_x_around_the_cursor_on_the_pad_under_it(win):
     add_pad(win, "h0", 0)
     ax = add_pad(win, "h1", 1)
-    win.on_scroll(_scroll_event(ax, step=-1.0))
+    win.on_scroll(_scroll_event(ax, step=-1.0, x=25.0))
+    assert win.plot_controller.calls == [("scrollZoomX", (1, -1.0, 25.0))]
+    win.plot_controller.calls.clear()
+    win.on_scroll(_scroll_event(ax, step=1.0, mods=0, x=30.0))     # no modifier held
+    assert win.plot_controller.calls == [("scrollZoomX", (1, 1.0, 30.0))]
+
+
+def test_shift_scroll_slides_the_x_range(win):
+    add_pad(win, "h0", 0)
+    ax = add_pad(win, "h1", 1)
+    win.on_scroll(_scroll_event(ax, step=-1.0, mods=SHIFT))
     assert win.plot_controller.calls == [("scrollXAxis", (1, -1.0))]
+
+
+def test_ctrl_scroll_is_the_plus_minus_buttons_on_the_pad_under_the_cursor(win):
+    add_pad(win, "h0", 0)
+    ax = add_pad(win, "h1", 1)
+    win.on_scroll(_scroll_event(ax, step=1.0, mods=CTRL))          # wheel up = "+"
+    win.on_scroll(_scroll_event(ax, step=-1.0, mods=CTRL))         # wheel down = "-"
+    assert win.plot_controller.calls == [("zoomInOut", ("in", 1)),
+                                         ("zoomInOut", ("out", 1))]
 
 
 def test_scroll_while_enlarged_uses_the_selected_pad(win):
     ax = add_pad(win, "h1", 1)
     win.currentPlot.isEnlarged = True
     win.wTab.selected[0] = 7
-    win.on_scroll(_scroll_event(ax))
-    assert win.plot_controller.calls == [("scrollXAxis", (7, -1.0))]
+    win.on_scroll(_scroll_event(ax, x=5.0))
+    win.on_scroll(_scroll_event(ax, mods=SHIFT))
+    win.on_scroll(_scroll_event(ax, mods=CTRL))
+    assert win.plot_controller.calls == [("scrollZoomX", (7, -1.0, 5.0)),
+                                         ("scrollXAxis", (7, -1.0)),
+                                         ("zoomInOut", ("out", 7))]
 
 
 def test_scroll_outside_the_axes_or_during_a_fit_is_ignored(win):
     ax = add_pad(win, "h1", 1)
     win.on_scroll(_scroll_event(None, inaxes=False))
     win.fit_manager.is_busy = lambda: True
-    win.on_scroll(_scroll_event(ax))
+    for mods in (None, SHIFT, CTRL):
+        win.on_scroll(_scroll_event(ax, mods=mods))
     assert win.plot_controller.calls == []

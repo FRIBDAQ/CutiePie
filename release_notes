@@ -1,3 +1,23 @@
+== v1.6-009 ==
+* Fits (Extra tab)
+  * The fit drawings (total and component lines, peak labels, legend) follow the spectrum into the enlarged view and back; they used to disappear on enlarging and were lost after shrinking.
+  * A fit made in the enlarged view stays on the spectrum after leaving it.
+  * The fit legend is clipped at the edges of its spectrum instead of running over the neighbouring ones.
+  * Fit drawings no longer shrink the spectra when the window is resized or the view is refreshed.
+  * A turning ring on the Fit button shows that a fit is running.
+* Mouse wheel on the spectrum under the cursor
+  * Wheel zooms the x axis in (wheel up) or out (wheel down) around the cursor position.
+  * Zooming a 1D spectrum in or out also sets the top of the y axis to fit the highest bin in view.
+  * Shift+wheel moves the x axis of a zoomed-in spectrum by one fifth of the visible range (this was the plain wheel in v1.6-008).
+  * Ctrl+wheel changes the y scale like the + and - buttons (wheel up is +).
+* Peak Finder
+  * Clicking the empty area of the fitted-peaks table cancels the row selection and puts the "Peaks" menu back on Auto.
+  * A new peak always starts on Auto, and making one puts the "Peaks" menu back on Auto.
+  * A new peak is selected in the fitted-peaks table.
+  * Changing the "Peaks" menu to Auto on a selected fit refits it with the automatic number of Gaussians.
+* Closing the main window closes all other CutiePie windows, so the program exits.
+== v1.6-009 ==
+
 == v1.6-008 ==
 * Gates
   * Gates can be created in any view; the spectrum no longer has to be enlarged first.

@@ -241,6 +241,19 @@ class PeakFit2Controller:
                         cell.setToolTip(row["tooltip"])
                 break
 
+    def _peak2_select_row(self, number):
+        """Select the table row of fit `number`, as a click on it would: the
+        table's selection signal then highlights its curve and shows its
+        detail (_peak2_row_selected). Rows are looked up by number because
+        sorting moves them."""
+        t = self._peak.peak2_table
+        for ri in range(t.rowCount()):
+            it = t.item(ri, 0)
+            if it is not None and int(round(float(it.data(Qt.UserRole)))) == number:
+                t.selectRow(ri)
+                return True
+        return False
+
     def _peak2_selected_number(self):
         """Fit number of the currently-selected table row, or None."""
         t = self._peak.peak2_table
@@ -286,6 +299,9 @@ class PeakFit2Controller:
             ncomp.setCurrentText(str(len(sel_rec["result"]["components"]))
                                  if sel_rec.get("n_fixed") else "Auto")
             ncomp.blockSignals(False)
+        elif sel is None:
+            # no row selected (the selection was cancelled): back to Auto
+            self._peak2_ncomp_to_auto()
         # the row shows only the strongest component; print the whole fit
         # (every component) in the label under the table
         if sel is not None:
@@ -411,26 +427,32 @@ class PeakFit2Controller:
         if rec is not None:
             self._peak2_refit_selected(rec)
 
+    def _peak2_ncomp_to_auto(self):
+        """Put the Peaks menu on Auto without it acting on anything."""
+        ncomp = self._peak.peak2_ncomp
+        ncomp.blockSignals(True)
+        ncomp.setCurrentText("Auto")
+        ncomp.blockSignals(False)
+
     def _peak2_manual_ncomp(self):
         """The peak count set by hand in the Peaks menu, or None on Auto."""
         text = self._peak.peak2_ncomp.currentText()
         return int(text) if text.isdigit() else None
 
     def _peak2_ncomp_changed(self, *_):
-        """The Peaks menu changed. With no row selected it only sets the count
-        for the next new fit. With a row selected: a number re-fits THAT fit
-        over its window with exactly that many peaks and holds the count
-        through later window drags; Auto hands the count back to the
-        automatic add/drop on the next drag (no refit now)."""
+        """The Peaks menu changed. With no row selected it does nothing: a new
+        fit always starts on Auto. With a row selected THAT fit is re-fitted
+        over its window. A number fits exactly that many peaks and holds the
+        count through later window drags. Auto starts again from the fit's
+        main peak and lets the automatic logic add the peaks the data in the
+        window supports, as a window drag does."""
         num = self._peak2_selected_number()
         rec = next((rc for rc in self.peak2_fits if rc.get("number") == num), None)
         if rec is None:
             return
         n = self._peak2_manual_ncomp()
         if n is None:
-            rec["n_fixed"] = False
-            self._peak2_status(f"Peak {rec['number']}: peak count back to automatic.")
-            return
+            rec["n_fixed"] = False            # later drags adjust the count again
         prev = rec["result"]
         xx = prev["xx"]
         ax = self._peak2_live_axes(rec)
@@ -438,7 +460,12 @@ class PeakFit2Controller:
         if ax is None or arrays is None:
             self._peak2_status(f"[peaks] Peak {rec['number']}: spectrum unavailable.")
             return
-        r = self._peak2_fit_fixed_count(arrays, float(xx[0]), float(xx[-1]), prev, n)
+        if n is None:
+            start = dict(prev, components=[primary_component(prev)])
+            r = autocomponent_refit(arrays[0], arrays[1],
+                                    float(xx[0]), float(xx[-1]), start)
+        else:
+            r = self._peak2_fit_fixed_count(arrays, float(xx[0]), float(xx[-1]), prev, n)
         if not r["ok"]:
             self._peak2_status(f"[peaks] Peak {rec['number']}: "
                                f"{r.get('error', 'refit failed')} — unchanged.")
@@ -449,7 +476,7 @@ class PeakFit2Controller:
             except Exception:
                 pass
         rec["result"] = r
-        rec["n_fixed"] = True
+        rec["n_fixed"] = n is not None
         rec["artists"] = self._peak2_draw(ax, r)
         self._peak2_update_row(rec["number"], r, tag="edited")
         self._peak2_status_refit(
@@ -871,7 +898,12 @@ class PeakFit2Controller:
             # later without depending on artist survival
             self.peak2_fits.append(dict(number=self.peak2_count, index=index,
                                         name=name, result=r, artists=artists,
-                                        n_fixed=self._peak2_manual_ncomp() is not None))
+                                        n_fixed=False))
+            # a new fit always starts on Auto, and the menu says so, also
+            # when a table row is selected
+            self._peak2_ncomp_to_auto()
+            # the new peak becomes the selected row
+            self._peak2_select_row(self.peak2_count)
             # keep the handler alive on this canvas even after Stop, so future
             # drag/edit interactions on existing fits keep working
             self._peak2_connect(event.inaxes.figure.canvas)
@@ -945,14 +977,15 @@ class PeakFit2Controller:
         self._peak.peak2_status.setText(msg)
 
     def _peak2_current_spec(self):
-        """The fit spec selected in the menus. One component unless the Peaks
-        menu sets a count by hand; on Auto a multi-component fit only arises
-        from the auto-add-on-drag."""
+        """The fit spec selected in the menus. Always one component: a new fit
+        starts on Auto, where more components only arise from the
+        auto-add-on-drag, and a count set by hand is applied to an existing
+        fit by _peak2_ncomp_changed."""
         p = self._peak
         return {
             "signal": self._PEAK2_SIGNAL_BY_LABEL.get(p.peak2_signal.currentText(),
                                                       "gaussian"),
-            "n_components": self._peak2_manual_ncomp() or 1,
+            "n_components": 1,
             "background": self._PEAK2_BG_BY_LABEL.get(p.peak2_bg.currentText(),
                                                       "poly1"),
             "tail_side": p.peak2_cb_tail.currentText(),

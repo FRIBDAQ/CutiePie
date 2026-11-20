@@ -376,6 +376,22 @@ def test_zoom_in_out_1d(rig):
     assert ax.get_ylim() == (0.0, 100.0)
 
 
+def test_zoom_in_out_takes_the_pad_it_is_given(pc_mod, monkeypatch):
+    """ctrl+wheel acts on the pad under the cursor, which need not be the
+    selected one the buttons use."""
+    rig = Rig(pc_mod, monkeypatch, nrows=1, ncols=2)
+    rig.add_1d(name="h0", index=0)
+    ax = rig.add_1d(name="h1", index=1)
+    line = make_line(ax)
+    ax.set_ylim(0.0, 100.0)
+    rig.set_info(index=1, spectrum=line)
+    rig.pc.zoomInOut("in", 1)
+    assert ax.get_ylim() == (0.0, 50.0)
+    assert rig.draw_gate_calls == [1]
+    rig.pc.zoomInOut("out", 1)
+    assert ax.get_ylim() == (0.0, 100.0)
+
+
 def test_log_button_toggles_scale(rig):
     ax = rig.add_1d()
     line = make_line(ax)
@@ -771,3 +787,103 @@ def test_wheel_scroll_does_nothing_when_not_magnified(rig):
 
 def test_wheel_scroll_on_a_pad_without_a_spectrum_is_ignored(rig):
     assert rig.pc.scrollXAxis(0, -1) is False
+
+
+# ---------------------------------------------------------------- wheel zoom on x
+
+def _peaked(rig, lo=0.0, hi=100.0):
+    """100 bins over 0..100: flat 10 counts, 50 at x=30, 200 at x=80."""
+    data = np.full(101, 10.0)
+    data[31] = 50.0
+    data[81] = 200.0
+    ax = rig.add_1d(binx=100, minx=0.0, maxx=100.0, data=data)
+    ax.set_xlim(lo, hi)
+    ax.set_ylim(0.0, 220.0)
+    return ax
+
+
+def test_wheel_up_zooms_in_around_the_cursor(rig):
+    ax = _peaked(rig, 20.0, 60.0)
+    assert rig.pc.scrollZoomX(0, 1, 30.0) is True
+    lo, hi = ax.get_xlim()
+    assert (lo, hi) == pytest.approx((22.0, 54.0))        # each side x 0.8
+    # the cursor's x sits at the same fraction of the view as before
+    assert (30.0 - lo) / (hi - lo) == pytest.approx((30.0 - 20.0) / 40.0)
+    assert (rig.info[0]["minx"], rig.info[0]["maxx"]) == pytest.approx((22.0, 54.0))
+
+
+def test_wheel_down_zooms_out_around_the_cursor(rig):
+    ax = _peaked(rig, 20.0, 60.0)
+    assert rig.pc.scrollZoomX(0, -1, 30.0) is True
+    lo, hi = ax.get_xlim()
+    assert (lo, hi) == pytest.approx((17.5, 67.5))        # each side / 0.8
+    assert (30.0 - lo) / (hi - lo) == pytest.approx(0.25)
+
+
+def test_wheel_zoom_in_then_out_returns_to_the_same_view(rig):
+    ax = _peaked(rig, 20.0, 60.0)
+    rig.pc.scrollZoomX(0, 1, 33.0)
+    rig.pc.scrollZoomX(0, -1, 33.0)
+    assert ax.get_xlim() == pytest.approx((20.0, 60.0))
+
+
+def test_wheel_zoom_uses_only_the_direction_of_the_step(rig):
+    ax = _peaked(rig, 20.0, 60.0)
+    rig.pc.scrollZoomX(0, 120.0, 30.0)
+    assert ax.get_xlim() == pytest.approx((22.0, 54.0))
+
+
+def test_wheel_zoom_in_fits_y_to_the_highest_bin_in_view(rig):
+    ax = _peaked(rig, 20.0, 60.0)
+    rig.pc.scrollZoomX(0, 1, 30.0)                        # 22..54 holds the 50 peak only
+    assert ax.get_ylim() == pytest.approx((0.0, 55.0))    # 50 with the usual 10% headroom
+    assert (rig.info[0]["miny"], rig.info[0]["maxy"]) == pytest.approx((0.0, 55.0))
+    assert rig.draw_gate_calls == [0]                     # 1D gates follow the y-range
+
+
+def test_wheel_zoom_in_keeps_the_y_bottom(rig):
+    ax = _peaked(rig, 20.0, 60.0)
+    ax.set_ylim(5.0, 220.0)
+    rig.pc.scrollZoomX(0, 1, 30.0)
+    assert ax.get_ylim() == pytest.approx((5.0, 55.0))
+
+
+def test_wheel_zoom_out_fits_y_to_a_taller_peak_coming_into_view(rig):
+    """Seen live: zooming in rescaled y but zooming out did not, so a taller
+    peak entering the view was cut off."""
+    ax = _peaked(rig, 50.0, 78.0)                         # flat 10 counts in view
+    ax.set_ylim(0.0, 11.0)
+    rig.pc.scrollZoomX(0, -1, 70.0)                       # 45..80 now holds the 200 peak
+    assert ax.get_xlim() == pytest.approx((45.0, 80.0))
+    assert ax.get_ylim() == pytest.approx((0.0, 220.0))
+    assert (rig.info[0]["miny"], rig.info[0]["maxy"]) == pytest.approx((0.0, 220.0))
+    assert rig.draw_gate_calls == [0]
+
+
+def test_wheel_zoom_out_keeps_y_fitted_when_nothing_taller_appears(rig):
+    ax = _peaked(rig, 20.0, 60.0)
+    ax.set_ylim(0.0, 300.0)
+    rig.pc.scrollZoomX(0, -1, 30.0)                       # 17.5..67.5: the 50 peak only
+    assert ax.get_ylim() == pytest.approx((0.0, 55.0))
+
+
+def test_wheel_zoom_out_stops_at_the_full_range(rig):
+    ax = _peaked(rig, 2.0, 98.0)
+    assert rig.pc.scrollZoomX(0, -1, 50.0) is True
+    assert ax.get_xlim() == pytest.approx((0.0, 100.0))
+    assert rig.pc.scrollZoomX(0, -1, 50.0) is False       # nothing more to show
+    assert ax.get_xlim() == pytest.approx((0.0, 100.0))
+
+
+def test_wheel_zoom_in_stops_at_one_bin(rig):
+    ax = _peaked(rig, 30.0, 31.2)
+    assert rig.pc.scrollZoomX(0, 1, 30.5) is False        # 0.96 wide would be under a bin
+    assert ax.get_xlim() == pytest.approx((30.0, 31.2))
+
+
+def test_wheel_zoom_on_a_pad_without_a_spectrum_or_cursor_is_ignored(rig):
+    assert rig.pc.scrollZoomX(0, 1, 5.0) is False
+    ax = _peaked(rig, 20.0, 60.0)
+    assert rig.pc.scrollZoomX(0, 1, None) is False
+    assert rig.pc.scrollZoomX(0, 0, 30.0) is False
+    assert ax.get_xlim() == pytest.approx((20.0, 60.0))
