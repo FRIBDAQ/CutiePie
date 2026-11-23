@@ -300,33 +300,36 @@ class FitManager(QObject):
         if not path:
             return
 
-        interspec = None
-        if csv_format == "InterSpec":
-            try:
-                interspec = read_interspec_csv(path)
-            except (OSError, ValueError) as e:
-                QMessageBox.warning(self._parent_widget, "Cannot read InterSpec CSV",
-                                    f"{os.path.basename(path)}\n\n{e}")
-                return
+        # a file that cannot be read is reported, not raised: an exception
+        # leaving this slot takes the whole program down
+        try:
+            if csv_format == "InterSpec":
+                x, y = read_interspec_csv(path)
+            else:
+                arr = np.genfromtxt(path, delimiter=",", comments="#")
+                if arr.ndim == 1:
+                    x = np.arange(arr.size, dtype=float)
+                    y = arr.astype(float)
+                else:
+                    x = arr[:, 0].astype(float)
+                    y = arr[:, 1].astype(float)
+
+            m = np.isfinite(x) & np.isfinite(y)
+            x, y = x[m], y[m]
+            o = np.argsort(x)
+            x, y = x[o], y[o]
+        except Exception as e:
+            self.logger.warning('on_plot_csv_clicked - cannot read %s as %s CSV',
+                                path, csv_format, exc_info=True)
+            # numpy lists every bad row; the first few say what is wrong
+            lines = (str(e).strip() or type(e).__name__).splitlines()
+            if len(lines) > 6:
+                lines = lines[:6] + [f"... ({len(lines) - 6} more lines)"]
+            QMessageBox.warning(self._parent_widget, f"Cannot read {csv_format} CSV",
+                                os.path.basename(path) + "\n\n" + "\n".join(lines))
+            return
 
         self._csv_path = path
-
-        if interspec is not None:
-            x, y = interspec
-        else:
-            arr = np.genfromtxt(path, delimiter=",", comments="#")
-            if arr.ndim == 1:
-                x = np.arange(arr.size, dtype=float)
-                y = arr.astype(float)
-            else:
-                x = arr[:, 0].astype(float)
-                y = arr[:, 1].astype(float)
-
-        m = np.isfinite(x) & np.isfinite(y)
-        x, y = x[m], y[m]
-        o = np.argsort(x)
-        x, y = x[o], y[o]
-
         self._csv_x, self._csv_y = x, y
 
         if getattr(self, "_csv_win", None) is None:

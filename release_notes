@@ -1,3 +1,8 @@
+== v1.6-011 ==
+* Plot CSV (Extra tab)
+  * A file that cannot be read shows a popup with the error message instead of ending the program.
+== v1.6-011 ==
+
 == v1.6-010 ==
 * Fits (Extra tab)
   * New "Clear fit" button under the Fit button removes all fit drawings (lines, peak labels, legend) from the selected spectrum.

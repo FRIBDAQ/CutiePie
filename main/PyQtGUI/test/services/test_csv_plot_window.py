@@ -280,3 +280,67 @@ def test_a_wrong_file_under_interspec_warns_and_keeps_the_loaded_data(fm, monkey
     assert manager._csv_path == before[0]
     assert np.allclose(manager._csv_x, before[1])
     assert FakeCsvWindow.instances[0].shown == 1        # not redrawn or raised
+
+
+# ------------------------------------------- a file that cannot be read
+
+def _catch_warnings(module, monkeypatch):
+    warned = []
+    monkeypatch.setattr(module, "QMessageBox", type("M", (), {
+        "warning": staticmethod(lambda *a: warned.append(a[1:]))}))
+    return warned
+
+
+def test_an_interspec_file_under_spectcl_warns_instead_of_raising(fm, tmp_path, monkeypatch):
+    """Its header rows have other column counts than its data rows, which
+    numpy refuses with a ValueError. Raised out of the button's slot, that
+    ended the program."""
+    module, manager, csv, _second = fm
+    manager.on_plot_csv_clicked("SpecTcl")              # plain file, loaded
+    before = (manager._csv_path, manager._csv_x.copy())
+
+    warned = _catch_warnings(module, monkeypatch)
+    path = interspec_file(tmp_path, counts=range(40))
+    _point_dialog_at(module, path)
+    manager.on_plot_csv_clicked("SpecTcl")              # must not raise
+
+    assert len(warned) == 1
+    title, text = warned[0]
+    assert title == "Cannot read SpecTcl CSV"
+    assert text.startswith("spec.csv\n\n")
+    # what was loaded before is still there for Fit CSV
+    assert manager._csv_path == before[0]
+    assert np.allclose(manager._csv_x, before[1])
+    assert FakeCsvWindow.instances[0].shown == 1
+
+
+def test_the_error_popup_shows_only_the_first_lines(fm, tmp_path, monkeypatch):
+    """numpy names every row it could not use; for a 1024-channel file that
+    is a message of a thousand lines."""
+    module, manager, _csv, _second = fm
+    warned = _catch_warnings(module, monkeypatch)
+    _point_dialog_at(module, interspec_file(tmp_path, counts=range(1024)))
+    manager.on_plot_csv_clicked("SpecTcl")
+    text = warned[0][1]
+    assert len(text.splitlines()) <= 9                  # name, blank, 6 lines, the rest counted
+    assert "more lines)" in text.splitlines()[-1]
+
+
+def test_a_missing_file_warns_instead_of_raising(fm, tmp_path, monkeypatch):
+    module, manager, _csv, _second = fm
+    warned = _catch_warnings(module, monkeypatch)
+    _point_dialog_at(module, str(tmp_path / "gone.csv"))
+    for fmt in ("SpecTcl", "InterSpec"):
+        manager.on_plot_csv_clicked(fmt)
+    assert [w[0] for w in warned] == ["Cannot read SpecTcl CSV", "Cannot read InterSpec CSV"]
+    assert FakeCsvWindow.instances == []                # no window for nothing
+
+
+def test_a_single_number_file_warns_instead_of_raising(fm, tmp_path, monkeypatch):
+    module, manager, _csv, _second = fm
+    warned = _catch_warnings(module, monkeypatch)
+    one = tmp_path / "one.csv"
+    one.write_text("5\n")
+    _point_dialog_at(module, str(one))
+    manager.on_plot_csv_clicked("SpecTcl")
+    assert [w[0] for w in warned] == ["Cannot read SpecTcl CSV"]
