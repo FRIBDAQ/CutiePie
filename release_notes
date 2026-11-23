@@ -1,3 +1,11 @@
+== v1.6-010 ==
+* Fits (Extra tab)
+  * New "Clear fit" button under the Fit button removes all fit drawings (lines, peak labels, legend) from the selected spectrum.
+* Plot CSV (Extra tab)
+  * New "CSV from" choice above the Plot CSV button: SpecTcl (plain x,y rows, as before) or InterSpec.
+  * InterSpec files (header lines followed by a Channel,Energy,Counts table) are plotted as counts against energy and can be fitted with Fit CSV.
+== v1.6-010 ==
+
 == v1.6-009 ==
 * Fits (Extra tab)
   * The fit drawings (total and component lines, peak labels, legend) follow the spectrum into the enlarged view and back; they used to disappear on enlarging and were lost after shrinking.

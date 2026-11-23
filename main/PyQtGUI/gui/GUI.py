@@ -730,6 +730,8 @@ class MainWindow(QMainWindow):
         # (the service takes plain arguments, never widget references)
         self.extraPopup.fit_button.clicked.connect(
             lambda: self.fit_manager.fit(*self._current_plot_ctx(), *self._fit_inputs()))
+        self.extraPopup.clear_fit_button.clicked.connect(
+            lambda: self.fit_manager.clearFits(*self._current_plot_ctx()))
         self.extraPopup.fit_csv_button.clicked.connect(
             lambda: self.fit_manager.on_fit_csv_clicked(*self._fit_inputs()))
         # lambdas shield the slots from clicked(bool)'s checked arg — a bare

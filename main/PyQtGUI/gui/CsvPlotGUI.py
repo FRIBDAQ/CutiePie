@@ -2,6 +2,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QVBoxLayout, QWidget
 
 
@@ -12,6 +13,9 @@ class CsvPlotWindow(QWidget):
 
     def __init__(self, parent=None):
         super(CsvPlotWindow, self).__init__(parent)
+        # a window of its own: with a parent and no window flag it would be a
+        # small widget inside the main window, in its top-left corner
+        self.setWindowFlag(Qt.Window, True)
         self.setWindowTitle("CSV")
         self.figure = Figure()
         self.canvas = FigureCanvas(self.figure)

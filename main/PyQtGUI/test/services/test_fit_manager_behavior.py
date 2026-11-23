@@ -413,6 +413,119 @@ def test_move_fit_artists_round_trip_survives_the_pad_being_cleared(env):
     assert pad.get_legend() is not None
 
 
+# ------------------------------------------------------------ Clear fit
+
+def test_clear_fits_removes_every_fit_drawing_from_the_pad(env):
+    ax = make_ax()
+    data, gate, total, comp, text = draw_multi_fit(ax)
+    assert env.fm.clearFits(0, "h1", ax) == 3
+    assert total not in ax.lines and comp not in ax.lines and text not in ax.texts
+    assert ax.get_legend() is None
+    assert env.fm.listFitLineLabels(ax) == []
+    assert env.labels[-1] == ("",)                    # the index field is emptied
+
+
+def test_clear_fits_keeps_the_spectrum_and_the_gates(env):
+    ax = make_ax()
+    data, gate, total, comp, text = draw_multi_fit(ax)
+    env.fm.clearFits(0, "h1", ax)
+    assert list(ax.lines) == [data, gate]
+
+
+def test_clear_fits_takes_several_fits_at_once(env):
+    """Loaded fits add to the pad, so more than one index can be on it."""
+    ax = make_ax()
+    draw_multi_fit(ax)
+    second, = ax.plot([5, 6, 7], [1, 3, 1], label="fit-_-1")
+    second.set_gid("fit-1")
+    assert env.fm.clearFits(0, "h1", ax) == 4
+    assert env.fm.listFitLineLabels(ax) == []
+
+
+def test_clear_fits_leaves_the_other_pads_alone(env):
+    pad, other = two_axes()
+    draw_multi_fit(pad)
+    _, _, total, comp, text = draw_multi_fit(other)
+    env.fm.clearFits(0, "h1", pad)
+    assert total in other.lines and comp in other.lines and text in other.texts
+    assert other.get_legend() is not None
+
+
+def test_clear_fits_on_a_pad_without_fits_keeps_its_legend(env):
+    """A legend that is not a fit's (gate annotation) is not ours to remove."""
+    ax = make_ax()
+    gate, = ax.plot([4, 4], [0, 5], label="gate_-_g1_-_0")
+    ax.legend([gate], ["g1"])
+    assert env.fm.clearFits(0, "h1", ax) == 0
+    assert ax.get_legend() is not None and gate in ax.lines
+
+
+def test_clear_fits_without_a_pad_does_nothing(env):
+    assert env.fm.clearFits(None, None, None) == 0
+
+
+def test_clear_fits_waits_for_a_running_fit(env):
+    ax = make_ax()
+    _, _, total, _, _ = draw_multi_fit(ax)
+    env.fm._fit_busy = True
+    assert env.fm.clearFits(0, "h1", ax) == 0
+    assert total in ax.lines
+
+
+class ClosableDialog:
+    def __init__(self, fitln=None):
+        self._fitln = fitln
+        self.closed = 0
+
+    def close(self):
+        self.closed += 1
+
+
+def test_clear_fits_closes_the_filter_popup_of_the_cleared_fit(env):
+    ax = make_ax()
+    _, _, total, _, _ = draw_multi_fit(ax)
+    dlg = ClosableDialog(total)
+    env.fm._alphaFilterDlg = dlg
+    env.fm.clearFits(0, "h1", ax)
+    assert dlg.closed == 1 and env.fm._alphaFilterDlg is None
+
+
+def test_clear_fits_keeps_the_filter_popup_of_a_fit_on_another_pad(env):
+    pad, other = two_axes()
+    draw_multi_fit(pad)
+    _, _, total, _, _ = draw_multi_fit(other)
+    dlg = ClosableDialog(total)
+    env.fm._alphaFilterDlg = dlg
+    env.fm.clearFits(0, "h1", pad)
+    assert dlg.closed == 0 and env.fm._alphaFilterDlg is dlg
+
+
+def test_clear_fits_closes_the_loaded_fit_panel_of_the_cleared_pad(env, fm_mod):
+    pad, other = two_axes()
+    group = fm_mod.LoadedFitGroup(pad, [1, 2, 3], {"fit total": [1, 4, 1]}, {}, 0)
+    group.set("fit total", True)
+    dlg = ClosableDialog()
+    env.fm._loadedFitPanel, env.fm._loadedFitGroup = dlg, group
+    env.fm.clearFits(0, "h1", other)                  # another pad: panel stays
+    assert dlg.closed == 0 and env.fm._loadedFitPanel is dlg
+    env.fm.clearFits(0, "h1", pad)
+    assert dlg.closed == 1 and env.fm._loadedFitPanel is None
+    assert env.fm._loadedFitGroup is None
+
+
+def test_clear_fits_closes_the_loaded_fit_panel_after_the_fit_moved(env, fm_mod):
+    """Enlarged: the loaded lines sit on the enlarged axes while the panel
+    still names the pad they were loaded on."""
+    pad, enlarged = two_axes()
+    group = fm_mod.LoadedFitGroup(pad, [1, 2, 3], {"fit total": [1, 4, 1]}, {}, 0)
+    group.set("fit total", True)
+    env.fm.moveFitArtists(pad, enlarged)
+    dlg = ClosableDialog()
+    env.fm._loadedFitPanel, env.fm._loadedFitGroup = dlg, group
+    assert env.fm.clearFits(0, "h1", enlarged) == 1
+    assert dlg.closed == 1
+
+
 def tight_heights(fig):
     fig.tight_layout()
     return [round(a.get_position().height, 3) for a in fig.axes]

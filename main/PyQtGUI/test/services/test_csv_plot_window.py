@@ -52,6 +52,21 @@ def test_window_builds_its_own_figure_and_canvas():
     assert "self.figure.add_subplot" in calls
 
 
+def test_window_is_a_window_of_its_own():
+    """It is built with the main window as parent. Without the window flag Qt
+    makes such a widget a child drawn inside its parent, and Plot CSV showed
+    nothing but a sliver in the main window's corner."""
+    with open(CSVGUI, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == "__init__")
+    flags = [c for c in ast.walk(fn) if isinstance(c, ast.Call)
+             and isinstance(c.func, ast.Attribute) and c.func.attr == "setWindowFlag"]
+    assert len(flags) == 1
+    flag, on = flags[0].args
+    assert (flag.value.id, flag.attr) == ("Qt", "Window") and on.value is True
+
+
 def test_window_never_reaches_pyplot():
     """Checked as calls, not as text: the docstring explains what pyplot would
     have done, and a substring search would trip over its own explanation."""
@@ -138,3 +153,130 @@ def test_a_second_csv_reuses_the_same_window(fm):
     assert win.shown == 2
     line, = win.ax.get_lines()
     assert np.allclose(line.get_ydata(), [0, 2, 4, 6, 8])
+
+
+# ------------------------------------------------------------ InterSpec CSV
+
+INTERSPEC_HEAD = """Spectrum Name:
+Description:
+Detector Used:
+Comments:
+Acquisition Mode:,PHA Pre-Amp
+High Voltage:,0
+Conversion Gain:,1024
+Fine Gain:,1.00
+Calibration Coefficients:,-751.0,33.0
+Calibration Channels:,179,189
+Calibration Energies:,5156.0,5486.0
+Elapsed Live Time:,7200.0
+Start Time:,August 18, 2025, 04:59:18
+ROIs:
+ROI:,Low,High,Gross,Net,FWHM,Centroid
+
+
+Channel Data:
+Channel,Energy,Counts
+"""
+
+
+def interspec_file(tmp_path, counts=(0, 1, 13, 63, 2), name="spec.csv", head=INTERSPEC_HEAD):
+    rows = "".join("%d,%.1f,%d\n" % (ch, -751.0 + 33.0 * ch, n)
+                   for ch, n in enumerate(counts))
+    path = tmp_path / name
+    path.write_text(head + rows)
+    return str(path)
+
+
+def test_interspec_csv_gives_counts_against_energy(fm, tmp_path):
+    module = fm[0]
+    x, y = module.read_interspec_csv(interspec_file(tmp_path))
+    assert np.allclose(x, [-751.0, -718.0, -685.0, -652.0, -619.0])
+    assert np.allclose(y, [0, 1, 13, 63, 2])
+
+
+def test_interspec_header_numbers_are_not_taken_for_data(fm, tmp_path):
+    """The header has rows of numbers of its own (calibration channels and
+    energies, an ROI column row); only the rows under the column names count."""
+    module = fm[0]
+    x, y = module.read_interspec_csv(interspec_file(tmp_path, counts=(7, 8)))
+    assert len(x) == 2 and np.allclose(y, [7, 8])
+
+
+def test_interspec_csv_without_energy_uses_the_channel(fm, tmp_path):
+    module = fm[0]
+    path = tmp_path / "ch.csv"
+    path.write_text("Comments:\nChannel,Counts\n0,4\n1,5\n2,6\n")
+    x, y = module.read_interspec_csv(str(path))
+    assert np.allclose(x, [0, 1, 2]) and np.allclose(y, [4, 5, 6])
+
+
+def test_interspec_csv_with_energy_and_data_columns(fm, tmp_path):
+    module = fm[0]
+    path = tmp_path / "ed.csv"
+    path.write_text("Energy, Data\r\n0.5, 3\r\n1.5, 9\r\n")
+    x, y = module.read_interspec_csv(str(path))
+    assert np.allclose(x, [0.5, 1.5]) and np.allclose(y, [3, 9])
+
+
+def test_interspec_table_ends_at_the_first_row_that_is_not_data(fm, tmp_path):
+    module = fm[0]
+    path = interspec_file(tmp_path, counts=(1, 2, 3))
+    with open(path, "a") as f:
+        f.write("\nSomething else:\n9,9,9\n")
+    x, y = module.read_interspec_csv(path)
+    assert np.allclose(y, [1, 2, 3])
+
+
+def test_a_file_without_a_spectrum_table_is_refused(fm, tmp_path):
+    module, _manager, plain_xy, _second = fm
+    with pytest.raises(ValueError):
+        module.read_interspec_csv(plain_xy)             # plain x,y rows
+    empty = tmp_path / "empty.csv"
+    empty.write_text(INTERSPEC_HEAD)
+    with pytest.raises(ValueError):
+        module.read_interspec_csv(str(empty))           # column names, no rows
+
+
+def _point_dialog_at(module, path):
+    module.QFileDialog = type("D", (), {"getOpenFileName": staticmethod(
+        lambda *a, **k: (path, ""))})
+
+
+def test_plot_csv_draws_an_interspec_file(fm, tmp_path):
+    module, manager, _csv, _second = fm
+    path = interspec_file(tmp_path)
+    _point_dialog_at(module, path)
+    manager.on_plot_csv_clicked("InterSpec")
+
+    win = FakeCsvWindow.instances[0]
+    line, = win.ax.get_lines()
+    assert np.allclose(line.get_xdata(), [-751.0, -718.0, -685.0, -652.0, -619.0])
+    assert np.allclose(line.get_ydata(), [0, 1, 13, 63, 2])
+    assert win.ax.get_title() == "spec.csv" and win.shown == 1
+    # Fit CSV works from these
+    assert np.allclose(manager._csv_x, line.get_xdata())
+    assert np.allclose(manager._csv_y, line.get_ydata())
+    assert manager._csv_path == path
+
+
+def test_plot_csv_keeps_reading_plain_rows_as_spectcl(fm):
+    _module, manager, _csv, _second = fm
+    manager.on_plot_csv_clicked("SpecTcl")
+    line, = FakeCsvWindow.instances[0].ax.get_lines()
+    assert np.allclose(line.get_ydata(), [0, 1, 4, 9, 16])
+
+
+def test_a_wrong_file_under_interspec_warns_and_keeps_the_loaded_data(fm, monkeypatch):
+    module, manager, csv, _second = fm
+    manager.on_plot_csv_clicked()                       # plain file, loaded
+    before = (manager._csv_path, manager._csv_x.copy())
+
+    warned = []
+    monkeypatch.setattr(module, "QMessageBox", type("M", (), {
+        "warning": staticmethod(lambda *a: warned.append(a[1:]))}))
+    manager.on_plot_csv_clicked("InterSpec")            # same plain file: no table
+
+    assert len(warned) == 1 and warned[0][0] == "Cannot read InterSpec CSV"
+    assert manager._csv_path == before[0]
+    assert np.allclose(manager._csv_x, before[1])
+    assert FakeCsvWindow.instances[0].shown == 1        # not redrawn or raised

@@ -32,6 +32,51 @@ def set_up_fit_legend(ax):
     return leg
 
 
+def read_interspec_csv(path):
+    """Read the spectrum out of an InterSpec CSV. The file opens with free
+    lines about the measurement ("Conversion Gain:,1024", ...), followed by
+    the table itself under a row that names its columns, "Channel,Energy,Counts".
+    Returns (x, y) as float arrays: x is the Energy column, or the Channel
+    column in a file that has no energy; y is the counts. Raises ValueError
+    when the file holds no such table."""
+    with open(path, "r", encoding="utf-8-sig", errors="replace") as f:
+        lines = f.read().splitlines()
+
+    def column(names, prefixes):
+        for prefix in prefixes:
+            for i, n in enumerate(names):
+                if n.startswith(prefix):
+                    return i
+        return None
+
+    x, y = [], []
+    ix = iy = None
+    for line in lines:
+        fields = [c.strip() for c in line.split(",")]
+        if ix is None:
+            names = [c.lower() for c in fields]
+            cx = column(names, ("energy", "channel"))
+            cy = column(names, ("counts", "count", "data"))
+            if cx is not None and cy is not None:
+                ix, iy = cx, cy
+            continue
+        try:
+            xv, yv = float(fields[ix]), float(fields[iy])
+        except (IndexError, ValueError):
+            if x:
+                break           # the table ended
+            continue            # blank line between the column names and the data
+        x.append(xv)
+        y.append(yv)
+
+    if ix is None:
+        raise ValueError("No spectrum table found: expected a row naming the "
+                         "columns, such as \"Channel,Energy,Counts\".")
+    if not x:
+        raise ValueError("The spectrum table has no numeric rows.")
+    return np.asarray(x, dtype=float), np.asarray(y, dtype=float)
+
+
 def _make_csv_window(parent):
     """Build the window the CSV plot is drawn in. The import is here rather
     than at module scope so this module stays importable without a Qt widget
@@ -155,6 +200,7 @@ class FitManager(QObject):
         self._cal              = None
         self._alphaFilterDlg   = None
         self._loadedFitPanel   = None   # modeless Load-Fit component panel
+        self._loadedFitGroup   = None   # the drawn lines that panel acts on
         self._lastFitResultsText = None
         self._lastFitCurve     = None   # {'x','y','model','name'} of the last drawn fit total
 
@@ -243,7 +289,10 @@ class FitManager(QObject):
         finally:
             self._use_csv_fit = False
 
-    def on_plot_csv_clicked(self):
+    def on_plot_csv_clicked(self, csv_format="SpecTcl"):
+        """Load a CSV and plot it in the CSV window. `csv_format` is the
+        program the file comes from, as chosen in the popup: "SpecTcl" (plain
+        x,y rows) or "InterSpec" (see read_interspec_csv)."""
         path, _ = QFileDialog.getOpenFileName(
             self._parent_widget, "Select CSV for plotting (x,y)", "",
             "CSV files (*.csv *.txt);;All files (*)"
@@ -251,15 +300,27 @@ class FitManager(QObject):
         if not path:
             return
 
+        interspec = None
+        if csv_format == "InterSpec":
+            try:
+                interspec = read_interspec_csv(path)
+            except (OSError, ValueError) as e:
+                QMessageBox.warning(self._parent_widget, "Cannot read InterSpec CSV",
+                                    f"{os.path.basename(path)}\n\n{e}")
+                return
+
         self._csv_path = path
 
-        arr = np.genfromtxt(path, delimiter=",", comments="#")
-        if arr.ndim == 1:
-            x = np.arange(arr.size, dtype=float)
-            y = arr.astype(float)
+        if interspec is not None:
+            x, y = interspec
         else:
-            x = arr[:, 0].astype(float)
-            y = arr[:, 1].astype(float)
+            arr = np.genfromtxt(path, delimiter=",", comments="#")
+            if arr.ndim == 1:
+                x = np.arange(arr.size, dtype=float)
+                y = arr.astype(float)
+            else:
+                x = arr[:, 0].astype(float)
+                y = arr[:, 1].astype(float)
 
         m = np.isfinite(x) & np.isfinite(y)
         x, y = x[m], y[m]
@@ -855,6 +916,7 @@ class FitManager(QObject):
             except Exception:
                 pass
         self._loadedFitPanel = None
+        self._loadedFitGroup = None
 
     def _open_loaded_fit_panel(self, ax, structure, group):
         """Open the live component panel for a loaded fit; a new panel
@@ -862,6 +924,7 @@ class FitManager(QObject):
         self._close_loaded_fit_panel()
         dlg = self.dialogs.open_loaded_fit_panel(ax, structure, group, self.logger)
         self._loadedFitPanel = dlg
+        self._loadedFitGroup = group
         return dlg
 
     # ------------------------------------------------------------------
@@ -1595,6 +1658,58 @@ class FitManager(QObject):
                 ax.figure.canvas.draw_idle()
             except Exception:
                 self.logger.debug('deleteFit - could not draw', exc_info=True)
+
+    def clearFits(self, index=None, name=None, ax=None):
+        """Remove everything the fits drew on this pad: total lines, component
+        curves, peak labels and the legend (Clear fit button). Returns the
+        number of artists removed."""
+        self.logger.info('clearFits')
+        if ax is None:
+            self.logger.warning('clearFits - called without ax context; cannot clear fits')
+            return 0
+        if self._fit_busy:
+            return 0
+
+        removed = 0
+        for coll in (ax.lines, ax.collections, ax.texts,
+                     ax.patches, ax.artists, ax.images):
+            for a in list(coll):
+                lab = getattr(a, "get_label", lambda: "")() or ""
+                gid = getattr(a, "get_gid", lambda: None)()
+                is_fit_gid = gid == "fit" or (isinstance(gid, str) and gid.startswith("fit-"))
+                if not (is_fit_gid or (isinstance(lab, str) and lab.startswith(FIT_PREFIX))):
+                    continue
+                try:
+                    a.remove()
+                    removed += 1
+                except Exception:
+                    self.logger.debug('clearFits - could not remove artist', exc_info=True)
+
+        if removed:
+            leg = ax.get_legend()   # its entries are for the removed curves
+            if leg is not None:
+                try: leg.remove()
+                except Exception: self.logger.debug('clearFits - could not remove legend', exc_info=True)
+
+        # the popups that switch this pad's fit components on and off have
+        # nothing left to act on
+        dlg = self._alphaFilterDlg
+        if dlg is not None and getattr(getattr(dlg, "_fitln", None), "axes", None) is None:
+            self._close_alpha_filter_popup()
+        group = self._loadedFitGroup
+        if group is not None:
+            lines = list(getattr(group, "lines", {}).values())
+            if getattr(group, "ax", None) is ax or (
+                    lines and all(ln.axes is None for ln in lines)):
+                self._close_loaded_fit_panel()
+
+        self.fitLabelsTextChanged.emit("")
+        try:
+            ax.figure.canvas.draw_idle()
+        except Exception:
+            self.logger.debug('clearFits - could not draw', exc_info=True)
+        self.logger.debug('clearFits - removed %d artists', removed)
+        return removed
 
     def listFitLineLabels(self, ax):
         self.logger.info('listFitLineLabels')

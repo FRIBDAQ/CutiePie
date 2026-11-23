@@ -4,8 +4,8 @@ matplotlib.use("Qt5Agg")
 from PyQt5.QtCore import QRectF, Qt, QTimer
 from PyQt5.QtGui import QColor, QPainter, QPen
 from PyQt5.QtWidgets import (
-    QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
-    QLineEdit, QPushButton, QTextEdit, QVBoxLayout, QWidget,
+    QButtonGroup, QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
+    QLineEdit, QPushButton, QRadioButton, QTextEdit, QVBoxLayout, QWidget,
 )
 from Functions1DGUI import Fncts1D  # popup peak finder window
 from Functions2DGUI import Fncts2D  # popup clustering and overlaying an image window
@@ -160,6 +160,20 @@ class SpecialFunctions(QWidget):
         spinner_row.setContentsMargins(0, 0, 8, 0)
         spinner_row.addStretch(1)
         spinner_row.addWidget(self.fit_spinner)
+
+        self.clear_fit_button = QPushButton("Clear fit", self)
+        self.clear_fit_button.setToolTip("Remove all fit drawings from the selected plot")
+
+        # which program wrote the file Plot CSV is about to load
+        self.csv_spectcl_radio = QRadioButton("SpecTcl", self)
+        self.csv_spectcl_radio.setToolTip("Plain rows of x,y")
+        self.csv_interspec_radio = QRadioButton("InterSpec", self)
+        self.csv_interspec_radio.setToolTip(
+            "Header lines, then a Channel,Energy,Counts table; plotted as counts against energy")
+        self.csv_spectcl_radio.setChecked(True)
+        self.csv_format_group = QButtonGroup(self)
+        self.csv_format_group.addButton(self.csv_spectcl_radio)
+        self.csv_format_group.addButton(self.csv_interspec_radio)
 
         self.plot_csv_button = QPushButton("Plot CSV", self)
         self.plot_csv_button.setStyleSheet("background-color:#f0a500;")
@@ -335,8 +349,15 @@ class SpecialFunctions(QWidget):
         v2.addLayout(v1b)
         v2.addLayout(deflayout)
         v2.addWidget(self.fit_button)
-        v2.addWidget(self.plot_csv_button)
-        v2.addWidget(self.fit_csv_button)
+        v2.addWidget(self.clear_fit_button)
+        # the two CSV buttons stacked on the left, the two programs on the right
+        csv_grid = QGridLayout()
+        csv_grid.addWidget(self.plot_csv_button, 0, 0)
+        csv_grid.addWidget(self.fit_csv_button, 1, 0)
+        csv_grid.addWidget(self.csv_spectcl_radio, 0, 1)
+        csv_grid.addWidget(self.csv_interspec_radio, 1, 1)
+        csv_grid.setColumnStretch(0, 1)
+        v2.addLayout(csv_grid)
         v2.addWidget(self.abort_button)
         v2.addWidget(self.save_fit_button)
         v2.addWidget(self.load_fit_button)
