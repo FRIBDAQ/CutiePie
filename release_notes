@@ -1,3 +1,10 @@
+== v1.6-013 ==
+* Import CSV into a spectrum (Extra tab)
+  * Importing failed while filling the spectrum, with "Failed search of dictionary by Key string" from SpecTcl, and no spectrum was made. Fixed.
+  * Each imported spectrum now has an x parameter of its own, named import.001, import.002 and so on, instead of all of them sharing the parameter csv_import.
+  * Importing a file again under the same name keeps that spectrum's parameter.
+== v1.6-013 ==
+
 == v1.6-012 ==
 * Import CSV into a spectrum (Extra tab)
   * New "Import CSV into a spectrum" button creates a 1-d spectrum in SpecTcl from a CSV file and fills it with the file's contents. The spectrum can then be used like any other, including with the Extra tab functions.

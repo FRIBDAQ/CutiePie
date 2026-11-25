@@ -3,13 +3,16 @@ out the axis, then create, fill and bind the spectrum over REST. Qt-free; the
 dialogs around it are in controllers/csv_import_controller.py."""
 
 import os
+import re
 
 import numpy as np
 
-# The parameter every imported spectrum is defined on. SpecTcl needs one to
-# make a spectrum; no event ever sets this one, so analysis never increments
-# an imported spectrum.
-PARAMETER = "csv_import"
+# SpecTcl needs a parameter to make a spectrum. Each imported spectrum gets
+# one of its own, named import.001, import.002 and so on: gates are defined
+# on parameters, so spectra sharing one would share their gates. No event
+# ever sets these parameters, so analysis never increments an imported
+# spectrum.
+PARAMETER_PREFIX = "import"
 
 # Characters a spectrum name cannot have here: the name is written into Tcl
 # scripts inside braces and used as a glob pattern to look the spectrum up.
@@ -17,6 +20,9 @@ FORBIDDEN_IN_NAME = ' \t\r\n{}[]\\"$;*?'
 
 # Longest Tcl script sent in one request (it travels in the URL).
 MAX_SCRIPT_LENGTH = 3000
+
+# Where the fill scripts keep their loop variables, see fill_scripts.
+TCL_NAMESPACE = "::cutiepie_csv_import"
 
 
 class CsvImportError(Exception):
@@ -145,25 +151,58 @@ def _num(value):
     return "%.12g" % value
 
 
-def create_script(name, low, high, bins):
+def parameter_name(number):
+    return "%s.%03d" % (PARAMETER_PREFIX, number)
+
+
+def _import_parameters(text):
+    """The numbers of the import.NNN parameters named in a Tcl list."""
+    return [int(n) for n in re.findall(
+        r"(?<![^\s{])%s\.(\d+)(?![^\s}])" % re.escape(PARAMETER_PREFIX), text)]
+
+
+def next_parameter(rest):
+    """The first import.NNN after the ones SpecTcl already has."""
+    listed = _run(rest, "parameter -list {%s.*}" % PARAMETER_PREFIX,
+                  "listing the parameters")
+    return parameter_name(max(_import_parameters(str(listed)), default=0) + 1)
+
+
+def parameter_of(rest, name):
+    """The import.NNN parameter spectrum `name` is defined on; "" when the
+    spectrum does not exist or is defined on something else."""
+    definition = str(_run(rest, "spectrum -list {%s}" % name,
+                          "looking for the spectrum"))
+    m = re.search(r"(?<![^\s{])%s\}?\s+1\s+\{?\s*(%s\.\d+)\s*\}?\s" % (
+        re.escape(name), re.escape(PARAMETER_PREFIX)), definition)
+    return m.group(1) if m else ""
+
+
+def create_script(name, parameter, low, high, bins):
     return "spectrum {%s} 1 {%s} {{%s %s %d}}" % (
-        name, PARAMETER, _num(low), _num(high), bins)
+        name, parameter, _num(low), _num(high), bins)
 
 
-def parameter_script(low, high, bins):
-    """Make the parameter the first time a spectrum is imported."""
+def parameter_script(parameter, low, high, bins):
+    """Make the parameter unless SpecTcl has it already."""
     return ("if {[llength [parameter -list {%s}]] == 0} "
             "{treeparameter -create {%s} %s %s %d {}}" % (
-                PARAMETER, PARAMETER, _num(low), _num(high), bins))
+                parameter, parameter, _num(low), _num(high), bins))
 
 
 def fill_scripts(name, counts, max_length=MAX_SCRIPT_LENGTH):
     """Tcl scripts that set the channels, several channels per script so a
     spectrum takes a handful of requests rather than one per channel. Runs of
-    empty channels are left out: a new spectrum is empty already. `apply`
-    keeps the loop's variables out of SpecTcl's global namespace."""
-    head = ("apply {{name channel values} {foreach v $values "
-            "{channel -set $name $channel $v; incr channel}}} {%s} " % name)
+    empty channels are left out: a new spectrum is empty already.
+
+    The REST script service runs a script at global level, where a bare loop
+    would overwrite variables of the user's. The loop variables are therefore
+    declared in a namespace of their own, which is deleted afterwards. (Tcl's
+    `apply` would do, but in SpecTcl `apply` is the command that applies a
+    gate to a spectrum.)"""
+    head = "namespace eval %s {variable v; variable channel " % TCL_NAMESPACE
+    tail = (" {channel -set {%s} $channel $v; incr channel}}; "
+            "namespace delete %s" % (name, TCL_NAMESPACE))
     scripts = []
     start, values, length = None, [], 0
 
@@ -172,7 +211,8 @@ def fill_scripts(name, counts, max_length=MAX_SCRIPT_LENGTH):
         while values and values[-1] == "0":       # trailing empty channels
             values.pop()
         if values:
-            scripts.append("%s%d {%s}" % (head, start, " ".join(values)))
+            scripts.append("%s%d; foreach v {%s}%s" % (
+                head, start, " ".join(values), tail))
         start, values, length = None, [], 0
 
     for channel, count in enumerate(counts):
@@ -181,7 +221,7 @@ def fill_scripts(name, counts, max_length=MAX_SCRIPT_LENGTH):
                 continue
             start = channel
         text = str(count)
-        if values and len(head) + length + len(text) + 16 > max_length:
+        if values and len(head) + len(tail) + length + len(text) + 24 > max_length:
             flush()
             if count == 0:
                 continue
@@ -214,16 +254,21 @@ def spectrum_exists(rest, name):
 def import_spectrum(rest, name, x, y, replace=False):
     """Create spectrum `name` in SpecTcl from the CSV data, fill it and bind
     it to the display memory, which is what makes it show up in CutiePie.
-    `replace` deletes a spectrum of that name first. On a failure after the
-    spectrum was made it is deleted again, so nothing half filled is left.
-    Returns (low, high, bins). Raises CsvImportError."""
+    `replace` deletes a spectrum of that name first; if that one was an
+    imported spectrum, its parameter is used again, so its gates stay. On a
+    failure after the spectrum was made it is deleted again, so nothing half
+    filled is left. Returns (low, high, bins, parameter). Raises
+    CsvImportError."""
     low, high, bins, _even = axis_for(x)
     counts = channel_counts(y)
 
-    _run(rest, parameter_script(low, high, bins), "making the parameter")
+    parameter = parameter_of(rest, name) if replace else ""
+    if not parameter:
+        parameter = next_parameter(rest)
+    _run(rest, parameter_script(parameter, low, high, bins), "making the parameter")
     if replace:
         _run(rest, "spectrum -delete {%s}" % name, "deleting the old spectrum")
-    _run(rest, create_script(name, low, high, bins), "creating the spectrum")
+    _run(rest, create_script(name, parameter, low, high, bins), "creating the spectrum")
     try:
         for script in fill_scripts(name, counts):
             _run(rest, script, "filling the spectrum")
@@ -234,4 +279,4 @@ def import_spectrum(rest, name, x, y, replace=False):
         except Exception:
             pass
         raise
-    return low, high, bins
+    return low, high, bins, parameter

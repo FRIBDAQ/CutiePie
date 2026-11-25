@@ -2,6 +2,7 @@
 spectrum, and the Tcl scripts SpecTcl is sent. SpecTcl is played by a small
 model that understands exactly the scripts the importer writes."""
 
+import fnmatch
 import os
 import re
 import sys
@@ -218,9 +219,17 @@ class FakeSpecTcl:
             if m.group(1) not in self.parameters:
                 self.parameters[m.group(1)] = (float(m.group(3)), float(m.group(4)), int(m.group(5)))
             return ""
+        m = re.fullmatch(r"parameter -list \{(\S+)\}", command)
+        if m:
+            names = sorted(n for n in self.parameters if fnmatch.fnmatchcase(n, m.group(1)))
+            return " ".join("{%s %d {}}" % (n, i) for i, n in enumerate(names))
         m = re.fullmatch(r"spectrum -list \{(\S+)\}", command)
         if m:
-            return "{0 %s 1 x {{0 1 1}} long}" % m.group(1) if m.group(1) in self.spectra else ""
+            s = self.spectra.get(m.group(1))
+            if s is None:
+                return ""
+            return "{7 %s 1 %s {{%g %g %d}} long}" % (
+                m.group(1), s["parameter"], s["low"], s["high"], s["bins"])
         m = re.fullmatch(r"spectrum -delete \{(\S+)\}", command)
         if m:
             del self.spectra[m.group(1)]
@@ -239,11 +248,13 @@ class FakeSpecTcl:
                                       high=float(m.group(4)), bins=bins,
                                       counts=[0] * bins)
             return name
-        m = re.fullmatch(r"apply \{\{name channel values\} \{foreach v \$values "
-                         r"\{channel -set \$name \$channel \$v; incr channel\}\}\} "
-                         r"\{(\S+)\} (\d+) \{([\d ]+)\}", command)
+        m = re.fullmatch(r"namespace eval (\S+) \{variable v; variable channel (\d+); "
+                         r"foreach v \{([\d ]+)\} "
+                         r"\{channel -set \{(\S+)\} \$channel \$v; incr channel\}\}; "
+                         r"namespace delete (\S+)", command)
         if m:
-            counts = self.spectra[m.group(1)]["counts"]
+            assert m.group(1) == m.group(5) == ci.TCL_NAMESPACE
+            counts = self.spectra[m.group(4)]["counts"]
             channel = int(m.group(2))
             for v in m.group(3).split(" "):
                 counts[channel] = int(v)                # IndexError past the end
@@ -260,8 +271,8 @@ class FakeSpecTcl:
 def filled_by(scripts, name, bins):
     """The channel contents after running fill scripts on an empty spectrum."""
     tcl = FakeSpecTcl()
-    tcl.parameters[ci.PARAMETER] = (0, 1, 1)
-    tcl.script("spectrum {%s} 1 {%s} {{0 1 %d}}" % (name, ci.PARAMETER, bins))
+    tcl.parameters["p"] = (0, 1, 1)
+    tcl.script("spectrum {%s} 1 {p} {{0 1 %d}}" % (name, bins))
     for script in scripts:
         assert tcl.script(script)["status"] == "OK", script
     return tcl.spectra[name]["counts"]
@@ -285,7 +296,8 @@ def test_fill_scripts_stay_short_enough_for_a_url():
 def test_fill_scripts_leave_out_the_empty_stretches_at_the_ends():
     counts = [0] * 2000 + [5, 0, 7] + [0] * 2000
     scripts = ci.fill_scripts("s", counts)
-    assert len(scripts) == 1 and scripts[0].endswith("{s} 2000 {5 0 7}")
+    assert len(scripts) == 1
+    assert "variable channel 2000; foreach v {5 0 7} " in scripts[0]
     assert filled_by(scripts, "s", len(counts)) == counts
 
 
@@ -301,33 +313,98 @@ def test_an_empty_spectrum_needs_no_fill_script():
 
 
 def test_fill_scripts_keep_their_variables_out_of_the_global_namespace():
-    """The REST script service runs at global level; a bare `set` there
-    would overwrite a variable of the user's."""
+    """The REST script service runs at global level; a bare loop there would
+    overwrite variables of the user's. Both loop variables are declared in a
+    namespace of the importer's, which is deleted again."""
     for script in ci.fill_scripts("s", [1, 2, 3]):
-        assert script.startswith("apply {") and "set " not in script.replace("-set ", "")
+        assert script.startswith("namespace eval %s {variable v; variable channel 0; "
+                                 % ci.TCL_NAMESPACE)
+        assert script.endswith("; namespace delete " + ci.TCL_NAMESPACE)
+
+
+def test_no_script_uses_a_command_spectcl_redefines():
+    """SpecTcl has commands of its own under names Tcl also uses. `apply`
+    there applies a gate to a spectrum; a fill script written with Tcl's
+    `apply` failed on the real SpecTcl with "Failed search of dictionary"."""
+    tcl = FakeSpecTcl()
+    ci.import_spectrum(tcl, "a", [0.0, 1.0, 2.0], [1, 2, 3], replace=False)
+    ci.import_spectrum(tcl, "a", [0.0, 1.0, 2.0], [1, 2, 3], replace=True)
+    ci.spectrum_exists(tcl, "a")
+    spectcl_only = {"apply", "gate", "clear", "fold", "project", "filter",
+                    "pseudo", "attach", "start", "stop", "integrate", "fit",
+                    "version", "tape", "unbind", "ungate"}
+    for script in tcl.scripts:
+        words = set(re.findall(r"[A-Za-z_:]+", script))
+        assert not (words & spectcl_only), script
 
 
 def test_import_creates_fills_and_binds_in_that_order():
     tcl = FakeSpecTcl()
     x = -751.0 + 33.0 * np.arange(6)
-    low, high, bins = ci.import_spectrum(tcl, "run12", x, [0, 1, 13, 63, 2, 0])
+    low, high, bins, parameter = ci.import_spectrum(tcl, "run12", x, [0, 1, 13, 63, 2, 0])
 
-    assert (low, high, bins) == (-767.5, -569.5, 6)
+    assert (low, high, bins, parameter) == (-767.5, -569.5, 6, "import.001")
     spectrum = tcl.spectra["run12"]
     assert spectrum["counts"] == [0, 1, 13, 63, 2, 0]
     assert (spectrum["low"], spectrum["high"], spectrum["bins"]) == (-767.5, -569.5, 6)
-    assert spectrum["parameter"] == ci.PARAMETER and ci.PARAMETER in tcl.parameters
+    assert spectrum["parameter"] == "import.001" and "import.001" in tcl.parameters
     assert tcl.bound == ["run12"]
     kinds = [s.split(" ")[0] for s in tcl.scripts]
-    assert kinds == ["if", "spectrum", "apply", "sbind"]
+    assert kinds == ["parameter", "if", "spectrum", "namespace", "sbind"]
 
 
-def test_a_second_import_reuses_the_parameter():
+def test_each_imported_spectrum_gets_a_parameter_of_its_own():
+    """Gates are defined on parameters: spectra sharing one share their gates."""
+    tcl = FakeSpecTcl()
+    for name in ("a", "b", "c"):
+        ci.import_spectrum(tcl, name, [0.0, 1.0, 2.0], [1, 2, 3])
+    assert [tcl.spectra[n]["parameter"] for n in ("a", "b", "c")] == [
+        "import.001", "import.002", "import.003"]
+    assert sorted(tcl.parameters) == ["import.001", "import.002", "import.003"]
+
+
+def test_the_numbering_goes_on_after_the_highest_parameter_there_is():
+    tcl = FakeSpecTcl()
+    for existing in ("import.002", "import.017", "import.x", "important.900",
+                     "my.import.500", "import.03.b"):
+        tcl.parameters[existing] = (0, 1, 1)
+    assert ci.next_parameter(tcl) == "import.018"
+    tcl.parameters["import.999"] = (0, 1, 1)
+    assert ci.next_parameter(tcl) == "import.1000"
+
+
+def test_replacing_an_imported_spectrum_keeps_its_parameter():
+    """So the gates made on it are still on it after the file is imported again."""
     tcl = FakeSpecTcl()
     ci.import_spectrum(tcl, "a", [0.0, 1.0, 2.0], [1, 2, 3])
-    first = dict(tcl.parameters)
-    ci.import_spectrum(tcl, "b", [10.0, 20.0], [4, 5])
-    assert tcl.parameters == first and set(tcl.spectra) == {"a", "b"}
+    ci.import_spectrum(tcl, "b", [0.0, 1.0, 2.0], [1, 2, 3])
+    *_, parameter = ci.import_spectrum(tcl, "a", [0.0, 1.0], [9, 8], replace=True)
+    assert parameter == "import.001" and tcl.spectra["a"]["parameter"] == "import.001"
+    assert sorted(tcl.parameters) == ["import.001", "import.002"]
+
+
+def test_replacing_a_spectrum_that_was_not_imported_makes_a_new_parameter():
+    tcl = FakeSpecTcl()
+    tcl.parameters["adc.00"] = (0, 1, 1)
+    tcl.script("spectrum {a} 1 {adc.00} {{0 4096 4096}}")
+    assert ci.parameter_of(tcl, "a") == "" and ci.parameter_of(tcl, "none") == ""
+    *_, parameter = ci.import_spectrum(tcl, "a", [0.0, 1.0], [9, 8], replace=True)
+    assert parameter == "import.001" and "adc.00" in tcl.parameters
+
+
+@pytest.mark.parametrize("definition, expected", [
+    ("{7 run12 1 import.004 {{0 10 10}} long}", "import.004"),
+    ("{7 run12 1 {import.004} {{0 10 10}} long}", "import.004"),
+    ("{7 run12 1 {import.004 } {{0 10 10}} long}", "import.004"),
+    ("{7 run12 1 { import.004 } {{0 10 10}} long}", "import.004"),
+    ("{7 {run12} 1 {import.004} {{0 10 10}} long}", "import.004"),
+    ("{7 run12 1 adc.00 {{0 10 10}} long}", ""),
+    ("{7 other 1 import.004 {{0 10 10}} long}", ""),
+    ("", ""),
+])
+def test_the_parameter_is_read_off_the_spectrum_definition(definition, expected):
+    rest = type("R", (), {"script": lambda self, c: {"status": "OK", "detail": definition}})()
+    assert ci.parameter_of(rest, "run12") == expected
 
 
 def test_an_existing_spectrum_is_found_and_replaced_only_on_request():
@@ -345,7 +422,7 @@ def test_an_existing_spectrum_is_found_and_replaced_only_on_request():
     assert tcl.spectra["a"]["counts"] == [9, 8] and tcl.bound == ["a"]
 
 
-@pytest.mark.parametrize("failing", ["apply", "sbind"])
+@pytest.mark.parametrize("failing", ["channel -set", "sbind"])
 def test_a_failure_after_the_spectrum_was_made_removes_it_again(failing):
     tcl = FakeSpecTcl()
     tcl.fail = failing

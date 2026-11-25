@@ -69,7 +69,7 @@ class CsvImportController:
                 return
             QApplication.setOverrideCursor(Qt.WaitCursor)
             try:
-                low, high, bins = csv_import.import_spectrum(
+                low, high, bins, parameter = csv_import.import_spectrum(
                     rest, name, x, y, replace=replace)
             finally:
                 QApplication.restoreOverrideCursor()
@@ -77,8 +77,8 @@ class CsvImportController:
             self.logger.warning('import_csv - %s', e)
             QMessageBox.warning(self._parent_widget, "Cannot import the CSV", str(e))
             return
-        self.logger.info('import_csv - %s -> spectrum %s, %d bins from %g to %g',
-                         path, name, bins, low, high)
+        self.logger.info('import_csv - %s -> spectrum %s on parameter %s, %d bins from %g to %g',
+                         path, name, parameter, bins, low, high)
 
     def _ask_name(self, rest, default):
         """Ask for the spectrum name until it is usable: (name, replace), or
