@@ -50,12 +50,10 @@ def make():
     fm = types.SimpleNamespace(
         fitBusyChanged=Signal(), abortEnabledChanged=Signal(),
         fitResultsAppended=Signal(), fitLabelsTextChanged=Signal(),
-        on_plot_csv_clicked=lambda: None, on_abort_clicked=lambda: None)
+        on_abort_clicked=lambda: None)
     pc = types.SimpleNamespace(cutoffPopupPrepared=Signal(),
                                cutoffPopupCloseRequested=Signal())
     extra = types.SimpleNamespace(fit_button=Button(), abort_button=Button(),
-                                  plot_csv_button=Button(),
-                                  clear_fit_csv_button=Button(),
                                   fit_spinner=Spinner())
     cutoff = types.SimpleNamespace(close=lambda: None)
     FitAdapter(fm, pc, extra, cutoff, logger=None)

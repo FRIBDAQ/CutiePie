@@ -37,7 +37,7 @@ EXTRA_DIST = Main.py GUI.py view_state.py dialogs.py fit_dialogs.py connectConfi
 	fit_gaus_creator.py fit_gp1_creator.py fit_gp2_creator.py fit_p1_creator.py fit_p2_creator.py fit_exp_creator.py \
 	fit_alpha_base.py fit_alpha12_creator.py fit_alpha22_creator.py fit_alpha32_creator.py \
 	fit_alpha_multi_creator.py fit_alpha_multi_sigma_creator.py fit_alpha_linear_creator.py \
-	alpha_filter_dialog.py CsvPlotGUI.py ErrorReportGUI.py __init__.py \
+	alpha_filter_dialog.py ErrorReportGUI.py __init__.py \
 	WebWindow.py notebook_process.py logger.py jupyterqtpy_notebook_config.py SpecialFunctionsGUI.py PyREST.py CopyPropertiesGUI.py \
 	services/__init__.py services/spectrum_store.py services/thread_workers.py \
 	services/fit_manager.py services/gate_manager.py services/sum_region_manager.py \
@@ -45,5 +45,5 @@ EXTRA_DIST = Main.py GUI.py view_state.py dialogs.py fit_dialogs.py connectConfi
 	adapters/fit_adapter.py adapters/connection_adapter.py adapters/gate_adapter.py adapters/sum_region_adapter.py \
 	services/dataframe_export.py services/display_slot.py \
 	services/figure_overlay.py services/geometry_io.py services/log_throttle.py services/peak_finder.py \
-	services/shape_file.py services/tab_session.py services/error_report.py \
-	controllers/__init__.py controllers/copy_properties_controller.py controllers/geometry_controller.py controllers/overlay_controller.py controllers/jupyter_controller.py controllers/peak_scan_controller.py controllers/peak_fit2_controller.py
+	services/shape_file.py services/tab_session.py services/error_report.py services/csv_import.py \
+	controllers/__init__.py controllers/copy_properties_controller.py controllers/geometry_controller.py controllers/overlay_controller.py controllers/jupyter_controller.py controllers/peak_scan_controller.py controllers/peak_fit2_controller.py controllers/csv_import_controller.py

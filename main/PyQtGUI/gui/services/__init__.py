@@ -1,5 +1,6 @@
 __all__ = [
     "connection_manager",
+    "csv_import",
     "dataframe_export",
     "display_slot",
     "error_report",

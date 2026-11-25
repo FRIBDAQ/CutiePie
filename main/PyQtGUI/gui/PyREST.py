@@ -894,6 +894,23 @@ class PyREST:
     # general functions for communication and error handling
     ############################################################
 
+    # Run a Tcl script inside SpecTcl (SpecTcl 5.10 and later). Returns the
+    # reply as a dictionary with "status" ("OK" when the script ran) and
+    # "detail" (the script's result, or the error message); None when there
+    # was no answer or it was not a REST reply.
+    def script(self, command):
+        url = self._build_url("spectcl/script", command=str(command))
+        response = self.sendRequest(url)
+        if response is None:
+            return None
+        try:
+            reply = json.loads(response.decode())
+        except Exception:
+            self.logger.warning('script -- reply is not JSON: %r', response[:200])
+            return None
+        return reply if isinstance(reply, dict) else None
+
+
     def sendRequest(self, url):
         try:
             self.logger.debug("REST GET %s", url)

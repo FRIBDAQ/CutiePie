@@ -4,6 +4,7 @@ Qt-free halves moved into services, and MainWindow still owns their wiring."""
 
 __all__ = [
     "copy_properties_controller",
+    "csv_import_controller",
     "geometry_controller",
     "jupyter_controller",
     "overlay_controller",

@@ -95,6 +95,7 @@ from controllers.copy_properties_controller import CopyPropertiesController
 from controllers.geometry_controller import GeometryController
 from controllers.overlay_controller import OverlayController
 from controllers.jupyter_controller import JupyterController
+from controllers.csv_import_controller import CsvImportController
 from controllers.peak_scan_controller import PeakScanController
 from dialogs import QtLogger, TabPopup, cutoffPopup
 from fit_dialogs import FitDialogs
@@ -450,6 +451,11 @@ class MainWindow(QMainWindow):
             logger=self.logger,
         )
 
+        self.csv_import_controller = CsvImportController(
+            get_rest=lambda: self.rest,
+            parent_widget=self,
+            logger=self.logger,
+        )
         self.jupyter_controller = JupyterController(
             peak_tab=self.extraPopup.peak,
             view_state=self.view_state,
@@ -738,8 +744,11 @@ class MainWindow(QMainWindow):
             lambda: self.fit_manager.fit(*self._current_plot_ctx(), *self._fit_inputs()))
         self.extraPopup.clear_fit_button.clicked.connect(
             lambda: self.fit_manager.clearFits(*self._current_plot_ctx()))
-        self.extraPopup.fit_csv_button.clicked.connect(
-            lambda: self.fit_manager.on_fit_csv_clicked(*self._fit_inputs()))
+        # the program the file comes from is read off the radio buttons here
+        self.extraPopup.import_csv_button.clicked.connect(
+            lambda: self.csv_import_controller.import_csv(
+                "InterSpec" if self.extraPopup.csv_interspec_radio.isChecked()
+                else "SpecTcl"))
         # lambdas shield the slots from clicked(bool)'s checked arg — a bare
         # connect would pass False as the path/context
         self.extraPopup.save_fit_button.clicked.connect(

@@ -738,12 +738,6 @@ def test_fit_abort_appends_message_and_skips_labeling(fm_mod, monkeypatch):
     assert env.busy[-1] == (False,)                   # finally restored
 
 
-def test_fit_csv_guard_requires_loaded_csv(env):
-    env.fm.on_fit_csv_clicked()
-    assert env.msgbox.calls[0][:2] == ("warning", "No CSV loaded")
-    assert env.factory.created == []
-
-
 def test_alpha_filter_popup_closed_for_other_models(env):
     closes = []
     env.fm._alphaFilterDlg = type("D", (), {"close": lambda self: closes.append(1)})()

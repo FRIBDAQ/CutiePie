@@ -1,3 +1,15 @@
+== v1.6-012 ==
+* Import CSV into a spectrum (Extra tab)
+  * New "Import CSV into a spectrum" button creates a 1-d spectrum in SpecTcl from a CSV file and fills it with the file's contents. The spectrum can then be used like any other, including with the Extra tab functions.
+  * Click the button, select the CSV file, then set the spectrum name; the default is the file name without its extension.
+  * The InterSpec / SpecTcl choice is next to the button, and InterSpec is the default.
+  * Each x value in the file is the centre of its bin. Imported spectra are defined on a parameter named csv_import, which the first import creates; no event sets it, so analysis does not increment them.
+  * If SpecTcl already has a spectrum of that name, CutiePie asks before replacing it. Spectrum names cannot contain spaces or { } [ ] \ " $ ; * ?
+  * A file that cannot be read, or an import SpecTcl refuses, shows a popup with the reason.
+  * Needs SpecTcl 5.10 or later.
+  * The Plot CSV, Fit CSV and Clear fit CSV buttons and the separate CSV plot window are removed; import the CSV and fit the spectrum instead.
+== v1.6-012 ==
+
 == v1.6-011 ==
 * Error reports
   * An unexpected error no longer ends the program. A window shows the error report (CutiePie version, time, library versions and the traceback) with a "Copy to clipboard" button, to paste into a bug report.

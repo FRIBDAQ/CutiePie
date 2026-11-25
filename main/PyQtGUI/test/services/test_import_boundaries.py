@@ -30,7 +30,7 @@ PRESENTATION_MODULES = frozenset({
     "connectConfigGUI", "CopyPropertiesGUI",
     "OutputGUI", "OutputIntegrate", "SpecialFunctionsGUI",
     "otherOptions", "Functions1DGUI", "Functions2DGUI",
-    "JoystickGUI", "WebWindow", "CsvPlotGUI", "ErrorReportGUI",
+    "JoystickGUI", "WebWindow", "ErrorReportGUI",
     "dialogs", "alpha_filter_dialog", "fit_dialogs",
 })
 
@@ -42,6 +42,7 @@ SERVICE_MODULES = frozenset({
     "display_slot", "thread_workers", "geometry_io",
     "dataframe_export", "peak_finder", "figure_overlay",
     "log_throttle", "tab_session", "shape_file", "error_report",
+    "csv_import",
     "view_state",
 })
 

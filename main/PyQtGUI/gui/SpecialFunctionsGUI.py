@@ -164,25 +164,21 @@ class SpecialFunctions(QWidget):
         self.clear_fit_button = QPushButton("Clear fit", self)
         self.clear_fit_button.setToolTip("Remove all fit drawings from the selected plot")
 
-        # which program wrote the file Plot CSV is about to load
+        # which program wrote the file the import button is about to load
         self.csv_spectcl_radio = QRadioButton("SpecTcl", self)
         self.csv_spectcl_radio.setToolTip("Plain rows of x,y")
         self.csv_interspec_radio = QRadioButton("InterSpec", self)
         self.csv_interspec_radio.setToolTip(
-            "Header lines, then a Channel,Energy,Counts table; plotted as counts against energy")
-        self.csv_spectcl_radio.setChecked(True)
+            "Header lines, then a Channel,Energy,Counts table; imported as counts against energy")
+        self.csv_interspec_radio.setChecked(True)
         self.csv_format_group = QButtonGroup(self)
-        self.csv_format_group.addButton(self.csv_spectcl_radio)
         self.csv_format_group.addButton(self.csv_interspec_radio)
+        self.csv_format_group.addButton(self.csv_spectcl_radio)
 
-        self.plot_csv_button = QPushButton("Plot CSV", self)
-        self.plot_csv_button.setStyleSheet("background-color:#f0a500;")
-
-        self.fit_csv_button = QPushButton("Fit CSV", self)
-        self.fit_csv_button.setStyleSheet("background-color:#68bcee;")
-
-        self.clear_fit_csv_button = QPushButton("Clear fit CSV", self)
-        self.clear_fit_csv_button.setToolTip("Remove all fit drawings from the CSV plot")
+        self.import_csv_button = QPushButton("Import CSV into a spectrum", self)
+        self.import_csv_button.setStyleSheet("background-color:#f0a500;")
+        self.import_csv_button.setToolTip(
+            "Create a SpecTcl spectrum from a CSV file and fill it with the file's contents")
 
         # Abort button
         self.abort_button = QPushButton("Abort", self)
@@ -353,18 +349,12 @@ class SpecialFunctions(QWidget):
         v2.addLayout(deflayout)
         v2.addWidget(self.fit_button)
         v2.addWidget(self.clear_fit_button)
-        # the three CSV buttons stacked on the left; on the right the two
-        # programs, spread over the height of the three
-        csv_grid = QGridLayout()
-        csv_grid.addWidget(self.plot_csv_button, 0, 0)
-        csv_grid.addWidget(self.fit_csv_button, 1, 0)
-        csv_grid.addWidget(self.clear_fit_csv_button, 2, 0)
-        csv_radios = QVBoxLayout()
-        csv_radios.addWidget(self.csv_spectcl_radio)
-        csv_radios.addWidget(self.csv_interspec_radio)
-        csv_grid.addLayout(csv_radios, 0, 1, 3, 1)
-        csv_grid.setColumnStretch(0, 1)
-        v2.addLayout(csv_grid)
+        # the import button, then the two programs side by side
+        csv_row = QHBoxLayout()
+        csv_row.addWidget(self.import_csv_button, 1)
+        csv_row.addWidget(self.csv_interspec_radio)
+        csv_row.addWidget(self.csv_spectcl_radio)
+        v2.addLayout(csv_row)
         v2.addWidget(self.abort_button)
         v2.addWidget(self.save_fit_button)
         v2.addWidget(self.load_fit_button)

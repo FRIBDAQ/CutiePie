@@ -32,59 +32,6 @@ def set_up_fit_legend(ax):
     return leg
 
 
-def read_interspec_csv(path):
-    """Read the spectrum out of an InterSpec CSV. The file opens with free
-    lines about the measurement ("Conversion Gain:,1024", ...), followed by
-    the table itself under a row that names its columns, "Channel,Energy,Counts".
-    Returns (x, y) as float arrays: x is the Energy column, or the Channel
-    column in a file that has no energy; y is the counts. Raises ValueError
-    when the file holds no such table."""
-    with open(path, "r", encoding="utf-8-sig", errors="replace") as f:
-        lines = f.read().splitlines()
-
-    def column(names, prefixes):
-        for prefix in prefixes:
-            for i, n in enumerate(names):
-                if n.startswith(prefix):
-                    return i
-        return None
-
-    x, y = [], []
-    ix = iy = None
-    for line in lines:
-        fields = [c.strip() for c in line.split(",")]
-        if ix is None:
-            names = [c.lower() for c in fields]
-            cx = column(names, ("energy", "channel"))
-            cy = column(names, ("counts", "count", "data"))
-            if cx is not None and cy is not None:
-                ix, iy = cx, cy
-            continue
-        try:
-            xv, yv = float(fields[ix]), float(fields[iy])
-        except (IndexError, ValueError):
-            if x:
-                break           # the table ended
-            continue            # blank line between the column names and the data
-        x.append(xv)
-        y.append(yv)
-
-    if ix is None:
-        raise ValueError("No spectrum table found: expected a row naming the "
-                         "columns, such as \"Channel,Energy,Counts\".")
-    if not x:
-        raise ValueError("The spectrum table has no numeric rows.")
-    return np.asarray(x, dtype=float), np.asarray(y, dtype=float)
-
-
-def _make_csv_window(parent):
-    """Build the window the CSV plot is drawn in. The import is here rather
-    than at module scope so this module stays importable without a Qt widget
-    toolkit, which is what keeps its tests runnable headless."""
-    from CsvPlotGUI import CsvPlotWindow
-    return CsvPlotWindow(parent)
-
-
 def _make_fit_dialogs(parent):
     """Default dialog builder. The import is function-local so the service
     stays importable without a Qt widget toolkit."""
@@ -191,12 +138,6 @@ class FitManager(QObject):
         # instance state
         self._abort_fit        = False
         self._fit_busy         = False
-        self._use_csv_fit      = False
-        self._csv_x            = None
-        self._csv_y            = None
-        self._csv_path         = None
-        self._csv_ax           = None
-        self._csv_win          = None   # the window that owns the CSV figure
         self._cal              = None
         self._alphaFilterDlg   = None
         self._loadedFitPanel   = None   # modeless Load-Fit component panel
@@ -268,91 +209,6 @@ class FitManager(QObject):
         self._abort_fit = True
         self.abortEnabledChanged.emit(False)
         self.fitResultsAppended.emit("[abort] Requested…")
-
-    # ------------------------------------------------------------------
-    # CSV helpers
-    # ------------------------------------------------------------------
-
-    def on_fit_csv_clicked(self, fit_funct="", fitpar_texts=None,
-                           range_min_text="", range_max_text=""):
-        if not hasattr(self, "_csv_x") or self._csv_x is None or len(self._csv_x) == 0:
-            QMessageBox.warning(self._parent_widget, "No CSV loaded", "Click 'Plot CSV' first.")
-            return
-        if not hasattr(self, "_csv_ax") or self._csv_ax is None:
-            QMessageBox.warning(self._parent_widget, "No CSV plot", "Click 'Plot CSV' first.")
-            return
-
-        self._use_csv_fit = True
-        try:
-            self.fit(fit_funct=fit_funct, fitpar_texts=fitpar_texts,
-                     range_min_text=range_min_text, range_max_text=range_max_text)
-        finally:
-            self._use_csv_fit = False
-
-    def on_clear_csv_fit_clicked(self):
-        """Remove everything the fits drew on the CSV plot (Clear fit CSV
-        button). Returns the number of artists removed."""
-        ax = getattr(self, "_csv_ax", None)
-        if ax is None:
-            return 0
-        # the fit labels field lists the selected pad's fits, not the CSV plot's
-        return self.clearFits(ax=ax, reset_labels=False)
-
-    def on_plot_csv_clicked(self, csv_format="SpecTcl"):
-        """Load a CSV and plot it in the CSV window. `csv_format` is the
-        program the file comes from, as chosen in the popup: "SpecTcl" (plain
-        x,y rows) or "InterSpec" (see read_interspec_csv)."""
-        path, _ = QFileDialog.getOpenFileName(
-            self._parent_widget, "Select CSV for plotting (x,y)", "",
-            "CSV files (*.csv *.txt);;All files (*)"
-        )
-        if not path:
-            return
-
-        # a file that cannot be read is reported, not raised: an exception
-        # leaving this slot takes the whole program down
-        try:
-            if csv_format == "InterSpec":
-                x, y = read_interspec_csv(path)
-            else:
-                arr = np.genfromtxt(path, delimiter=",", comments="#")
-                if arr.ndim == 1:
-                    x = np.arange(arr.size, dtype=float)
-                    y = arr.astype(float)
-                else:
-                    x = arr[:, 0].astype(float)
-                    y = arr[:, 1].astype(float)
-
-            m = np.isfinite(x) & np.isfinite(y)
-            x, y = x[m], y[m]
-            o = np.argsort(x)
-            x, y = x[o], y[o]
-        except Exception as e:
-            self.logger.warning('on_plot_csv_clicked - cannot read %s as %s CSV',
-                                path, csv_format, exc_info=True)
-            # numpy lists every bad row; the first few say what is wrong
-            lines = (str(e).strip() or type(e).__name__).splitlines()
-            if len(lines) > 6:
-                lines = lines[:6] + [f"... ({len(lines) - 6} more lines)"]
-            QMessageBox.warning(self._parent_widget, f"Cannot read {csv_format} CSV",
-                                os.path.basename(path) + "\n\n" + "\n".join(lines))
-            return
-
-        self._csv_path = path
-        self._csv_x, self._csv_y = x, y
-
-        if getattr(self, "_csv_win", None) is None:
-            self._csv_win = _make_csv_window(self._parent_widget)
-            self._csv_ax = self._csv_win.ax
-
-        ax = self._csv_ax
-        ax.clear()
-        ax.plot(self._csv_x, self._csv_y, lw=1)
-        ax.set_title(os.path.basename(path))
-        ax.relim()
-        ax.autoscale_view()
-        ax.figure.canvas.draw_idle()
-        self._csv_win.showWindow()
 
     # ------------------------------------------------------------------
     # Save / load a fit curve (total + per-isotope components <-> CSV)
@@ -972,36 +828,21 @@ class FitManager(QObject):
         # resolve the fit context BEFORE going busy — the early return
         # below sits outside the try/finally, so a busy state entered first
         # would never be cleared and the fit button stayed disabled.
-        use_csv = getattr(self, "_use_csv_fit", False)
-        if use_csv:
-            ax = self._csv_ax
-            spectrumName = f"CSV: {os.path.basename(getattr(self, '_csv_path', 'data.csv'))}"
-            index = None
-        else:
-            if name is None or ax is None:
-                self.logger.warning('fit - called without name/ax context; cannot fit histogram')
-                return
-            spectrumName = name
+        if name is None or ax is None:
+            self.logger.warning('fit - called without name/ax context; cannot fit histogram')
+            return
+        spectrumName = name
 
         self.logger.debug('fit - spectrumName, fit_funct, index: %s, %s, %s', spectrumName, fit_funct, index)
 
-        if not use_csv:
-            self._clear_all_fit_artists_in_figure(ax.figure)
+        self._clear_all_fit_artists_in_figure(ax.figure)
 
         before_ids = self._snap_ax_ids(ax)
 
-        if use_csv:
-            dim = 1
-            x = np.asarray(self._csv_x, float)
-            y = np.asarray(self._csv_y, float)
-            binx = len(x)
-            minxREST = float(np.nanmin(x))
-            maxxREST = float(np.nanmax(x))
-        else:
-            dim      = self._spectra.get(spectrumName, "dim")
-            binx     = self._spectra.get(spectrumName, "binx")
-            minxREST = self._spectra.get(spectrumName, "minx")
-            maxxREST = self._spectra.get(spectrumName, "maxx")
+        dim      = self._spectra.get(spectrumName, "dim")
+        binx     = self._spectra.get(spectrumName, "binx")
+        minxREST = self._spectra.get(spectrumName, "minx")
+        maxxREST = self._spectra.get(spectrumName, "maxx")
 
         # Arm busy right at the try: the finally below is the only place it is
         # cleared, so a raise anywhere between would leave it set for the session.
@@ -1023,37 +864,16 @@ class FitManager(QObject):
                         except Exception:
                             fitpar.append(None)
 
-                    if use_csv:
-                        xmin, xmax = self.axisLimitsForFit(ax, range_min_text, range_max_text)
-
-                        xdata_min = float(np.nanmin(x))
-                        xdata_max = float(np.nanmax(x))
-                        lo, hi = sorted([float(xmin), float(xmax)])
-                        xmin = max(lo, xdata_min)
-                        xmax = min(hi, xdata_max)
-
-                        if (not np.isfinite(xmin)) or (not np.isfinite(xmax)) or (xmin >= xmax):
-                            xmin, xmax = xdata_min, xdata_max
-
-                        m = (x >= xmin) & (x <= xmax)
-                        if np.count_nonzero(m) < 3:
-                            QMessageBox.warning(self._parent_widget, "Fit range too small",
-                                                "Min X / Max X selects < 3 points. Widen the range.")
-                            return
-                        x = x[m]
-                        y = y[m]
-
-                    else:
-                        x = []
-                        y = []
-                        xtmp = self._create_range(binx, minxREST, maxxREST)
-                        ytmp = self._spectra.get(spectrumName, "data").tolist()
-                        xmin, xmax = self.axisLimitsForFit(ax, range_min_text, range_max_text)
-                        for i in range(1, len(xtmp)):
-                            if (xtmp[i] > xmin and xtmp[i] <= xmax):
-                                x.append(xtmp[i-1] + (xtmp[i] - xtmp[i-1]) / 2)
-                                y.append(ytmp[i])
-                        x = np.array(x); y = np.array(y)
+                    x = []
+                    y = []
+                    xtmp = self._create_range(binx, minxREST, maxxREST)
+                    ytmp = self._spectra.get(spectrumName, "data").tolist()
+                    xmin, xmax = self.axisLimitsForFit(ax, range_min_text, range_max_text)
+                    for i in range(1, len(xtmp)):
+                        if (xtmp[i] > xmin and xtmp[i] <= xmax):
+                            x.append(xtmp[i-1] + (xtmp[i] - xtmp[i-1]) / 2)
+                            y.append(ytmp[i])
+                    x = np.array(x); y = np.array(y)
 
                     run_cal = False
 
@@ -1116,15 +936,12 @@ class FitManager(QObject):
                     }
 
                     if model_name in EMG_MODELS:
-                        if use_csv:
+                        try:
+                            bw = float(maxxREST - minxREST) / float(binx)
+                            if not np.isfinite(bw) or bw <= 0:
+                                raise ValueError
+                        except Exception:
                             bw = float(np.median(np.diff(x))) if len(x) > 1 else 1.0
-                        else:
-                            try:
-                                bw = float(maxxREST - minxREST) / float(binx)
-                                if not np.isfinite(bw) or bw <= 0:
-                                    raise ValueError
-                            except Exception:
-                                bw = float(np.median(np.diff(x))) if len(x) > 1 else 1.0
 
                         if model_name in {"AlphaEMGMulti", "AlphaEMGMultiSigma"}:
                             wmode_ui = fitpar[12] if len(fitpar) > 12 else None
@@ -1671,11 +1488,10 @@ class FitManager(QObject):
             except Exception:
                 self.logger.debug('deleteFit - could not draw', exc_info=True)
 
-    def clearFits(self, index=None, name=None, ax=None, reset_labels=True):
+    def clearFits(self, index=None, name=None, ax=None):
         """Remove everything the fits drew on this pad: total lines, component
         curves, peak labels and the legend (Clear fit button). Returns the
-        number of artists removed. `reset_labels` empties the fit labels
-        field, which lists the fits of the selected pad."""
+        number of artists removed."""
         self.logger.info('clearFits')
         if ax is None:
             self.logger.warning('clearFits - called without ax context; cannot clear fits')
@@ -1716,8 +1532,7 @@ class FitManager(QObject):
                     lines and all(ln.axes is None for ln in lines)):
                 self._close_loaded_fit_panel()
 
-        if reset_labels:
-            self.fitLabelsTextChanged.emit("")
+        self.fitLabelsTextChanged.emit("")
         try:
             ax.figure.canvas.draw_idle()
         except Exception:

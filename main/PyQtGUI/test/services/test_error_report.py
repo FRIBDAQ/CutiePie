@@ -237,9 +237,9 @@ def test_the_other_handlers_of_the_event_still_run(monkeypatch):
     assert ran == [3]
 
 
-@pytest.mark.parametrize("module, cls", [("PlotGUI.py", "Plot"), ("CsvPlotGUI.py", "CsvPlotWindow")])
+@pytest.mark.parametrize("module, cls", [("PlotGUI.py", "Plot")])
 def test_every_plot_canvas_reports_its_handler_errors(module, cls):
-    """The spectrum tabs and the CSV window are the two canvases there are."""
+    """The spectrum tabs are the only canvas there is."""
     with open(os.path.join(GUI_DIR, module), encoding="utf-8") as fh:
         tree = ast.parse(fh.read())
     klass = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == cls)
@@ -267,7 +267,7 @@ def test_no_other_module_builds_a_canvas():
                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) \
                         and n.func.id.startswith("FigureCanvas"):
                     makers.add(name)
-    assert makers == {"PlotGUI.py", "CsvPlotGUI.py"}
+    assert makers == {"PlotGUI.py"}
 
 
 # ------------------------------------------------------------ the wiring

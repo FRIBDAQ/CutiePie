@@ -17,17 +17,8 @@ class FitAdapter:
         plot_controller.cutoffPopupPrepared.connect(self._show_cutoff_popup)
         plot_controller.cutoffPopupCloseRequested.connect(cutoff_popup.close)
 
-        # lambda: clicked(bool)'s checked arg must not land in csv_format
-        extra_popup.plot_csv_button.clicked.connect(
-            lambda: fit_manager.on_plot_csv_clicked(self._csv_format()))
-        extra_popup.clear_fit_csv_button.clicked.connect(
-            lambda: fit_manager.on_clear_csv_fit_clicked())
         extra_popup.abort_button.clicked.connect(
             fit_manager.on_abort_clicked)
-
-    def _csv_format(self):
-        """The program chosen with the radio buttons above Plot CSV."""
-        return "InterSpec" if self._extra.csv_interspec_radio.isChecked() else "SpecTcl"
 
     def _on_fit_busy(self, busy):
         self._extra.fit_button.setEnabled(not busy)
