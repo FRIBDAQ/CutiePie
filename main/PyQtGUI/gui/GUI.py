@@ -109,6 +109,7 @@ from connectConfigGUI import ConnectConfiguration #class for the connection conf
 from MenuGate import MenuGate #class for the gate creation/edition popup
 from MenuSumRegion import MenuSumRegion #class for the gate creation/edition popup
 from OutputIntegrate import OutputIntegratePopup #popup for gate/summing region integrate outputs
+from ErrorReportGUI import install_error_reporter
 # from OutputIntegrate import TableModel #table model for popup for gate/summing region
 
 from notebook_process import stopnotebook
@@ -181,6 +182,11 @@ class MainWindow(QMainWindow):
 
     def __init__(self, fit_factory, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
+
+        # an error nobody catches (button handler, timer, event, worker
+        # thread) shows a report the user can copy instead of ending the
+        # program. First, so that a failure in the set-up below is shown too.
+        install_error_reporter(cutiepie_version())
 
         # ensure GUI dies when SpecTcl dies (was an import-time call in the class body)
         tie_lifetime_to_parent()

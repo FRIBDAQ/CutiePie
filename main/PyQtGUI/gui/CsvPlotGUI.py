@@ -5,6 +5,8 @@ from matplotlib.figure import Figure
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QVBoxLayout, QWidget
 
+from services.error_report import report_canvas_errors
+
 
 class CsvPlotWindow(QWidget):
     """The window the Fit CSV plot lives in. It exists so that plot has a Qt
@@ -19,6 +21,7 @@ class CsvPlotWindow(QWidget):
         self.setWindowTitle("CSV")
         self.figure = Figure()
         self.canvas = FigureCanvas(self.figure)
+        report_canvas_errors(self.canvas)
         self.ax = self.figure.add_subplot(111)
         self.toolbar = NavigationToolbar(self.canvas, self)
         layout = QVBoxLayout()

@@ -2,6 +2,7 @@ __all__ = [
     "connection_manager",
     "dataframe_export",
     "display_slot",
+    "error_report",
     "figure_overlay",
     "fit_manager",
     "gate_manager",

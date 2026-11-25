@@ -1,4 +1,9 @@
 == v1.6-011 ==
+* Error reports
+  * An unexpected error no longer ends the program. A window shows the error report (CutiePie version, time, library versions and the traceback) with a "Copy to clipboard" button, to paste into a bug report.
+  * This covers errors in buttons and menus, timers, background threads, and while the main window starts up.
+  * Errors in mouse and key actions on the plots, which used to do nothing and print only to the terminal, show the same window.
+  * The same error repeating is counted on one report instead of opening more windows.
 * Plot CSV (Extra tab)
   * A file that cannot be read shows a popup with the error message instead of ending the program.
 == v1.6-011 ==

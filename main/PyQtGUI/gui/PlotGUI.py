@@ -12,6 +12,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 
 from services.tab_session import TabSession, TabSessionRegistry
+from services.error_report import report_canvas_errors
 
 debug = False
 
@@ -160,6 +161,7 @@ class Plot(QWidget):
         # the process. destroyFigure is what frees it.
         self.figure = Figure()
         self.canvas = FigureCanvas(self.figure)
+        report_canvas_errors(self.canvas)
 
         self.toolbar = NavigationToolbar(self.canvas, self)
         self.copyButton = QPushButton("Copy Properties", self)
