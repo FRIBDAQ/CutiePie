@@ -6,6 +6,9 @@
   * The same error repeating is counted on one report instead of opening more windows.
 * Plot CSV (Extra tab)
   * A file that cannot be read shows a popup with the error message instead of ending the program.
+* Fit CSV (Extra tab)
+  * New "Clear fit CSV" button under the Fit CSV button removes all fit drawings (lines, peak labels, legend) from the CSV plot. The loaded data stays, so it can be fitted again.
+  * The SpecTcl / InterSpec choice is to the right of the three CSV buttons (Plot CSV, Fit CSV, Clear fit CSV).
 == v1.6-011 ==
 
 == v1.6-010 ==

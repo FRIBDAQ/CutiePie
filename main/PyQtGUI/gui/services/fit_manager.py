@@ -289,6 +289,15 @@ class FitManager(QObject):
         finally:
             self._use_csv_fit = False
 
+    def on_clear_csv_fit_clicked(self):
+        """Remove everything the fits drew on the CSV plot (Clear fit CSV
+        button). Returns the number of artists removed."""
+        ax = getattr(self, "_csv_ax", None)
+        if ax is None:
+            return 0
+        # the fit labels field lists the selected pad's fits, not the CSV plot's
+        return self.clearFits(ax=ax, reset_labels=False)
+
     def on_plot_csv_clicked(self, csv_format="SpecTcl"):
         """Load a CSV and plot it in the CSV window. `csv_format` is the
         program the file comes from, as chosen in the popup: "SpecTcl" (plain
@@ -1662,10 +1671,11 @@ class FitManager(QObject):
             except Exception:
                 self.logger.debug('deleteFit - could not draw', exc_info=True)
 
-    def clearFits(self, index=None, name=None, ax=None):
+    def clearFits(self, index=None, name=None, ax=None, reset_labels=True):
         """Remove everything the fits drew on this pad: total lines, component
         curves, peak labels and the legend (Clear fit button). Returns the
-        number of artists removed."""
+        number of artists removed. `reset_labels` empties the fit labels
+        field, which lists the fits of the selected pad."""
         self.logger.info('clearFits')
         if ax is None:
             self.logger.warning('clearFits - called without ax context; cannot clear fits')
@@ -1706,7 +1716,8 @@ class FitManager(QObject):
                     lines and all(ln.axes is None for ln in lines)):
                 self._close_loaded_fit_panel()
 
-        self.fitLabelsTextChanged.emit("")
+        if reset_labels:
+            self.fitLabelsTextChanged.emit("")
         try:
             ax.figure.canvas.draw_idle()
         except Exception:

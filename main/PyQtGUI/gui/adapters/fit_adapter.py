@@ -20,6 +20,8 @@ class FitAdapter:
         # lambda: clicked(bool)'s checked arg must not land in csv_format
         extra_popup.plot_csv_button.clicked.connect(
             lambda: fit_manager.on_plot_csv_clicked(self._csv_format()))
+        extra_popup.clear_fit_csv_button.clicked.connect(
+            lambda: fit_manager.on_clear_csv_fit_clicked())
         extra_popup.abort_button.clicked.connect(
             fit_manager.on_abort_clicked)
 

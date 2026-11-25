@@ -41,17 +41,21 @@ class Radio:
 
 def make():
     asked = []
+    cleared = []
     fm = types.SimpleNamespace(
         fitBusyChanged=Signal(), abortEnabledChanged=Signal(),
         fitResultsAppended=Signal(), fitLabelsTextChanged=Signal(),
         on_plot_csv_clicked=lambda *a: asked.append(a),
+        on_clear_csv_fit_clicked=lambda *a: cleared.append(a),
         on_abort_clicked=lambda: None)
     pc = types.SimpleNamespace(cutoffPopupPrepared=Signal(),
                                cutoffPopupCloseRequested=Signal())
     extra = types.SimpleNamespace(fit_button=Button(), abort_button=Button(),
                                   plot_csv_button=Button(),
+                                  clear_fit_csv_button=Button(),
                                   csv_interspec_radio=Radio())
     FitAdapter(fm, pc, extra, types.SimpleNamespace(close=lambda: None), logger=None)
+    extra.cleared = cleared
     return extra, asked
 
 
@@ -61,3 +65,9 @@ def test_plot_csv_passes_the_chosen_program():
     extra.csv_interspec_radio.checked = True
     extra.plot_csv_button.clicked.emit()
     assert asked == [("SpecTcl",), ("InterSpec",)]
+
+
+def test_clear_fit_csv_asks_the_fit_manager():
+    extra, _asked = make()
+    extra.clear_fit_csv_button.clicked.emit()
+    assert extra.cleared == [()]

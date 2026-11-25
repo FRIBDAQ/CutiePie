@@ -282,6 +282,74 @@ def test_a_wrong_file_under_interspec_warns_and_keeps_the_loaded_data(fm, monkey
     assert FakeCsvWindow.instances[0].shown == 1        # not redrawn or raised
 
 
+# ------------------------------------------------------------ Clear fit CSV
+
+def _draw_csv_fit(ax):
+    """What a fit leaves on the CSV plot: a labelled total, a component curve,
+    a peak label and a legend, all under one gid."""
+    total, = ax.plot([1, 2, 3], [1, 4, 1], label="fit total")
+    comp, = ax.plot([1, 2, 3], [0.5, 2, 0.5], ls="--", label="224Th")
+    text = ax.text(2, 4.2, "224Th 7170")
+    ax.legend([total, comp], ["fit total", "224Th"], loc="best", frameon=False)
+    total.set_label("fit-_-0")
+    for a in (total, comp, text):
+        a.set_gid("fit-0")
+    return total, comp, text
+
+
+def test_clear_fit_csv_removes_the_fits_and_keeps_the_data(fm):
+    _module, manager, _csv, _second = fm
+    manager.on_plot_csv_clicked()
+    ax = manager._csv_ax
+    data, = ax.get_lines()
+    total, comp, text = _draw_csv_fit(ax)
+
+    assert manager.on_clear_csv_fit_clicked() == 3
+    assert list(ax.get_lines()) == [data]
+    assert text not in ax.texts and ax.get_legend() is None
+    # the loaded data is still there for the next Fit CSV
+    assert np.allclose(manager._csv_y, [0, 1, 4, 9, 16])
+
+
+def test_clear_fit_csv_takes_several_fits_at_once(fm):
+    _module, manager, _csv, _second = fm
+    manager.on_plot_csv_clicked()
+    ax = manager._csv_ax
+    _draw_csv_fit(ax)
+    second, = ax.plot([5, 6], [1, 2], label="fit-_-1")
+    second.set_gid("fit-1")
+
+    assert manager.on_clear_csv_fit_clicked() == 4
+    assert len(ax.get_lines()) == 1
+
+
+def test_clear_fit_csv_leaves_the_fit_labels_field_alone(fm):
+    """That field lists the fits of the selected pad in the main window."""
+    _module, manager, _csv, _second = fm
+    labels = qt_stubs.record_signal(manager.fitLabelsTextChanged)
+    manager.on_plot_csv_clicked()
+    _draw_csv_fit(manager._csv_ax)
+
+    manager.on_clear_csv_fit_clicked()
+    assert labels == []
+
+
+def test_clear_fit_csv_before_any_csv_was_plotted_does_nothing(fm):
+    _module, manager, _csv, _second = fm
+    assert manager.on_clear_csv_fit_clicked() == 0
+
+
+def test_clear_fit_csv_waits_for_a_running_fit(fm):
+    _module, manager, _csv, _second = fm
+    manager.on_plot_csv_clicked()
+    ax = manager._csv_ax
+    total, _comp, _text = _draw_csv_fit(ax)
+    manager._fit_busy = True
+
+    assert manager.on_clear_csv_fit_clicked() == 0
+    assert total in ax.get_lines()
+
+
 # ------------------------------------------- a file that cannot be read
 
 def _catch_warnings(module, monkeypatch):

@@ -181,6 +181,9 @@ class SpecialFunctions(QWidget):
         self.fit_csv_button = QPushButton("Fit CSV", self)
         self.fit_csv_button.setStyleSheet("background-color:#68bcee;")
 
+        self.clear_fit_csv_button = QPushButton("Clear fit CSV", self)
+        self.clear_fit_csv_button.setToolTip("Remove all fit drawings from the CSV plot")
+
         # Abort button
         self.abort_button = QPushButton("Abort", self)
         self.abort_button.setStyleSheet("background-color:#ff6b6b;")
@@ -350,12 +353,16 @@ class SpecialFunctions(QWidget):
         v2.addLayout(deflayout)
         v2.addWidget(self.fit_button)
         v2.addWidget(self.clear_fit_button)
-        # the two CSV buttons stacked on the left, the two programs on the right
+        # the three CSV buttons stacked on the left; on the right the two
+        # programs, spread over the height of the three
         csv_grid = QGridLayout()
         csv_grid.addWidget(self.plot_csv_button, 0, 0)
         csv_grid.addWidget(self.fit_csv_button, 1, 0)
-        csv_grid.addWidget(self.csv_spectcl_radio, 0, 1)
-        csv_grid.addWidget(self.csv_interspec_radio, 1, 1)
+        csv_grid.addWidget(self.clear_fit_csv_button, 2, 0)
+        csv_radios = QVBoxLayout()
+        csv_radios.addWidget(self.csv_spectcl_radio)
+        csv_radios.addWidget(self.csv_interspec_radio)
+        csv_grid.addLayout(csv_radios, 0, 1, 3, 1)
         csv_grid.setColumnStretch(0, 1)
         v2.addLayout(csv_grid)
         v2.addWidget(self.abort_button)
